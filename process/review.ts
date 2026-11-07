@@ -47,7 +47,7 @@ export const review: Step<Done> = {
       ...d.findings.map((f) => `- finding: ${f.what} (${f.where})`),
       ...(d.notes ? ["", d.notes] : []),
     ].join("\n"),
-  async check(r, d) {
+  async check(_r, d, at) {
     if (d.decision === "approve" && d.findings.length)
       return {
         word: "retry",
@@ -60,18 +60,16 @@ export const review: Step<Done> = {
         cause: "invalid_output",
         reason: `a send-back to ${d.decision} with no findings`,
       };
-    const g = await green(r);
+    const g = await green(at);
     if (g.word !== "pass")
       return {
         word: "retry",
         cause: "check_failed",
         reason: `not green at review: ${g.reason}`,
-        ...(g.ran ? { ran: g.ran } : {}),
       };
     return {
       word: words[d.decision],
       reason: d.decision === "approve" ? "approved" : `back to ${d.decision}`,
-      ...(g.ran ? { ran: g.ran } : {}),
     };
   },
 };

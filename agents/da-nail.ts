@@ -13,7 +13,7 @@ import {
   write_file,
   edit_file,
   execute,
-} from "../tools/index.ts";
+} from "../effects/tools/index.ts";
 import { instructions } from "./instructions.ts";
 
 export const daNail = (model: string) =>

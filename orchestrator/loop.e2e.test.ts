@@ -38,15 +38,8 @@ import { daNail } from "../agents/da-nail.ts";
 import { issueReviewer } from "../agents/issue-review.ts";
 import { planReviewer } from "../agents/plan-review.ts";
 import { planner } from "../agents/planner.ts";
-import { accept } from "../process/accept.ts";
-import { hammer } from "../process/hammer.ts";
+import { compose } from "../main.ts";
 import { nail } from "../process/nail.ts";
-import { planReview } from "../process/plan-review.ts";
-import { plan } from "../process/plan.ts";
-import { review } from "../process/review.ts";
-import { open } from "./ledger.ts";
-import { loop } from "./loop.ts";
-import { quePasa } from "./runner.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
 const suite = "node --test test/*.test.mjs";
@@ -358,7 +351,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           modelFor: (name: string) => scripts[name as keyof typeof scripts],
         };
 
-        const ledger = open(join(dir, "ledger.db"));
+        // The factory as main composes it, with every step, on scripted models.
+        const f = compose({ home: dir, agents, models, timeoutMs: 120_000 });
+        const ledger = f.ledger;
         const notes = join(dir, "work");
         ledger.addIssue({
           name: "is",
@@ -374,14 +369,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           image,
           test: suite,
         });
-        const runs = join(dir, "runs");
-        const l = await loop({
-          ledger,
-          steps: [plan, planReview, nail, hammer, review, accept],
-          runner: () => quePasa(agents, models, join(dir, "pi.db")),
-          runs,
-          timeoutMs: 120_000,
-        });
+        const runs = f.runs;
+        const l = await f.loop();
 
         const settled = ["accepted", "raised", "escalated"];
         for (let i = 0; i < 40; i++) {
@@ -595,7 +584,14 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           modelFor: () => nailModel,
         };
 
-        const ledger = open(join(at, "ledger.db"));
+        const f = compose({
+          home: at,
+          agents,
+          models,
+          steps: [nail],
+          timeoutMs: 120_000,
+        });
+        const ledger = f.ledger;
         ledger.addIssue({
           name: "rs",
           path: join(at, "work", "rs.md"),
@@ -615,13 +611,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           },
           "ready",
         );
-        const options = {
-          ledger,
-          steps: [nail],
-          runner: () => quePasa(agents, models, join(at, "pi.db")),
-          runs: join(at, "runs"),
-          timeoutMs: 120_000,
-        };
         const sandbox = () =>
           execFileSync(
             "podman",
@@ -635,7 +624,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             { encoding: "utf8" },
           ).trim();
 
-        const one = await loop(options);
+        const one = await f.loop();
         await one.tick();
         await out;
         await one.close();
@@ -644,7 +633,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         ]);
         const kept = sandbox();
 
-        const two = await loop(options);
+        const two = await f.loop();
         expect(sandbox()).toBe(kept);
         await two.tick();
         await two.settled();

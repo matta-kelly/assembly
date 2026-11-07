@@ -5,9 +5,9 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { causes, type Verdict } from "../process/step.ts";
-import type { State } from "./table.ts";
-import { newSpan, type SpanRef } from "./trace.ts";
+import { causes, type CheckRun, type Verdict } from "../process/step.ts";
+import type { State } from "../process/table.ts";
+import { newSpan, type SpanRef } from "../effects/trace.ts";
 
 /** An item the factory moves, and what its steps need to run it. */
 export interface Item {
@@ -36,6 +36,19 @@ export interface Open {
   name: string;
   n: number;
   step: State;
+}
+
+/** An attempt as the factory reports it. Its word, reason and cause are null while it is open. */
+export interface Attempt {
+  n: number;
+  step: State;
+  started: string;
+  ended: string | null;
+  resumed: number;
+  word: string | null;
+  reason: string | null;
+  cause: string | null;
+  cost: number | null;
 }
 
 const cause = `CHECK (cause IS NULL OR cause IN (${causes.map((c) => `'${c}'`).join(", ")}))`;
@@ -152,6 +165,13 @@ export function open(file: string) {
         .all(...states) as unknown as Item[];
     },
 
+    /** Every item, in the order it was added. */
+    items(): Item[] {
+      return db
+        .prepare("SELECT * FROM items ORDER BY rowid")
+        .all() as unknown as Item[];
+    },
+
     /** The items in `state`, in the order they were added. */
     inState(state: State): Item[] {
       return db
@@ -246,7 +266,7 @@ export function open(file: string) {
     },
 
     /**
-     * Ends an attempt with its check's verdict (and the test run it made), what its model calls used and the agent's
+     * Ends an attempt with its check's verdict, the test run the check made, what its model calls used and the agent's
      * result, and moves the item to `to`, in one transaction with one event.
      */
     end(
@@ -254,8 +274,15 @@ export function open(file: string) {
       n: number,
       v: Verdict,
       to: State,
-      usage: Usage = {},
-      result?: unknown,
+      {
+        usage = {},
+        result,
+        ran,
+      }: {
+        usage?: Usage | undefined;
+        result?: unknown;
+        ran?: CheckRun | undefined;
+      } = {},
     ) {
       tx(() => {
         const { state } = item(name);
@@ -279,20 +306,20 @@ export function open(file: string) {
           name,
           n,
         );
-        if (v.ran)
+        if (ran)
           db.prepare(
             "INSERT INTO check_runs (name, n, step, command, image, tree, input_hash, code, at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           ).run(
             name,
             n,
             state,
-            v.ran.command,
-            v.ran.image,
-            v.ran.tree,
-            v.ran.input,
-            v.ran.code,
-            new Date(v.ran.at).toISOString(),
-            v.ran.ms,
+            ran.command,
+            ran.image,
+            ran.tree,
+            ran.input,
+            ran.code,
+            new Date(ran.at).toISOString(),
+            ran.ms,
           );
         db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
         event(name, n, state, v.word, to, v.reason, v.cause);
@@ -349,6 +376,26 @@ export function open(file: string) {
           "SELECT n, from_state, word, to_state, at, reason, cause FROM events WHERE name = ? ORDER BY id",
         )
         .all(name);
+    },
+
+    /** What every attempt has cost, in dollars. */
+    spent(): number {
+      return (
+        db
+          .prepare("SELECT COALESCE(SUM(cost), 0) AS c FROM attempts")
+          .get() as {
+          c: number;
+        }
+      ).c;
+    },
+
+    /** An item's attempts, in order: what each one did, and what it cost. */
+    attemptsOf(name: string) {
+      return db
+        .prepare(
+          "SELECT n, step, started, ended, resumed, word, reason, cause, cost FROM attempts WHERE name = ? ORDER BY n",
+        )
+        .all(name) as unknown as Attempt[];
     },
 
     attempt(name: string, n: number) {

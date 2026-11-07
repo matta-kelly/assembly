@@ -1,9 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Run } from "./step.ts";
 import { behaviors, judge, nail as tests, testFiles } from "./nail.ts";
+import { fakeWorktree } from "./fake-worktree.ts";
+
+const at = fakeWorktree({ files: ["a.test.ts"] });
 
 const cl = `---
 type: cl
@@ -26,8 +29,6 @@ let r: Run;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tests-step-"));
   writeFileSync(join(dir, "cl.md"), cl);
-  mkdirSync(join(dir, "work"));
-  writeFileSync(join(dir, "work", "a.test.ts"), "");
   r = {
     name: "x",
     kind: "cl",
@@ -71,7 +72,7 @@ describe("testFiles", () => {
 
 describe("the nail step's check, before red", () => {
   it("retries when a behavior has no test", async () => {
-    const v = await tests.check(r, { word: "done", tests: [t(1)] });
+    const v = await tests.check(r, { word: "done", tests: [t(1)] }, at);
     expect(v).toEqual({
       word: "retry",
       cause: "invalid_output",
@@ -80,16 +81,24 @@ describe("the nail step's check, before red", () => {
   });
 
   it("retries when a test names a behavior the cl does not have", async () => {
-    const v = await tests.check(r, { word: "done", tests: [t(1), t(2), t(3)] });
+    const v = await tests.check(
+      r,
+      { word: "done", tests: [t(1), t(2), t(3)] },
+      at,
+    );
     expect(v.word).toBe("retry");
     expect(v.reason).toMatch(/behaviors the cl does not have: 3/);
   });
 
   it("retries when a test file is not in the worktree", async () => {
-    const v = await tests.check(r, {
-      word: "done",
-      tests: [t(1), t(2, "gone.test.ts")],
-    });
+    const v = await tests.check(
+      r,
+      {
+        word: "done",
+        tests: [t(1), t(2, "gone.test.ts")],
+      },
+      at,
+    );
     expect(v.word).toBe("retry");
     expect(v.reason).toMatch(/not in the worktree: gone.test.ts/);
   });

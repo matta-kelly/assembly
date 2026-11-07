@@ -8,6 +8,9 @@ root := justfile_directory()
 # when packages are installed. Only on this machine: CI breaks until que-pasa is published.
 daworks := parent_directory(root)
 
+# lot, which holds daworks and kinetic: the factory reads issue notes and changes repos under it.
+lot := parent_directory(daworks)
+
 # List the commands
 default:
     @just --list
@@ -29,6 +32,20 @@ smoke-model:
     podman build -q -t localhost/assembly-orchestrator -f orchestrator/Containerfile orchestrator >/dev/null
     @just _node true
     rbw-run -f "{{root}}/secrets.toml" -- podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -v "{{daworks}}:{{daworks}}" -w "{{root}}" localhost/assembly-orchestrator node scripts/smoke-model.ts
+
+# Its home is on the host, at the same path, and so is lot, where the issue notes and the repos are. Only `run` gets
+# the model key, from the vault (secrets.toml, through rbw-run).
+# The factory's command line (main.ts), in the orchestrator's image: `just factory status`
+factory +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    home="${XDG_STATE_HOME:-$HOME/.local/state}/assembly"
+    mkdir -p "$home"
+    podman build -q -t localhost/assembly-orchestrator -f orchestrator/Containerfile orchestrator >/dev/null
+    just _node true
+    key=()
+    [ "$1" = run ] && key=(rbw-run -f "{{root}}/secrets.toml" --)
+    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e ASSEMBLY_HOME="$home" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/main.ts" "$@"
 
 # Take que-pasa as it is now: build it in its dev container, then copy it in again. npm keeps the copy it has while
 # que-pasa's version is the same, so the old copy goes first.

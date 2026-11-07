@@ -11,8 +11,10 @@
 
 import { defineTool, type Runtime } from "que-pasa/define";
 import { z } from "zod";
-import type { Run } from "../process/step.ts";
-import { exec, log, type Ran } from "../orchestrator/start.ts";
+import type { Run } from "../../process/step.ts";
+import { log } from "../runs.ts";
+import { exec } from "../sandbox.ts";
+import type { Ran } from "../sh.ts";
 
 /** What a run of the inner loop gives its tools: the attempt. JSON, so que-pasa keeps it with the run. */
 export type Context = {

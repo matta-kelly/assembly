@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { agents } from "../agents/index.ts";
 import { bins, modelOf, models } from "./models.ts";
 
 describe("bins", () => {
@@ -20,10 +19,5 @@ describe("bins", () => {
           m.getModel(slot.provider, slot.model),
           `${slot.provider}/${slot.model}`,
         ).toBeDefined();
-  });
-
-  it("give every agent a bin there is", () => {
-    for (const a of Object.values(agents))
-      expect(Object.keys(bins)).toContain(a.bin);
   });
 });

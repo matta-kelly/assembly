@@ -6,9 +6,8 @@
  */
 
 import { z } from "zod";
-import { changed, runTests } from "../orchestrator/start.ts";
 import { testFiles } from "./nail.ts";
-import type { Run, Step, Verdict } from "./step.ts";
+import type { Step, Verdict, Worktree } from "./step.ts";
 
 const done = z.object({
   word: z.literal("done"),
@@ -24,14 +23,13 @@ const done = z.object({
 type Done = z.infer<typeof done>;
 
 /** Green: the cl's test command passes. */
-export async function green(r: Run): Promise<Verdict> {
-  const { code, out, check } = await runTests(r);
-  if (code === 0) return { word: "pass", reason: "green", ran: check };
+export async function green(at: Worktree): Promise<Verdict> {
+  const { code, out } = await at.test();
+  if (code === 0) return { word: "pass", reason: "green" };
   return {
     word: "retry",
     cause: "check_failed",
     reason: `red: exit ${code}: ${out.slice(-400)}`,
-    ran: check,
   };
 }
 
@@ -45,7 +43,7 @@ export const hammer: Step<Done> = {
       ...d.changed.map((f) => `- \`${f}\``),
       ...(d.notes ? ["", d.notes] : []),
     ].join("\n"),
-  async check(r) {
+  async check(r, _d, at) {
     const tests = testFiles(r.path);
     if (!tests.length)
       return {
@@ -53,13 +51,13 @@ export const hammer: Step<Done> = {
         cause: "contract_invalid",
         reason: "the cl's Tests section names no test file",
       };
-    const touched = await changed(r, tests);
+    const touched = await at.changed(tests);
     if (touched.length)
       return {
         word: "retry",
         cause: "scope_exceeds_change",
         reason: `a test was changed: ${touched.join(", ")}`,
       };
-    return green(r);
+    return green(at);
   },
 };

@@ -1,13 +1,14 @@
 /**
  * A step: one transition of an item, such as a cl from ready to red, or an issue from open to planned. It names the agent that does the work, the shape of the result
  * the agent hands back, the cl section it fills, and the check that reads the result and the worktree and picks the
- * word. The orchestrator runs every step the same way and knows nothing about any one of them. A check runs no
- * command itself: git and podman go through orchestrator/start.ts.
+ * word. The orchestrator runs every step the same way and knows nothing about any one of them. A check never touches
+ * the worktree itself: it asks the one it is given (Worktree), and the loop answers from the effects. Its own notes it
+ * reads and writes through effects/notes.ts.
  */
 
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import type { State, Word } from "../orchestrator/table.ts";
+import type { State, Word } from "./table.ts";
 
 /**
  * Why an attempt failed, from a fixed list, so failures can be counted by cause: the master plan's reason list. A
@@ -52,15 +53,30 @@ export interface CheckRun {
   ms: number;
 }
 
+/** A test run's exit code and output, and the run as the ledger records it. */
+export interface TestRun {
+  code: number;
+  out: string;
+  check: CheckRun;
+}
+
 /**
- * A check's word, and why: the reason in words, a failure's cause from the list, and the test run it made, if any. A
- * check runs tests at most once. The ledger records all of it with the attempt.
+ * What a check may ask of the attempt's worktree. The loop gives one per attempt, and records the test run it made.
+ * - test: runs the item's test command, once: asked again, it gives back the same run
+ * - changed: which of `files` differ from the item's branch, committed or not
+ * - exists: which of `files` are in the worktree
  */
+export interface Worktree {
+  test(): Promise<TestRun>;
+  changed(files: string[]): Promise<string[]>;
+  exists(files: string[]): string[];
+}
+
+/** A check's word, and why: the reason in words, and a failure's cause from the list. */
 export interface Verdict {
   word: Word;
   reason: string;
   cause?: Cause;
-  ran?: CheckRun;
 }
 
 /** The raise shape, the same for every step: the agent could not do its job from the cl ([[cl#Raise]]). */
@@ -96,7 +112,7 @@ export interface Step<D extends { word: "done" }> {
   done: z.ZodType<D>; // the done shape. The result is this or the raise shape
   section: string; // the note's section the orchestrator writes from a done result, and the step's name in a commit
   render(d: D): string; // that section's text
-  check(run: Run, d: D): Promise<Verdict>;
+  check(run: Run, d: D, at: Worktree): Promise<Verdict>;
   /** What the agent reads: the item's note when left out. A review reads more, as the issue with its plan. */
   input?(run: Run, ledger: Ledger): string;
   /** What a done result writes, once its check passes or sends it back: its section of the item's note when left out. */

@@ -16,24 +16,27 @@ The software factory: a deployment of [[que-pasa]] that moves an issue through i
 ---
 ## The machine
 
-The path: an issue and its cls move from state to state on words (pass, retry, raise, to-tests, to-code, to-plan). `orchestrator/table.ts` holds it as data
-- an issue: open → planned (the planner cuts it into cls) → building (plan-review approves) → built (each cl merged into the issue's branch, in plan order) → accepted (issue-review, and the full suite green). A review can send it back to the planner, and so can a cl that raises
-- a cl: waiting (for the cl before it) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → merged. A review can send it back to its tests or its code
-- an item is escalated, for Matt, on its third failed attempt at one state, on its third send-back, or when a move of the orchestrator's own fails
+Four layers, and `main.ts` puts them together. The engine runs the process and calls the effects. The process reaches the effects in two places only, its notes and the tools each agent names. A check asks the engine for what it needs, and the runner is the engine's `Runner`.
+- process, what the work is: `process/` and `agents/`. It decides, and touches only its own notes
+	- the path: an issue and its cls move from state to state on words (pass, retry, raise, to-tests, to-code, to-plan). `process/table.ts` holds it as data
+		- an issue: open → planned (the planner cuts it into cls) → building (plan-review approves) → built (each cl merged into the issue's branch, in plan order) → accepted (issue-review, and the full suite green). A review can send it back to the planner, and so can a cl that raises
+		- a cl: waiting (for the cl before it) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → merged. A review can send it back to its tests or its code
+		- an item is escalated, for Matt, on its third failed attempt at one state, on its third send-back, or when a move of the orchestrator's own fails
+	- a step, one per state: its agent, its result's shape, its check (`process/*.ts`, listed in `process/index.ts`)
+		- plan (the plan lints), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
+		- a check reads the result and the attempt's worktree, which it asks through a port (`Worktree`: a test run, the changed files, the files there), and gives the word
+	- the agents (`agents/`): each one's instructions are a note beside it, of assembly's type instructions, and each names a bin (plan, implement, review), never a model
+- engine, what moves it: `orchestrator/`
+	- the state: `ledger.ts`, SQLite, the only state the orchestrator holds: where each item stands, and every move, with its cause
+	- the tick: `loop.ts`. It starts attempts, up to `concurrent` at once, the open ones first. It answers each check's worktree, and records its test run
+	- the orchestrator's own moves: `advance.ts` (an approved plan's cls, each cl in turn, the merges)
+- effects, how it touches the world: `effects/`, each behind a small seam
+	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` the container · `tests.ts` a test run, in a container of its own · `runs.ts` the run folders · `sh.ts` the commands under them
+	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools/` what an agent may touch (`ls`, `read_file`, `write_file`, `edit_file`, `execute`, after LangChain's Deep Agents; the reviewers only read and run), each one exec'd into the sandbox
+	- `notes.ts` the issue and cl notes · `trace.ts` the record of each attempt
+- wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The factory's command line (`just factory`) runs on it, and so does the e2e
 
-What moves them, each part at the point it acts:
-- the state: where each item stands, and every move, with its cause: `orchestrator/ledger.ts`, SQLite, the only state the orchestrator holds
-- the tick: starts attempts, up to `concurrent` at once, the open ones first: `orchestrator/loop.ts`
-- a step, one per state: its agent, its result's shape, its check: `process/*.ts`
-	- plan (the plan lints), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
-	- the agent and what it may touch: `agents/` (each one's instructions are a note beside it, of assembly's type instructions) and `tools/` (`ls`, `read_file`, `write_file`, `edit_file`, `execute`, after LangChain's Deep Agents; the reviewers only read and run)
-	- the model it runs on: `orchestrator/models.ts`, the bins after loke's: an agent names its kind of work (plan, implement, review), and its bin names the model, a default and a fallback for a retry
-	- its sandbox, worktree and commits: `orchestrator/start.ts`
-	- its run: `orchestrator/runner.ts`, on que-pasa's durable runtime
-- the orchestrator's own moves: an approved plan's cls, each cl in turn, the merges: `orchestrator/advance.ts`
-- the record of each attempt: `orchestrator/trace.ts`
-
-The chart of the path and its words is drawn with pele, from `orchestrator/table.ts` and `advance.ts`.
+The chart of the path and its words is drawn with pele, from `process/table.ts` and `orchestrator/advance.ts`.
 
 ## An attempt
 
@@ -72,13 +75,14 @@ Across a stop:
 ## Built
 
 - the whole machine, an issue from open to accepted, proven end to end on scripted models, and an attempt taken up after a stop (`just e2e`)
+- the factory's command line, `just factory`: `add` an issue by its note, `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
 - the gate: `just check` lints every note against its type, then checks the code: types, eslint, prettier, and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
 - only on this machine: the pipeline cannot install que-pasa until it is published
 
 ## Not built
 
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
-- a command to add an issue and run the loop
+- the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default
 - the repo's dependencies in the sandbox: it has no network, so a repo that needs packages needs an image that holds them ([[warm-image]])
 - landing an accepted issue's branch: Matt lands it

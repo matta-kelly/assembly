@@ -5,11 +5,8 @@
  * here again, and da-nail reads the findings in the cl's Review section.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { z } from "zod";
-import { items, section } from "../orchestrator/notes.ts";
-import { runTests } from "../orchestrator/start.ts";
+import { items, section } from "../effects/notes.ts";
 import type { Step, Verdict } from "./step.ts";
 
 const done = z.object({
@@ -91,7 +88,7 @@ export const nail: Step<Done> = {
       ),
       ...(d.notes ? ["", d.notes] : []),
     ].join("\n"),
-  async check(r, d) {
+  async check(r, d, at) {
     const want = behaviors(r.path).length;
     const have = new Set(d.tests.map((t) => t.behavior));
     for (let b = 1; b <= want; b++) {
@@ -109,14 +106,16 @@ export const nail: Step<Done> = {
         cause: "invalid_output",
         reason: `tests name behaviors the cl does not have: ${extra.join(", ")}`,
       };
-    const missing = d.tests.filter((t) => !existsSync(join(r.work, t.file)));
+    const files = [...new Set(d.tests.map((t) => t.file))];
+    const there = new Set(at.exists(files));
+    const missing = files.filter((f) => !there.has(f));
     if (missing.length)
       return {
         word: "retry",
         cause: "invalid_output",
-        reason: `test files not in the worktree: ${missing.map((t) => t.file).join(", ")}`,
+        reason: `test files not in the worktree: ${missing.join(", ")}`,
       };
-    const { code, out, check } = await runTests(r);
-    return { ...judge(code, out), ran: check };
+    const { code, out } = await at.test();
+    return judge(code, out);
   },
 };

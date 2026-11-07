@@ -1,10 +1,11 @@
 /**
- * The real runner: que-pasa's durable runtime, with the factory's agents and the host's models. One runtime per
+ * The real runner: que-pasa's durable runtime, with the agents and models it is given (main.ts gives the factory's
+ * agents, on their bins, and the host's models). One runtime per
  * orchestrator process, on pi's own SQLite file beside the ledger, so a run outlives the process that started it.
  *
  * Each attempt is one run, its id the attempt's (`<item>/<n>`), so the same attempt taken up again is the same run: it
- * goes on from where it stopped, with the model and context it started with. The bin picks the run's model: its
- * default, and its fallback on a retry. The run's context is the attempt, so its tools exec into that attempt's
+ * goes on from where it stopped, with the model and context it started with. `modelFor` picks the run's model: on the
+ * bins, their default, and their fallback on a retry. The run's context is the attempt, so its tools exec into that attempt's
  * sandbox. Its usage is summed for the ledger. que-pasa traces the run itself, with its messages, under the attempt's
  * span (trace.ts).
  */
@@ -14,11 +15,9 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import type { Agent } from "que-pasa/define";
 import { openRuntime, type RunUsage } from "que-pasa/loop";
 import type { z } from "zod";
-import type { Context } from "../tools/index.ts";
-import type { Usage } from "./ledger.ts";
-import { RunFailed, type Runner } from "./loop.ts";
-import { agents } from "../agents/index.ts";
-import { modelOf } from "./models.ts";
+import type { Context } from "./tools/index.ts";
+import type { Usage } from "../orchestrator/ledger.ts";
+import { RunFailed, type Runner } from "../orchestrator/loop.ts";
 
 /** The tokens and cost of a run, over every model it called. */
 export function total(usage: RunUsage): Usage {
@@ -38,20 +37,6 @@ export function total(usage: RunUsage): Usage {
 export interface Agents {
   make: Record<string, (model: string) => Agent<z.ZodObject, Context>>;
   modelFor: (agent: string, retry: boolean) => string;
-}
-
-/** The factory's agents on their bins: each attempt runs on its bin's default, and a retry on its fallback. */
-export function onBins(): Agents {
-  return {
-    make: Object.fromEntries(
-      Object.entries(agents).map(([name, a]) => [name, a.make]),
-    ),
-    modelFor: (name, retry) => {
-      const a = agents[name as keyof typeof agents];
-      if (!a) throw new Error(`no agent ${name}`);
-      return modelOf(a.bin, retry);
-    },
-  };
 }
 
 /**

@@ -1,25 +1,32 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Step, Verdict } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
-import { writeSection } from "./notes.ts";
-import { close, commit, open } from "./start.ts";
+import { writeSection } from "../effects/notes.ts";
+import { commit, worktree } from "../effects/git.ts";
+import { close, open } from "../effects/sandbox.ts";
+import { runTests } from "../effects/tests.ts";
+import { ran } from "../process/fake-worktree.ts";
 
-// Podman and git are faked: open, close, commit, merge, head and imageOf are the loop's only ways out. runOf is the
-// real one.
-vi.mock("./start.ts", async (actual) => ({
-  ...(await actual<typeof import("./start.ts")>()),
-  open: vi.fn(),
-  close: vi.fn(),
+// Podman and git are faked: git, the sandbox and the test runs are the loop's only ways out. runOf is the real one.
+vi.mock("../effects/git.ts", () => ({
+  worktree: vi.fn(),
   commit: vi.fn(),
   merge: vi.fn(),
   head: vi.fn(),
+  changed: vi.fn(),
+}));
+vi.mock("../effects/sandbox.ts", () => ({
+  open: vi.fn(),
+  close: vi.fn(),
   imageOf: vi.fn(),
 }));
+vi.mock("../effects/tests.ts", () => ({ runTests: vi.fn() }));
 
 const cl = "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
 
@@ -136,6 +143,55 @@ describe("an attempt", () => {
       tokens: 120,
       cost: 0.002,
     });
+  });
+
+  it("opens the attempt's worktree before its sandbox, read-only for a step that must not edit", async () => {
+    await once(
+      make(gives(done("x")), { steps: [{ ...step, worktree: "ro" }] }),
+    );
+    expect(vi.mocked(worktree).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(open).mock.invocationCallOrder[0] as number,
+    );
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ name: "c" }), {
+      readOnly: true,
+    });
+  });
+
+  it("runs the tests once for a check that asks twice, and records the run with the attempt", async () => {
+    vi.mocked(runTests).mockResolvedValue(ran(1, "AssertionError"));
+    const asks: Step<{ word: "done"; text: string }> = {
+      ...step,
+      check: async (_r, _d, at) => {
+        await at.test();
+        const t = await at.test();
+        return { word: "retry", reason: `exit ${t.code}` };
+      },
+    };
+    await once(make(gives(done("x")), { steps: [asks] }));
+    expect(runTests).toHaveBeenCalledOnce();
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    expect(db.prepare("SELECT name, n, code FROM check_runs").all()).toEqual([
+      { name: "c", n: 1, code: 1 },
+    ]);
+    db.close();
+  });
+
+  it("records the test run of a check that failed after it", async () => {
+    vi.mocked(runTests).mockResolvedValue(ran(0, "ok"));
+    const throws: Step<{ word: "done"; text: string }> = {
+      ...step,
+      check: async (_r, _d, at) => {
+        await at.test();
+        throw new Error("the check broke");
+      },
+    };
+    await once(make(gives(done("x")), { steps: [throws] }));
+    expect(last()).toMatchObject({ word: "retry" });
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    expect(db.prepare("SELECT code FROM check_runs").all()).toEqual([
+      { code: 0 },
+    ]);
+    db.close();
   });
 
   it("keeps the cl in its state when the check retries, and writes nothing", async () => {
@@ -290,6 +346,40 @@ describe("the tick", () => {
     expect(ledger.open()).toEqual([{ name: "c", n: 1, step: "ready" }]);
     expect(close).not.toHaveBeenCalled();
     expect(await (await make(gives(done("x")))).tick()).toBeUndefined();
+  });
+
+  it("stops a check that is running when it closes, and leaves its attempt open, unwritten", async () => {
+    let checking = () => {};
+    const inCheck = new Promise<void>((r) => (checking = r));
+    const hangs: Step<{ word: "done"; text: string }> = {
+      ...step,
+      check: () => {
+        checking();
+        return new Promise<Verdict>(() => undefined);
+      },
+    };
+    const l = await make(gives(done("x")), { steps: [hangs] });
+    await l.tick();
+    await inCheck;
+    await l.close();
+    await l.settled();
+    expect(ledger.open()).toEqual([{ name: "c", n: 1, step: "ready" }]);
+    expect(commit).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(doc()).toBe(cl);
+  });
+
+  it("answers a check that a path outside the worktree is not in it", async () => {
+    let seen: string[] = [];
+    const asks: Step<{ word: "done"; text: string }> = {
+      ...step,
+      check: async (_r, _d, at) => {
+        seen = at.exists(["../log", "/etc/passwd", "cl.md"]);
+        return verdict;
+      },
+    };
+    await once(make(gives(done("x")), { steps: [asks] }));
+    expect(seen).toEqual([]);
   });
 
   it("ends a taken-up attempt whose sandbox does not open again as a retry, as a new one", async () => {

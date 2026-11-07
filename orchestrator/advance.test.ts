@@ -12,10 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Plan } from "../process/plan.ts";
 import { advance } from "./advance.ts";
 import { type Ledger, open } from "./ledger.ts";
-import { section } from "./notes.ts";
-import { merge } from "./start.ts";
+import { section } from "../effects/notes.ts";
+import { merge } from "../effects/git.ts";
 
-vi.mock("./start.ts", () => ({
+vi.mock("../effects/git.ts", () => ({
   merge: vi.fn((_repo: string, cl: string) =>
     Promise.resolve([`src/${cl.replace("is-", "")}.mjs`, "test/x.test.mjs"]),
   ),
@@ -61,8 +61,7 @@ beforeEach(() => {
     ledger.begin("is"),
     { word: "pass", reason: "lints" },
     "planned",
-    {},
-    plan,
+    { result: plan },
   );
   ledger.end(
     "is",
@@ -163,8 +162,7 @@ describe("advance", () => {
       ledger.begin("is"),
       { word: "pass", reason: "lints" },
       "planned",
-      {},
-      { ...plan, cuts: [cut("seam", [1, 2])] },
+      { result: { ...plan, cuts: [cut("seam", [1, 2])] } },
     );
     ledger.end(
       "is",

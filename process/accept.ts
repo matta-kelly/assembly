@@ -5,8 +5,7 @@
  */
 
 import { z } from "zod";
-import { read, writeSection } from "../orchestrator/notes.ts";
-import { runTests } from "../orchestrator/start.ts";
+import { read, writeSection } from "../effects/notes.ts";
 import { planPath } from "./plan.ts";
 import type { Step } from "./step.ts";
 
@@ -75,7 +74,7 @@ export const accept: Step<Done> = {
   write(r, d) {
     writeSection(r.path, "Acceptance", render(d));
   },
-  async check(r, d) {
+  async check(_r, d, at) {
     if (d.decision === "accept" && d.findings.length)
       return {
         word: "retry",
@@ -88,24 +87,21 @@ export const accept: Step<Done> = {
         cause: "invalid_output",
         reason: "a send-back with no findings",
       };
-    const suite = await runTests(r);
+    const suite = await at.test();
     if (suite.code !== 0)
       return {
         word: "to-plan",
         cause: "check_failed",
         reason: `the full suite is red on the issue's branch: exit ${suite.code}: ${suite.out.slice(-400)}`,
-        ran: suite.check,
       };
     return d.decision === "accept"
       ? {
           word: "pass",
           reason: "accepted: the full suite is green, and the issue is met",
-          ran: suite.check,
         }
       : {
           word: "to-plan",
           reason: "back to the planner",
-          ran: suite.check,
         };
   },
 };

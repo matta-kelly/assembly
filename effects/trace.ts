@@ -51,8 +51,8 @@ import {
   ATTR_CONTAINER_IMAGE_NAME,
 } from "@opentelemetry/semantic-conventions/incubating";
 import type { CheckRun, Run, Verdict } from "../process/step.ts";
-import type { Usage } from "./ledger.ts";
-import type { State } from "./table.ts";
+import type { Usage } from "../orchestrator/ledger.ts";
+import type { State } from "../process/table.ts";
 
 export const schemaUrl = "https://opentelemetry.io/schemas/1.43.0";
 
@@ -82,7 +82,11 @@ const ids: IdGenerator = {
 
 /** Writes each span to its attempt's file. `folderOf` finds the attempt's folder by its trace id. */
 class AttemptFiles implements SpanExporter {
-  constructor(private folderOf: (traceId: string) => string | undefined) {}
+  private folderOf: (traceId: string) => string | undefined;
+
+  constructor(folderOf: (traceId: string) => string | undefined) {
+    this.folderOf = folderOf;
+  }
 
   export(spans: ReadableSpan[], done: (r: ExportResult) => void) {
     try {

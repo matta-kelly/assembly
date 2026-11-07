@@ -54,14 +54,10 @@ describe("ledger", () => {
     const l = open(file);
     l.addIssue(issue);
     const n = l.begin("is");
-    l.end(
-      "is",
-      n,
-      { word: "pass", reason: "the plan lints" },
-      "planned",
-      { tokens: 9, input: 7, output: 2, cached: 5, cost: 0.01 },
-      { word: "done", cuts: [] },
-    );
+    l.end("is", n, { word: "pass", reason: "the plan lints" }, "planned", {
+      usage: { tokens: 9, input: 7, output: 2, cached: 5, cost: 0.01 },
+      result: { word: "done", cuts: [] },
+    });
     expect(l.attempt("is", n)).toMatchObject({
       tokens: 9,
       tokens_in: 7,
@@ -118,12 +114,9 @@ describe("ledger", () => {
       at: Date.parse("2026-11-07T00:00:00Z"),
       ms: 1200,
     };
-    l.end(
-      "is",
-      l.begin("is"),
-      { word: "pass", reason: "green", ran: check },
-      "planned",
-    );
+    l.end("is", l.begin("is"), { word: "pass", reason: "green" }, "planned", {
+      ran: check,
+    });
     const db = new DatabaseSync(file);
     expect(db.prepare("SELECT * FROM check_runs").all()).toEqual([
       expect.objectContaining({
@@ -143,30 +136,15 @@ describe("ledger", () => {
   it("gives the last passed result of a step, and none for a step that never passed", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.end(
-      "is",
-      l.begin("is"),
-      { word: "pass", reason: "r" },
-      "planned",
-      {},
-      { v: 1 },
-    );
-    l.end(
-      "is",
-      l.begin("is"),
-      { word: "to-plan", reason: "r" },
-      "open",
-      {},
-      { v: 2 },
-    );
-    l.end(
-      "is",
-      l.begin("is"),
-      { word: "pass", reason: "r" },
-      "planned",
-      {},
-      { v: 3 },
-    );
+    l.end("is", l.begin("is"), { word: "pass", reason: "r" }, "planned", {
+      result: { v: 1 },
+    });
+    l.end("is", l.begin("is"), { word: "to-plan", reason: "r" }, "open", {
+      result: { v: 2 },
+    });
+    l.end("is", l.begin("is"), { word: "pass", reason: "r" }, "planned", {
+      result: { v: 3 },
+    });
     expect(l.passed("is", "open")).toEqual({ v: 3 });
     expect(l.passed("is", "built")).toBeUndefined();
   });

@@ -1,6 +1,6 @@
 /**
  * The loop: it moves issues and their cls through their steps. The agents' loops run here, in the orchestrator, and
- * hold the key; each attempt's sandbox is a container its tools exec into (start.ts).
+ * hold the key; each attempt's sandbox is a container its tools exec into (effects/sandbox.ts).
  *
  * An attempt lives until it ends, whatever happens to the process that runs it. Its run is que-pasa's, durable, with
  * the attempt's id; its sandbox and worktree are its own, and a container outlives the orchestrator. So a stopped
@@ -13,33 +13,47 @@
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
  *   then a new one for each item waiting in a state that has a step. It does not wait for one: the run goes on as a
  *   task, under a time limit, and settles the attempt when it ends. Its result is checked against the step's shape,
- *   the step's check picks the word, the note is written, and the ledger moves the item.
+ *   the step's check picks the word from the result and the attempt's worktree, which the loop answers for it
+ *   (a test run, the changed files), the note is written, and the ledger moves the item.
  * Closing the loop closes the runner and ends nothing: its attempts stay open for the next process.
  *
- * Each attempt is one trace (trace.ts): its span's ids are made when it begins, its run starts under that span, and
+ * Each attempt is one trace (effects/trace.ts): its span's ids are made when it begins, its run starts under that span, and
  * the span is written when the attempt ends.
  */
 
 import { z } from "zod";
+import { existsSync } from "node:fs";
+import { isAbsolute, join, normalize } from "node:path";
+import { changed, commit, head, worktree } from "../effects/git.ts";
+import { read, writeSection } from "../effects/notes.ts";
+import { log, runOf } from "../effects/runs.ts";
+import { close, imageOf, open } from "../effects/sandbox.ts";
+import { runTests } from "../effects/tests.ts";
 import {
+  checkSpan,
+  endAttempt,
+  openTracing,
+  within,
+} from "../effects/trace.ts";
+import {
+  type CheckRun,
   type Raise,
   resultOf,
   type Run,
   type Step,
+  type TestRun,
   type Verdict,
+  type Worktree,
 } from "../process/step.ts";
+import { next, sendBack, type State, type Word } from "../process/table.ts";
 import { advance } from "./advance.ts";
 import type { Ledger, Usage } from "./ledger.ts";
-import { read, writeSection } from "./notes.ts";
-import { close, commit, head, imageOf, log, open, runOf } from "./start.ts";
-import { checkSpan, endAttempt, openTracing, within } from "./trace.ts";
-import { next, sendBack, type State, type Word } from "./table.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
 type AnyStep = Step<{ word: "done" }>;
 
 /**
- * Runs the agents. orchestrator/runner.ts is the real one: que-pasa's durable runtime, with the agents and models set.
+ * Runs the agents. effects/runner.ts is the real one: que-pasa's durable runtime, with the agents and models set.
  * - run: one step's agent, by its name, on its input, for one attempt, gives back its output and what its model calls
  *   used. The attempt is the run: run again for an attempt it has, it goes on with that run. `retry` says the attempt
  *   is not the state's first, so a bin's fallback model takes it. It stops when `signal` aborts. A run that failed on
@@ -57,11 +71,11 @@ export interface Runner {
 
 /** A run that ended without a result of its own doing: no submit, or the model's failure. Its usage is what it spent. */
 export class RunFailed extends Error {
-  constructor(
-    message: string,
-    readonly usage?: Usage,
-  ) {
+  readonly usage: Usage | undefined;
+
+  constructor(message: string, usage?: Usage) {
     super(message);
+    this.usage = usage;
   }
 }
 
@@ -76,6 +90,35 @@ export interface Loop {
 
 const raiseText = (r: Raise) =>
   `- from: ${r.from}\n- missing: ${r.missing}\n- evidence: ${r.evidence}`;
+
+/**
+ * The attempt's worktree, as its step's check asks it: the test run is made once, and kept for the ledger and the
+ * trace.
+ */
+function worktreeOf(
+  r: Run,
+  signal: AbortSignal,
+): Worktree & { ran(): CheckRun | undefined } {
+  let tests: Promise<TestRun> | undefined;
+  let ran: CheckRun | undefined;
+  return {
+    test: () =>
+      (tests ??= runTests(r, signal).then((t) => {
+        ran = t.check;
+        return t;
+      })),
+    changed: (files) => changed(r, files),
+    // A path that leaves the worktree is never in it.
+    exists: (files) =>
+      files.filter(
+        (f) =>
+          !isAbsolute(f) &&
+          !normalize(f).startsWith("..") &&
+          existsSync(join(r.work, f)),
+      ),
+    ran: () => ran,
+  };
+}
 
 /** Rejects when `signal` aborts, so a run that does not stop on its own still ends its attempt. */
 function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -104,6 +147,8 @@ export async function loop({
   const running = new Map<string, Promise<void>>();
   const timers = new Set<NodeJS.Timeout>();
   let closing = false;
+  // Closing stops the checks running now, and never the runs: que-pasa keeps those for the next process.
+  const closed = new AbortController();
   // The limits' counts, with the attempt about to end in them: it is open, so attempts counts it, and a send-back
   // is not in the events until it ends.
   const counts = (name: string, state: State, word: Word) => ({
@@ -114,8 +159,11 @@ export async function loop({
     r: Run,
     state: State,
     v: Verdict,
-    usage?: Usage,
-    result?: unknown,
+    o: {
+      usage?: Usage | undefined;
+      result?: unknown;
+      ran?: CheckRun | undefined;
+    } = {},
   ) => {
     // A word the table has no move for is the factory's fault, not the item's: it is escalated, with why, and never
     // left open to run again.
@@ -127,7 +175,7 @@ export async function loop({
       to = "escalated";
       verdict = { ...v, reason: `${(e as Error).message}: ${v.reason}` };
     }
-    ledger.end(r.name, r.n, verdict, to, usage, result);
+    ledger.end(r.name, r.n, verdict, to, o);
   };
 
   /**
@@ -174,6 +222,7 @@ export async function loop({
     signal: AbortSignal,
   ) {
     let v: Verdict;
+    let ran: CheckRun | undefined;
     let usage: Usage | undefined;
     let result: unknown;
     let error: string | undefined;
@@ -212,8 +261,15 @@ export async function loop({
         const done = parsed.data.result;
         result = done;
         // The check is in the attempt's time too: a test run that hangs ends the attempt, and its own limit stops it.
-        v = await abortable(step.check(r, done), signal);
-        if (v.ran) checkSpan(span, state, v.ran);
+        const checking = AbortSignal.any([signal, closed.signal]);
+        const at = worktreeOf(r, checking);
+        try {
+          v = await abortable(step.check(r, done, at), checking);
+        } finally {
+          // A test run is recorded whether its check gave a word or failed after it.
+          ran = at.ran();
+          if (ran) checkSpan(span, state, ran);
+        }
         // A pass, or a review's send-back, is the step's done work: it is written, and a step that edits the
         // worktree has its attempt committed, which becomes the item's branch.
         if (v.word !== "retry") {
@@ -249,7 +305,7 @@ export async function loop({
       ...(usage ? { usage } : {}),
       ...(error !== undefined ? { error } : {}),
     });
-    end(r, state, v, usage, result);
+    end(r, state, v, { usage, result, ran });
     await close(r);
   }
 
@@ -269,7 +325,8 @@ export async function loop({
   /** Runs an attempt as a task: its sandbox, then its run under the time limit, which each process gives afresh. */
   async function launch(r: Run, state: State, step: AnyStep) {
     try {
-      await open(r, step);
+      await worktree(r);
+      await open(r, { readOnly: step.worktree === "ro" });
     } catch (e) {
       await close(r);
       end(r, state, {
@@ -330,7 +387,9 @@ export async function loop({
     const step = stepAt(a.step);
     if (!step) continue;
     try {
-      await open(runOf(ledger.item(a.name), a.n, runs), step);
+      const r = runOf(ledger.item(a.name), a.n, runs);
+      await worktree(r);
+      await open(r, { readOnly: step.worktree === "ro" });
     } catch {
       // taken up, and ended, at the first tick
     }
@@ -351,6 +410,7 @@ export async function loop({
   /** Stops the loop and closes the runner. It ends no attempt: each one stays open, with its sandbox and its run. */
   async function stop() {
     closing = true;
+    closed.abort(new Error("the loop closed"));
     for (const t of timers) clearTimeout(t);
     timers.clear();
     await runner.close();

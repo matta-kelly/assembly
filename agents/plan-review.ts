@@ -6,7 +6,7 @@ import { defineAgent } from "que-pasa/define";
 import { z } from "zod";
 import { planReview } from "../process/plan-review.ts";
 import { resultOf } from "../process/step.ts";
-import { execute, ls, read_file } from "../tools/index.ts";
+import { execute, ls, read_file } from "../effects/tools/index.ts";
 import { instructions } from "./instructions.ts";
 
 export const planReviewer = (model: string) =>

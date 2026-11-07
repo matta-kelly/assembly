@@ -10,10 +10,11 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import { items, read } from "../orchestrator/notes.ts";
-import type { Run, Step, Verdict } from "./step.ts";
+import { items, read } from "../effects/notes.ts";
+import type { Run, Step, Verdict, Worktree } from "./step.ts";
 
-const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+/** A name the factory can use in its branches and its containers: kebab-case. */
+export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 export const cut = z.object({
   name: z
@@ -119,7 +120,11 @@ const inside = (f: string) => !isAbsolute(f) && !normalize(f).startsWith("..");
 /** Plan lint: what can be decided about a plan without judgment. */
 export function lint(
   p: Plan,
-  o: { checks: number; work: string; taken: (cut: string) => boolean },
+  o: {
+    checks: number;
+    exists: Worktree["exists"];
+    taken: (cut: string) => boolean;
+  },
 ): Verdict {
   const names = p.cuts.map((c) => c.name);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
@@ -146,7 +151,8 @@ export function lint(
         cause: "contract_invalid",
         reason: `cut ${c.name}: files outside the repo: ${outside.join(", ")}`,
       };
-    const missing = c.files.read.filter((f) => !existsSync(join(o.work, f)));
+    const there = new Set(o.exists(c.files.read));
+    const missing = c.files.read.filter((f) => !there.has(f));
     if (missing.length)
       return {
         word: "retry",
@@ -209,10 +215,10 @@ export const plan: Step<Plan> = {
   input,
   // The plan is the attempt's result, in the ledger. Its notes are written once the plan review approves it.
   write: () => {},
-  async check(r, d) {
+  async check(r, d, at) {
     return lint(d, {
       checks: items(r.path, "Check").length,
-      work: r.work,
+      exists: (f) => at.exists(f),
       taken: (c) => existsSync(clPath(r.path, r.issue, c)),
     });
   },

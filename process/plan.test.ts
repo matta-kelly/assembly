@@ -1,16 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { lint, type Plan, planText } from "./plan.ts";
-
-let work: string;
-beforeEach(() => {
-  work = mkdtempSync(join(tmpdir(), "plan-"));
-  mkdirSync(join(work, "src"));
-  writeFileSync(join(work, "src", "a.ts"), "");
-});
-afterEach(() => rmSync(work, { recursive: true, force: true }));
+import { fakeWorktree } from "./fake-worktree.ts";
 
 const cut = (name: string, traces: number[], read = ["src/a.ts"]) => ({
   name,
@@ -29,9 +19,7 @@ const plan = (...cuts: ReturnType<typeof cut>[]): Plan => ({
 });
 const o = {
   checks: 2,
-  get work() {
-    return work;
-  },
+  exists: fakeWorktree({ files: ["src/a.ts"] }).exists,
   taken: () => false,
 };
 

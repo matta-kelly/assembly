@@ -8,8 +8,8 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { defineAgent } from "que-pasa/define";
 import { openRuntime } from "que-pasa/loop";
 import { z } from "zod";
-import { bins, models } from "../orchestrator/models.ts";
-import { total } from "../orchestrator/runner.ts";
+import { bins, models } from "../effects/models.ts";
+import { total } from "../effects/runner.ts";
 
 const m = models();
 let failed = 0;

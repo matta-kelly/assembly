@@ -8,7 +8,7 @@ import { defineAgent } from "que-pasa/define";
 import { z } from "zod";
 import { review } from "../process/review.ts";
 import { resultOf } from "../process/step.ts";
-import { ls, read_file, execute } from "../tools/index.ts";
+import { ls, read_file, execute } from "../effects/tools/index.ts";
 import { instructions } from "./instructions.ts";
 
 export const clReview = (model: string) =>

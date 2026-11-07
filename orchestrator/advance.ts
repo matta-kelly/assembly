@@ -20,8 +20,8 @@ import {
   setStatus,
   writeNote,
   writeSection,
-} from "./notes.ts";
-import { merge } from "./start.ts";
+} from "../effects/notes.ts";
+import { merge } from "../effects/git.ts";
 
 const link = (name: string) => `[[${name}]]`;
 

@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { read, writeSection } from "../orchestrator/notes.ts";
+import { read, writeSection } from "../effects/notes.ts";
 import { type Plan, planText } from "./plan.ts";
 import type { Step } from "./step.ts";
 
