@@ -17,6 +17,7 @@
     "process",
     "agents",
     "tools",
+    "scripts",
     "schema.ts",
     "basis.config.ts",
     "eslint.config.ts"

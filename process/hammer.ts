@@ -25,9 +25,14 @@ type Done = z.infer<typeof done>;
 
 /** Green: the cl's test command passes. */
 export async function green(r: Run): Promise<Verdict> {
-  const { code, out } = await runTests(r);
-  if (code === 0) return { word: "pass", reason: "green" };
-  return { word: "retry", reason: `red: exit ${code}: ${out.slice(-400)}` };
+  const { code, out, check } = await runTests(r);
+  if (code === 0) return { word: "pass", reason: "green", ran: check };
+  return {
+    word: "retry",
+    cause: "check_failed",
+    reason: `red: exit ${code}: ${out.slice(-400)}`,
+    ran: check,
+  };
 }
 
 export const hammer: Step<Done> = {
@@ -45,12 +50,14 @@ export const hammer: Step<Done> = {
     if (!tests.length)
       return {
         word: "retry",
+        cause: "contract_invalid",
         reason: "the cl's Tests section names no test file",
       };
     const touched = await changed(r, tests);
     if (touched.length)
       return {
         word: "retry",
+        cause: "scope_exceeds_change",
         reason: `a test was changed: ${touched.join(", ")}`,
       };
     return green(r);

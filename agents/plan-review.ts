@@ -1,0 +1,19 @@
+/**
+ * plan-review: the agent of the plan review step, an issue from planned to building. It judges whether the plan's cuts meet the issue. Its instructions are its note, plan-review.md. It reads the repo, read-only: no tool of its can write.
+ */
+
+import { defineAgent } from "que-pasa/define";
+import { z } from "zod";
+import { planReview } from "../process/plan-review.ts";
+import { resultOf } from "../process/step.ts";
+import { execute, ls, read_file } from "../tools/index.ts";
+import { instructions } from "./instructions.ts";
+
+export const planReviewer = (model: string) =>
+  defineAgent({
+    name: "plan-review",
+    model,
+    instructions: instructions("./plan-review.md", import.meta.url),
+    tools: [ls, read_file, execute],
+    output: z.object({ result: resultOf(planReview) }),
+  });

@@ -5,9 +5,10 @@
  * here again, and da-nail reads the findings in the cl's Review section.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { items, section } from "../orchestrator/notes.ts";
 import { runTests } from "../orchestrator/start.ts";
 import type { Step, Verdict } from "./step.ts";
 
@@ -33,18 +34,9 @@ const done = z.object({
 });
 type Done = z.infer<typeof done>;
 
-/** The text of a cl's `## <heading>` section, or "" when it has none. */
-export function section(cl: string, heading: string): string {
-  const parts = readFileSync(cl, "utf8").split(/^## /m);
-  const s = parts.find((p) => p.startsWith(`${heading}\n`));
-  return s ? s.slice(heading.length + 1) : "";
-}
-
 /** The behaviors of a cl: the top-level items of its Check list. */
 export function behaviors(cl: string): string[] {
-  return section(cl, "Check")
-    .split("\n")
-    .filter((line) => line.startsWith("- "));
+  return items(cl, "Check");
 }
 
 /** The test files the cl's Tests section names, as this step renders it. */
@@ -57,22 +49,32 @@ export function testFiles(cl: string): string[] {
 
 /** The output of a test run says it stopped before any assertion ran. */
 const notLoaded =
-  /SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|Failed to load/;
+  /^\s*SyntaxError:|Cannot find module|ERR_MODULE_NOT_FOUND|Failed to load/m;
 /** The output of a test run shows an assertion failing. */
-const assertion =
-  /AssertionError|ERR_ASSERTION|expected|^not ok|# fail [1-9]|Tests? +[0-9]+ failed/m;
+// The assertion's own error, as node:assert, chai (vitest) and jest give it: a failing test alone is not enough, since
+// a test that throws before it asserts fails too.
+const assertion = /AssertionError|ERR_ASSERTION|expect\(received\)/;
 
 /** Red, from a test run's exit code and output: it failed, and at an assertion. */
 export function judge(code: number, out: string): Verdict {
   const tail = out.slice(-400);
   if (code === 0)
-    return { word: "retry", reason: `the tests pass, nothing is red: ${tail}` };
+    return {
+      word: "retry",
+      cause: "check_failed",
+      reason: `the tests pass, nothing is red: ${tail}`,
+    };
   if (notLoaded.test(out))
-    return { word: "retry", reason: `red before any assertion: ${tail}` };
+    return {
+      word: "retry",
+      cause: "check_failed",
+      reason: `red before any assertion: ${tail}`,
+    };
   if (assertion.test(out))
     return { word: "pass", reason: "red at an assertion" };
   return {
     word: "retry",
+    cause: "check_failed",
     reason: `red, but no assertion failure is shown: ${tail}`,
   };
 }
@@ -94,21 +96,27 @@ export const nail: Step<Done> = {
     const have = new Set(d.tests.map((t) => t.behavior));
     for (let b = 1; b <= want; b++) {
       if (!have.has(b))
-        return { word: "retry", reason: `behavior ${b} has no test` };
+        return {
+          word: "retry",
+          cause: "invalid_output",
+          reason: `behavior ${b} has no test`,
+        };
     }
     const extra = [...have].filter((b) => b > want);
     if (extra.length)
       return {
         word: "retry",
+        cause: "invalid_output",
         reason: `tests name behaviors the cl does not have: ${extra.join(", ")}`,
       };
     const missing = d.tests.filter((t) => !existsSync(join(r.work, t.file)));
     if (missing.length)
       return {
         word: "retry",
+        cause: "invalid_output",
         reason: `test files not in the worktree: ${missing.map((t) => t.file).join(", ")}`,
       };
-    const { code, out } = await runTests(r);
-    return judge(code, out);
+    const { code, out, check } = await runTests(r);
+    return { ...judge(code, out), ran: check };
   },
 };

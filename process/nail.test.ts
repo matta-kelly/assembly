@@ -29,7 +29,10 @@ beforeEach(() => {
   mkdirSync(join(dir, "work"));
   writeFileSync(join(dir, "work", "a.test.ts"), "");
   r = {
-    cl: "x",
+    name: "x",
+    kind: "cl",
+    issue: "i",
+    seq: 1,
     n: 1,
     path: join(dir, "cl.md"),
     repo: "/repo",
@@ -37,8 +40,6 @@ beforeEach(() => {
     test: "npm test",
     dir,
     work: join(dir, "work"),
-    packet: join(dir, "packet"),
-    out: join(dir, "out"),
   };
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -71,7 +72,11 @@ describe("testFiles", () => {
 describe("the nail step's check, before red", () => {
   it("retries when a behavior has no test", async () => {
     const v = await tests.check(r, { word: "done", tests: [t(1)] });
-    expect(v).toEqual({ word: "retry", reason: "behavior 2 has no test" });
+    expect(v).toEqual({
+      word: "retry",
+      cause: "invalid_output",
+      reason: "behavior 2 has no test",
+    });
   });
 
   it("retries when a test names a behavior the cl does not have", async () => {
@@ -93,7 +98,20 @@ describe("the nail step's check, before red", () => {
 describe("judge", () => {
   it("passes a run that fails at an assertion", () => {
     expect(judge(1, "AssertionError: expected 1 to be 2").word).toBe("pass");
-    expect(judge(1, " Tests  2 failed | 3 passed").word).toBe("pass");
+    expect(judge(1, "AssertionError [ERR_ASSERTION]: 0 !== 2").word).toBe(
+      "pass",
+    );
+    expect(judge(1, "expect(received).toBe(expected)").word).toBe("pass");
+    // a test about a SyntaxError is not one that failed to load
+    expect(
+      judge(1, "AssertionError: expected [Function] to throw SyntaxError").word,
+    ).toBe("pass");
+  });
+
+  it("retries a test that throws before it asserts, though the run counts it failed", () => {
+    expect(
+      judge(1, "TypeError: x is not a function\n Tests  1 failed").word,
+    ).toBe("retry");
   });
 
   it("retries a run that passes", () => {

@@ -1,10 +1,16 @@
 /**
- * The end to end test of the inner loop, ready to approved, with nothing faked: a real repo and worktree, the agent's container and the red
- * check's container started by podman, the real nail, hammer and review steps, and git commits. Each agent is a stub: a
- * shell command that does its step's work and writes its result.json. The review's stub fails if it can write the
- * worktree, so the read-only mount is proven too. Run by `just e2e`, in the
- * orchestrator's image, so the paths it hands podman are host paths: its folder is under the repo, mounted at the
- * same path. Skipped elsewhere.
+ * The end to end test of the whole loop, an issue from open to accepted, with only the model faked: a real repo, a
+ * real sandbox per attempt, que-pasa's run with the real agents and tools, the real checks, git commits and merges,
+ * and the notes the orchestrator writes. The planner cuts the issue into two cls; plan-review approves; each cl goes
+ * through nail, hammer and review, and is merged into the issue's branch before the next starts; acceptance runs the
+ * full suite and accepts. A second issue's planner raises.
+ *
+ * Each agent's model is scripted (pi-ai's faux provider): it reads the conversation so far and makes its next tool
+ * call, so the tools run for real in the sandbox. The reviews try to write the worktree first, and only go on if the
+ * read-only mount refused it.
+ *
+ * Run by `just e2e`, in the orchestrator's image, so the paths it hands podman are host paths: its folder is under the
+ * repo, mounted at the same path. Skipped elsewhere.
  */
 
 import { execFileSync } from "node:child_process";
@@ -17,60 +23,273 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  createModels,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+  type FauxResponseStep,
+} from "@earendil-works/pi-ai";
+import { DatabaseSync } from "node:sqlite";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { clReview } from "../agents/cl-review.ts";
+import { daHammer } from "../agents/da-hammer.ts";
+import { daNail } from "../agents/da-nail.ts";
+import { issueReviewer } from "../agents/issue-review.ts";
+import { planReviewer } from "../agents/plan-review.ts";
+import { planner } from "../agents/planner.ts";
+import { accept } from "../process/accept.ts";
 import { hammer } from "../process/hammer.ts";
 import { nail } from "../process/nail.ts";
+import { planReview } from "../process/plan-review.ts";
+import { plan } from "../process/plan.ts";
 import { review } from "../process/review.ts";
 import { open } from "./ledger.ts";
 import { loop } from "./loop.ts";
+import { quePasa } from "./runner.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
+const suite = "node --test test/*.test.mjs";
 
-const cl = (raise: boolean) => `---
-type: cl
+const issueNote = (raise: boolean) => `---
+type: issue
+description: "Two exports, value and double. A fixture of the factory's end to end test."
+kind: task
+priority: P2
+status: new
 ---
-One value, tested.
+src/value.mjs exports value, and src/double.mjs exports double, which doubles it.${raise ? "\n\nRAISE" : ""}
+
+## Intent
+
+Two small exports, each with its tests.
 
 ## Check
 
-- given src/value.mjs, when it is imported, then value is 2${raise ? "\n\nRAISE" : ""}
-
-## Tests
-
-## Code
+- src/value.mjs exports value, which is 2
+- src/double.mjs exports double(), which returns value times 2
 `;
 
-// The stub agents. da-nail: a raise when its cl says RAISE, otherwise a failing node:test test of src/value.mjs, and
-// a stub of it, so the test fails at its assertion. da-hammer: the value the test wants. cl-review: approve.
-const nailStub = `
-if grep -q RAISE /packet/cl.md; then
-  echo '{"word":"raise","from":"da-nail, tests","missing":"the seam","evidence":"Seam is empty"}' > /out/result.json
-  exit 0
-fi
-mkdir -p test src
-printf '%s\\n' 'import { test } from "node:test";' 'import assert from "node:assert";' 'import { value } from "../src/value.mjs";' 'test("b1", () => assert.strictEqual(value, 2));' > test/b1.test.mjs
-echo 'export const value = 0;' > src/value.mjs
-echo '{"word":"done","tests":[{"behavior":1,"file":"test/b1.test.mjs","name":"b1"}]}' > /out/result.json
-`;
-const hammerStub = `
-echo 'export const value = 2;' > src/value.mjs
-echo '{"word":"done","changed":["src/value.mjs"]}' > /out/result.json
-`;
-const reviewStub = `
-touch /work/edited 2>/dev/null && exit 1
-echo '{"word":"done","decision":"approve","findings":[]}' > /out/result.json
-`;
-const agents = {
-  "da-nail": { name: "da-nail", command: nailStub },
-  "da-hammer": { name: "da-hammer", command: hammerStub },
-  "cl-review": { name: "cl-review", command: reviewStub },
+type Message = { role: string; content?: unknown };
+const text = (m: Message) =>
+  typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+type Call = ReturnType<typeof fauxToolCall>;
+
+/**
+ * A scripted model: from the conversation so far (the user's message, which is the agent's input, and how many tool
+ * results it has had, the last one too), it gives the next tool call of `script`. A reply as a function of the
+ * transcript, so runs at once never take each other's.
+ */
+function scripted(script: (input: string, done: number, last: string) => Call) {
+  const step: FauxResponseStep = (context) => {
+    const messages = context.messages as Message[];
+    const results = messages.filter((m) => m.role === "toolResult");
+    const input = text(
+      messages.find((m) => m.role === "user") ?? { role: "user" },
+    );
+    return fauxAssistantMessage(
+      [script(input, results.length, text(results.at(-1) ?? { role: "x" }))],
+      {
+        stopReason: "toolUse",
+      },
+    );
+  };
+  return Array.from({ length: 100 }, () => step);
+}
+const submit = (result: object) =>
+  fauxToolCall("submit", { result } as Parameters<typeof fauxToolCall>[1]);
+
+const cut = (
+  name: string,
+  intent: string,
+  behavior: string,
+  traces: number[],
+) => ({
+  name,
+  intent,
+  behaviors: [behavior],
+  seam: `src/${name}.mjs's export, which the next cut imports`,
+  files: {
+    change: [`src/${name}.mjs`, `test/${name}.test.mjs`],
+    read: ["README"],
+  },
+  grounds: ["README: the repo has no code yet"],
+  test: `node --test test/${name}.test.mjs`,
+  traces,
+});
+
+const plannerScript = (input: string, done: number) => {
+  if (input.includes("RAISE"))
+    return submit({
+      word: "raise",
+      from: "planner, plan",
+      missing: "the issue's intent",
+      evidence: "RAISE",
+    });
+  if (done === 0) return fauxToolCall("ls", {});
+  return submit({
+    word: "done",
+    seams: [{ name: "exports", what: "value and double, each its own module" }],
+    cuts: [
+      cut(
+        "value",
+        "src/value.mjs exports value, which is 2",
+        "given src/value.mjs, when imported, then value is 2",
+        [1],
+      ),
+      cut(
+        "double",
+        "src/double.mjs exports double",
+        "given value is 2, when double() runs, then it returns 4",
+        [2],
+      ),
+    ],
+  });
+};
+
+/** A review's first move: try to write the worktree. It goes on only when the read-only mount refused it. */
+const refused = (last: string) => /Read-only file system/.test(last);
+const tryWrite = fauxToolCall("execute", { command: "touch /work/edited" });
+
+const planReviewScript = (_input: string, done: number, last: string) => {
+  if (done === 0) return tryWrite;
+  if (!refused(last))
+    return submit({
+      word: "done",
+      decision: "plan",
+      findings: [{ what: "writable", where: "/work" }],
+    });
+  return submit({ word: "done", decision: "approve", findings: [] });
+};
+
+const testOf = (name: string, imports: string, assertion: string) =>
+  [
+    'import { test } from "node:test";',
+    'import assert from "node:assert";',
+    imports,
+    `test("${name}", () => ${assertion});`,
+    "",
+  ].join("\n");
+
+/** da-nail writes its cut's failing test and the stub it imports, runs it, and submits. */
+const nailScript = (input: string, done: number) => {
+  const double = input.includes("The cut double of");
+  const name = double ? "double" : "value";
+  if (done === 0)
+    return fauxToolCall("write_file", {
+      path: `test/${name}.test.mjs`,
+      content: double
+        ? testOf(
+            "double",
+            'import { double } from "../src/double.mjs";',
+            "assert.strictEqual(double(), 4)",
+          )
+        : testOf(
+            "value",
+            'import { value } from "../src/value.mjs";',
+            "assert.strictEqual(value, 2)",
+          ),
+    });
+  if (done === 1)
+    return fauxToolCall("write_file", {
+      path: `src/${name}.mjs`,
+      content: double
+        ? "export const double = () => 0;\n"
+        : "export const value = 0;\n",
+    });
+  if (done === 2)
+    return fauxToolCall("execute", {
+      command: `node --test test/${name}.test.mjs`,
+    });
+  return submit({
+    word: "done",
+    tests: [{ behavior: 1, file: `test/${name}.test.mjs`, name }],
+  });
+};
+
+/** da-hammer makes its cut's test pass. */
+const hammerScript = (input: string, done: number) => {
+  const double = input.includes("The cut double of");
+  if (done === 0)
+    return double
+      ? fauxToolCall("write_file", {
+          path: "src/double.mjs",
+          content:
+            'import { value } from "./value.mjs";\n\nexport const double = () => value * 2;\n',
+        })
+      : fauxToolCall("edit_file", {
+          path: "src/value.mjs",
+          old: "value = 0",
+          new: "value = 2",
+        });
+  return submit({
+    word: "done",
+    changed: [double ? "src/double.mjs" : "src/value.mjs"],
+  });
+};
+
+const clReviewScript = (_input: string, done: number, last: string) => {
+  if (done === 0) return tryWrite;
+  if (!refused(last))
+    return submit({
+      word: "done",
+      decision: "code",
+      findings: [{ what: "writable", where: "/work" }],
+    });
+  return submit({ word: "done", decision: "approve", findings: [] });
+};
+
+/** issue-review runs the issue's Check, the whole suite, then accepts. */
+const issueReviewScript = (_input: string, done: number, last: string) => {
+  if (done === 0) return tryWrite;
+  if (done === 1 && !refused(last))
+    return submit({
+      word: "done",
+      decision: "plan",
+      findings: [{ what: "writable", where: "/work" }],
+    });
+  if (done === 1) return fauxToolCall("execute", { command: suite });
+  return submit({ word: "done", decision: "accept", findings: [] });
 };
 
 const git = (repo: string, ...args: string[]) =>
   execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
 
+type Span = {
+  name: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  links?: { spanId: string }[];
+  attributes: { key: string; value: Record<string, unknown> }[];
+};
+
+/** An attempt's trace: every span in its file, over all its lines and scopes, and its root, the attempt span. */
+function traceIn(folder: string) {
+  const spans = readFileSync(join(folder, "trace.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .flatMap((line) =>
+      (
+        JSON.parse(line) as {
+          resourceSpans: { scopeSpans: { spans: Span[] }[] }[];
+        }
+      ).resourceSpans.flatMap((r) => r.scopeSpans.flatMap((x) => x.spans)),
+    );
+  return {
+    spans,
+    root: spans.find((x) => !x.parentSpanId) as Span,
+    named: (name: string) => spans.find((x) => x.name === name),
+  };
+}
+
+const attrOf = (s: Span | undefined, key: string) => {
+  const v = s?.attributes.find((a) => a.key === key)?.value;
+  return v && Object.values(v)[0];
+};
+
 describe.skipIf(!process.env["ASSEMBLY_E2E"])(
-  "the inner loop, end to end",
+  "the whole loop, end to end",
   () => {
     let dir: string;
     let repo: string;
@@ -84,15 +303,19 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       writeFileSync(join(repo, "README"), "a repo\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "init");
-      writeFileSync(join(dir, "nail.md"), cl(false));
-      writeFileSync(join(dir, "gap.md"), cl(true));
+      mkdirSync(join(dir, "work"));
+      writeFileSync(join(dir, "work", "is.md"), issueNote(false));
+      writeFileSync(join(dir, "work", "gap.md"), issueNote(true));
     });
-    // The attempts' containers go too, also when the test fails before the loop collects them: a name left behind would
-    // stop the next run's attempt from starting.
+    // The attempts' sandboxes go too, also when the test fails before the loop closes them: a name left behind would
+    // stop the next run's attempt from opening.
     afterAll(() => {
-      rmSync(dir, { recursive: true, force: true });
-      for (const name of ["nail", "gap"].flatMap((cl) =>
-        [1, 2, 3, 4].map((n) => `assembly-${cl}-${n}`),
+      // ASSEMBLY_E2E_KEEP keeps the run folder, its worktrees, logs and notes, to read after a failure.
+      if (!process.env["ASSEMBLY_E2E_KEEP"])
+        rmSync(dir, { recursive: true, force: true });
+      const names = ["is", "gap", "is-value", "is-double", "rs-value"];
+      for (const name of names.flatMap((c) =>
+        Array.from({ length: 8 }, (_, n) => `assembly-${c}-${n + 1}`),
       ))
         execFileSync("podman", ["rm", "-f", "--ignore", name], {
           stdio: "ignore",
@@ -100,70 +323,372 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     });
 
     it(
-      "moves one cl to approved and another to raised, through real containers",
-      { timeout: 300_000 },
+      "takes one issue from open to accepted, through a plan of two cls, and raises the other",
+      { timeout: 600_000 },
       async () => {
-        const ledger = open(join(dir, "ledger.db"));
-        const at = { repo, image, test: "node --test test/b1.test.mjs" };
-        ledger.add({ cl: "nail", path: join(dir, "nail.md"), ...at });
-        ledger.add({ cl: "gap", path: join(dir, "gap.md"), ...at });
-        const runs = join(dir, "runs");
-        const l = loop({ ledger, steps: [nail, hammer, review], agents, runs });
-
-        const done = ["approved", "raised", "escalated"];
-        await vi.waitFor(
-          async () => {
-            await l.tick();
-            expect(done).toContain(ledger.item("nail").state);
-            expect(done).toContain(ledger.item("gap").state);
+        const models = createModels();
+        const model = (
+          provider: string,
+          script: Parameters<typeof scripted>[0],
+        ) => {
+          const faux = fauxProvider({ provider });
+          models.setProvider(faux.provider);
+          faux.setResponses(scripted(script));
+          const m = faux.getModel();
+          return `${m.provider}:${m.id}`;
+        };
+        // Each agent on its own scripted model, first attempt or retry alike.
+        const scripts = {
+          planner: model("faux-planner", plannerScript),
+          "plan-review": model("faux-plan-review", planReviewScript),
+          "da-nail": model("faux-nail", nailScript),
+          "da-hammer": model("faux-hammer", hammerScript),
+          "cl-review": model("faux-cl-review", clReviewScript),
+          "issue-review": model("faux-issue-review", issueReviewScript),
+        };
+        const agents = {
+          make: {
+            planner,
+            "plan-review": planReviewer,
+            "da-nail": daNail,
+            "da-hammer": daHammer,
+            "cl-review": clReview,
+            "issue-review": issueReviewer,
           },
-          { timeout: 280_000, interval: 2_000 },
-        );
+          modelFor: (name: string) => scripts[name as keyof typeof scripts],
+        };
 
-        // Each step passed once, in order.
-        const moves = ledger
-          .events("nail")
-          .map((e) => `${String(e["from_state"])}>${String(e["to_state"])}`);
-        expect(moves).toEqual([
-          "new>ready",
-          "ready>red",
-          "red>green",
-          "green>approved",
+        const ledger = open(join(dir, "ledger.db"));
+        const notes = join(dir, "work");
+        ledger.addIssue({
+          name: "is",
+          path: join(notes, "is.md"),
+          repo,
+          image,
+          test: suite,
+        });
+        ledger.addIssue({
+          name: "gap",
+          path: join(notes, "gap.md"),
+          repo,
+          image,
+          test: suite,
+        });
+        const runs = join(dir, "runs");
+        const l = await loop({
+          ledger,
+          steps: [plan, planReview, nail, hammer, review, accept],
+          runner: () => quePasa(agents, models, join(dir, "pi.db")),
+          runs,
+          timeoutMs: 120_000,
+        });
+
+        const settled = ["accepted", "raised", "escalated"];
+        for (let i = 0; i < 40; i++) {
+          await l.tick();
+          await l.settled();
+          if (
+            settled.includes(ledger.item("is").state) &&
+            settled.includes(ledger.item("gap").state)
+          )
+            break;
+        }
+        // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
+        await l.tick();
+
+        // The issue went through each of its steps once, in order, and each cl through its own.
+        const moves = (name: string) =>
+          ledger
+            .events(name)
+            .map((e) => `${String(e["from_state"])}>${String(e["to_state"])}`);
+        expect(moves("is"), JSON.stringify(ledger.events("is"))).toEqual([
+          "new>open",
+          "open>planned",
+          "planned>building",
+          "building>built",
+          "built>accepted",
         ]);
+        for (const cl of ["is-value", "is-double"])
+          expect(
+            moves(cl),
+            `${cl}: ${JSON.stringify(ledger.events(cl))}`,
+          ).toEqual([
+            ...(cl === "is-double"
+              ? ["new>waiting", "waiting>ready"]
+              : ["new>ready"]),
+            "ready>red",
+            "red>green",
+            "green>approved",
+            "approved>merged",
+          ]);
         expect(ledger.item("gap").state).toBe("raised");
 
-        // The orchestrator wrote each step's section, from its result.
-        const cl = readFileSync(join(dir, "nail.md"), "utf8");
-        expect(cl).toContain(
-          "## Tests\n\n- behavior 1: `test/b1.test.mjs`, b1\n",
+        // The orchestrator wrote the plan and its cl notes from the plan, and each step's section from its result.
+        const note = (name: string) =>
+          readFileSync(join(notes, `${name}.md`), "utf8");
+        expect(note("is")).toMatch(/^status: done$/m);
+        expect(note("is")).toContain("## Plan review\n\n- decision: approve");
+        expect(note("is")).toContain("## Acceptance\n\n- decision: accept");
+        expect(note("is-plan")).toMatch(/^status: done$/m);
+        expect(note("is-plan")).toContain(
+          "- src/double.mjs exports double(), which returns value times 2: [[is-double]]",
         );
-        expect(cl).toContain("## Code\n\n- `src/value.mjs`\n");
-        expect(cl).toContain("## Review\n\n- decision: approve\n");
-        expect(readFileSync(join(dir, "gap.md"), "utf8")).toContain(
-          "## Raise\n\n- from: da-nail, tests\n",
+        expect(note("is-value")).toMatch(/^status: done$/m);
+        expect(note("is-double")).toContain(
+          "## Tests\n\n- behavior 1: `test/double.test.mjs`, double\n",
         );
+        expect(note("is-double")).toContain(
+          "## Review\n\n- decision: approve\n",
+        );
+        expect(note("gap")).toContain("## Raise\n\n- from: planner, plan");
 
-        // The cl's branch holds the passed work: da-nail's test and da-hammer's code, each in its own commit.
-        expect(git(repo, "show", "assembly/nail/head:src/value.mjs")).toBe(
-          "export const value = 2;\n",
+        // The issue's branch holds both cls, in order: each one's test, then its code.
+        expect(git(repo, "show", "assembly/is/head:src/double.mjs")).toContain(
+          "value * 2",
         );
         expect(
-          git(repo, "log", "--format=%s", "main..assembly/nail/head")
+          git(repo, "log", "--format=%s", "main..assembly/is/head")
             .trim()
             .split("\n"),
-        ).toEqual(["da-hammer(nail): code", "da-nail(nail): tests"]);
+        ).toEqual([
+          "da-hammer(is-double): code",
+          "da-nail(is-double): tests",
+          "da-hammer(is-value): code",
+          "da-nail(is-value): tests",
+        ]);
 
-        // Every attempt's record is kept.
+        // Every trial is under its issue: the issue's own attempts, and each cl's.
         for (const n of [1, 2, 3])
-          await vi.waitFor(
-            () =>
-              expect(existsSync(join(runs, "nail", String(n), "log"))).toBe(
-                true,
-              ),
-            {
-              timeout: 30_000,
+          expect(existsSync(join(runs, "is", "issue", String(n)))).toBe(true);
+        for (const cl of ["value", "double"])
+          expect(
+            readFileSync(join(runs, "is", "cl", cl, "1", "log"), "utf8"),
+          ).toMatch(/^write_file /m);
+        expect(
+          readFileSync(join(runs, "is", "issue", "3", "log"), "utf8"),
+        ).toMatch(/^execute .*node --test/m);
+
+        // The planner's raise is counted as the issue's missing context, and each cl's planned and merged files are
+        // the context hit rate's two sides.
+        expect(
+          ledger.events("gap").find((e) => e["word"] === "raise"),
+        ).toMatchObject({
+          cause: "missing_context",
+        });
+        const db = new DatabaseSync(join(dir, "ledger.db"));
+        expect(
+          db
+            .prepare(
+              "SELECT kind, path FROM paths WHERE name = 'is-double' ORDER BY kind, path",
+            )
+            .all()
+            .map((p) => `${p["kind"] as string} ${p["path"] as string}`),
+        ).toEqual([
+          "actual src/double.mjs",
+          "actual test/double.test.mjs",
+          "planned src/double.mjs",
+          "planned test/double.test.mjs",
+        ]);
+        // Each check's test run is recorded with its attempt: the cl's red, green and review checks, on real trees.
+        const checks = db
+          .prepare(
+            "SELECT step, code, tree FROM check_runs WHERE name = 'is-value' ORDER BY id",
+          )
+          .all();
+        expect(checks.map((c) => [c["step"], c["code"]])).toEqual([
+          ["ready", 1],
+          ["red", 0],
+          ["green", 0],
+        ]);
+        expect(
+          checks.every((c) => /^[0-9a-f]{40}$/.test(c["tree"] as string)),
+        ).toBe(true);
+        expect(checks[0]?.["tree"]).not.toBe(checks[1]?.["tree"]);
+        db.close();
+
+        // Every attempt is one trace in its folder: the attempt span is its root, with the ids on the ledger's row, and
+        // que-pasa's run is under it, with its messages. The acceptance links to the attempts it judged: the plan, and
+        // each cl's nail, hammer and review.
+        const issueRuns = [1, 2, 3].map((n) =>
+          traceIn(join(runs, "is", "issue", String(n))),
+        );
+        expect(issueRuns.map((t) => t.root.name)).toEqual([
+          "attempt open is",
+          "attempt planned is",
+          "attempt built is",
+        ]);
+        issueRuns.forEach((t, i) =>
+          expect(
+            ledger.attempt("is", i + 1) as Record<string, unknown>,
+          ).toMatchObject({
+            trace_id: t.root.traceId,
+            span_id: t.root.spanId,
+          }),
+        );
+        const plannerRun = issueRuns[0]?.named("invoke_agent planner");
+        expect(plannerRun?.parentSpanId).toBe(issueRuns[0]?.root.spanId);
+        expect(attrOf(plannerRun, "gen_ai.input.messages")).toBeTruthy();
+        expect(issueRuns[1]?.root.links?.map((l) => l.spanId)).toEqual([
+          issueRuns[0]?.root.spanId,
+        ]);
+        expect(issueRuns[2]?.root.links).toHaveLength(7);
+
+        const nailRun = traceIn(join(runs, "is", "cl", "value", "1"));
+        expect(nailRun.spans.map((x) => x.name)).toContain(
+          "execute_tool write_file",
+        );
+        expect(nailRun.named("check ready")?.parentSpanId).toBe(
+          nailRun.root.spanId,
+        );
+        expect(attrOf(nailRun.root, "container.image.name")).toBe(image);
+        expect(attrOf(nailRun.root, "container.image.id")).toMatch(
+          /^[0-9a-f]{64}$/,
+        );
+        await l.close();
+      },
+    );
+
+    it(
+      "takes up an attempt a stopped orchestrator left: the same run, in the same sandbox, goes on to red",
+      { timeout: 300_000 },
+      async () => {
+        const at = join(dir, "restart");
+        mkdirSync(join(at, "work"), { recursive: true });
+        const clPath = join(at, "work", "rs-value.md");
+        writeFileSync(
+          clPath,
+          "---\ntype: cl\nstatus: new\n---\nThe cut value of rs.\n\n## Check\n\n- given value, when read, then 2\n",
+        );
+
+        // da-nail's third model call, after its two writes, waits: the first orchestrator closes while it is out. Its
+        // abort is the close's, and pi sends the request again in the second one, which answers it.
+        let reached = () => {};
+        const out = new Promise<void>((r) => (reached = r));
+        let first = true;
+        const steps = scripted(nailScript).map(
+          (step): FauxResponseStep =>
+            (context, options, state, model) => {
+              const results = (context.messages as Message[]).filter(
+                (m) => m.role === "toolResult",
+              ).length;
+              if (results === 2 && first) {
+                first = false;
+                reached();
+                return new Promise((_resolve, reject) =>
+                  options?.signal?.addEventListener("abort", () =>
+                    reject(new Error("aborted by the close")),
+                  ),
+                );
+              }
+              return (
+                step as Exclude<FauxResponseStep, object & { role: string }>
+              )(context, options, state, model);
             },
-          );
+        );
+        const models = createModels();
+        const faux = fauxProvider({ provider: "faux-restart" });
+        models.setProvider(faux.provider);
+        faux.setResponses(steps);
+        const nailModel = `${faux.getModel().provider}:${faux.getModel().id}`;
+        const agents = {
+          make: { "da-nail": daNail },
+          modelFor: () => nailModel,
+        };
+
+        const ledger = open(join(at, "ledger.db"));
+        ledger.addIssue({
+          name: "rs",
+          path: join(at, "work", "rs.md"),
+          repo,
+          image,
+          test: suite,
+        });
+        ledger.addCl(
+          {
+            name: "rs-value",
+            issue: "rs",
+            seq: 1,
+            path: clPath,
+            repo,
+            image,
+            test: "node --test test/value.test.mjs",
+          },
+          "ready",
+        );
+        const options = {
+          ledger,
+          steps: [nail],
+          runner: () => quePasa(agents, models, join(at, "pi.db")),
+          runs: join(at, "runs"),
+          timeoutMs: 120_000,
+        };
+        const sandbox = () =>
+          execFileSync(
+            "podman",
+            [
+              "container",
+              "inspect",
+              "--format",
+              "{{.Id}}",
+              "assembly-rs-value-1",
+            ],
+            { encoding: "utf8" },
+          ).trim();
+
+        const one = await loop(options);
+        await one.tick();
+        await out;
+        await one.close();
+        expect(ledger.open()).toEqual([
+          { name: "rs-value", n: 1, step: "ready" },
+        ]);
+        const kept = sandbox();
+
+        const two = await loop(options);
+        expect(sandbox()).toBe(kept);
+        await two.tick();
+        await two.settled();
+        await two.close();
+
+        expect(ledger.item("rs-value").state).toBe("red");
+        expect(ledger.attempt("rs-value", 1)).toMatchObject({
+          word: "pass",
+          resumed: 1,
+        });
+        expect(ledger.events("rs-value").map((e) => e["word"])).not.toContain(
+          "retry",
+        );
+        // One attempt, one trace: each orchestrator's part of the run is under the attempt span, the second marked
+        // resumed, and the tool calls of both are in it.
+        const t = traceIn(join(at, "runs", "rs", "cl", "value", "1"));
+        const segments = t.spans.filter(
+          (x) => x.name === "invoke_agent da-nail",
+        );
+        expect(segments).toHaveLength(2);
+        expect(segments.every((x) => x.parentSpanId === t.root.spanId)).toBe(
+          true,
+        );
+        expect(segments.map((x) => attrOf(x, "que_pasa.resumed"))).toContain(
+          true,
+        );
+        expect(
+          t.spans
+            .map((x) => x.name)
+            .filter((n) => n.startsWith("execute_tool"))
+            .sort(),
+        ).toEqual([
+          "execute_tool execute",
+          "execute_tool submit",
+          "execute_tool write_file",
+          "execute_tool write_file",
+        ]);
+        expect(attrOf(t.root, "assembly.resumed")).toBe(1);
+        expect(
+          readFileSync(
+            join(at, "runs", "rs", "cl", "value", "1", "log"),
+            "utf8",
+          ),
+        ).toMatch(/taken up by a new orchestrator/);
       },
     );
   },

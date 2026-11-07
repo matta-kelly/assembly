@@ -34,6 +34,11 @@ export const review: Step<Done> = {
   from: "green",
   agent: "cl-review",
   worktree: "ro",
+  // the tests and the code it reviews
+  judges: (r) => [
+    { name: r.name, step: "ready" },
+    { name: r.name, step: "red" },
+  ],
   done,
   section: "Review",
   render: (d) =>
@@ -46,19 +51,27 @@ export const review: Step<Done> = {
     if (d.decision === "approve" && d.findings.length)
       return {
         word: "retry",
+        cause: "invalid_output",
         reason: "an approve with findings: approve has none",
       };
     if (d.decision !== "approve" && !d.findings.length)
       return {
         word: "retry",
+        cause: "invalid_output",
         reason: `a send-back to ${d.decision} with no findings`,
       };
     const g = await green(r);
     if (g.word !== "pass")
-      return { word: "retry", reason: `not green at review: ${g.reason}` };
+      return {
+        word: "retry",
+        cause: "check_failed",
+        reason: `not green at review: ${g.reason}`,
+        ...(g.ran ? { ran: g.ran } : {}),
+      };
     return {
       word: words[d.decision],
       reason: d.decision === "approve" ? "approved" : `back to ${d.decision}`,
+      ...(g.ran ? { ran: g.ran } : {}),
     };
   },
 };

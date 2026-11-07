@@ -1,13 +1,26 @@
 /**
- * The loop: it moves cls through their steps and never waits on a container. Each tick does two things. It starts an
- * attempt for every cl whose state has a step and no attempt open. It finishes every open attempt whose container has
- * stopped: it reads out/result.json against the step's shape, runs the step's check for the word, writes the cl, and
- * moves the cl in the ledger. Every open attempt is read back from the ledger and its container, so a killed loop
- * starts again where it was.
+ * The loop: it moves issues and their cls through their steps. The agents' loops run here, in the orchestrator, and
+ * hold the key; each attempt's sandbox is a container its tools exec into (start.ts).
+ *
+ * An attempt lives until it ends, whatever happens to the process that runs it. Its run is que-pasa's, durable, with
+ * the attempt's id; its sandbox and worktree are its own, and a container outlives the orchestrator. So a stopped
+ * orchestrator leaves its attempts open in the ledger, and the next one takes each one up: its sandbox again, and its
+ * run goes on from where it stopped. A taken-up attempt goes the same way as a new one.
+ *
+ * Opening the loop opens the sandboxes of the open attempts first, then the runner: que-pasa's runtime goes on with
+ * their runs at once, and their tools need their sandboxes. Each tick then does two things:
+ * - it makes the orchestrator's own moves (advance.ts): an approved plan's cls, each cl in turn, the merges.
+ * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
+ *   then a new one for each item waiting in a state that has a step. It does not wait for one: the run goes on as a
+ *   task, under a time limit, and settles the attempt when it ends. Its result is checked against the step's shape,
+ *   the step's check picks the word, the note is written, and the ledger moves the item.
+ * Closing the loop closes the runner and ends nothing: its attempts stay open for the next process.
+ *
+ * Each attempt is one trace (trace.ts): its span's ids are made when it begins, its run starts under that span, and
+ * the span is written when the attempt ends.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { z } from "zod";
 import {
   type Raise,
   resultOf,
@@ -15,132 +28,333 @@ import {
   type Step,
   type Verdict,
 } from "../process/step.ts";
-import type { Ledger } from "./ledger.ts";
-import { type Agent, collect, commit, runOf, start, status } from "./start.ts";
-import { next, type State, type Word } from "./table.ts";
+import { advance } from "./advance.ts";
+import type { Ledger, Usage } from "./ledger.ts";
+import { read, writeSection } from "./notes.ts";
+import { close, commit, head, imageOf, log, open, runOf } from "./start.ts";
+import { checkSpan, endAttempt, openTracing, within } from "./trace.ts";
+import { next, sendBack, type State, type Word } from "./table.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
 type AnyStep = Step<{ word: "done" }>;
 
+/**
+ * Runs the agents. orchestrator/runner.ts is the real one: que-pasa's durable runtime, with the agents and models set.
+ * - run: one step's agent, by its name, on its input, for one attempt, gives back its output and what its model calls
+ *   used. The attempt is the run: run again for an attempt it has, it goes on with that run. `retry` says the attempt
+ *   is not the state's first, so a bin's fallback model takes it. It stops when `signal` aborts. A run that failed on
+ *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called.
+ * - close: stops it, and keeps the runs still going, for the next runner on the same storage.
+ */
+export interface Runner {
+  run(
+    agent: string,
+    input: string,
+    o: { run: Run; retry: boolean; signal: AbortSignal },
+  ): Promise<{ value: unknown; usage?: Usage }>;
+  close(): Promise<void>;
+}
+
+/** A run that ended without a result of its own doing: no submit, or the model's failure. Its usage is what it spent. */
+export class RunFailed extends Error {
+  constructor(
+    message: string,
+    readonly usage?: Usage,
+  ) {
+    super(message);
+  }
+}
+
 export interface Loop {
   ledger: Ledger;
   steps: AnyStep[];
-  agents: Record<string, Agent>;
+  runner: () => Promise<Runner>; // opened once the open attempts' sandboxes are up
   runs: string; // where run folders go
-}
-
-/** Puts `text` under the cl's `## <heading>`, in place of what was there, or at the end when it has none. */
-export function writeSection(path: string, heading: string, text: string) {
-  const doc = readFileSync(path, "utf8");
-  const at = doc.search(new RegExp(`^## ${heading}\\n`, "m"));
-  if (at < 0) {
-    writeFileSync(path, `${doc.trimEnd()}\n\n## ${heading}\n\n${text}\n`);
-    return;
-  }
-  const body = at + `## ${heading}\n`.length;
-  const rest = doc.slice(body).search(/^## /m);
-  const end = rest < 0 ? doc.length : body + rest;
-  writeFileSync(
-    path,
-    `${doc.slice(0, body)}\n${text}\n${rest < 0 ? "" : `\n${doc.slice(end)}`}`,
-  );
+  concurrent?: number; // attempts at once, at most
+  timeoutMs?: number; // the most one attempt may take
 }
 
 const raiseText = (r: Raise) =>
   `- from: ${r.from}\n- missing: ${r.missing}\n- evidence: ${r.evidence}`;
 
-export function loop({ ledger, steps, agents, runs }: Loop) {
+/** Rejects when `signal` aborts, so a run that does not stop on its own still ends its attempt. */
+function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const stop = () =>
+      reject(
+        signal.reason instanceof Error ? signal.reason : new Error("aborted"),
+      );
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    p.then(resolve, reject).finally(() =>
+      signal.removeEventListener("abort", stop),
+    );
+  });
+}
+
+export async function loop({
+  ledger,
+  steps,
+  runner: openRunner,
+  runs,
+  concurrent = 4,
+  timeoutMs = 30 * 60_000,
+}: Loop) {
   const stepAt = (s: State) => steps.find((x) => x.from === s);
-  const busy = new Set<string>();
+  const running = new Map<string, Promise<void>>();
+  const timers = new Set<NodeJS.Timeout>();
+  let closing = false;
   // The limits' counts, with the attempt about to end in them: it is open, so attempts counts it, and a send-back
   // is not in the events until it ends.
-  const counts = (cl: string, state: State, word: Word) => ({
-    attempts: ledger.attempts(cl, state),
-    rounds:
-      ledger.rounds(cl) + (word === "to-tests" || word === "to-code" ? 1 : 0),
+  const counts = (name: string, state: State, word: Word) => ({
+    attempts: ledger.attempts(name, state),
+    rounds: ledger.rounds(name) + (sendBack(word) ? 1 : 0),
   });
+  const end = (
+    r: Run,
+    state: State,
+    v: Verdict,
+    usage?: Usage,
+    result?: unknown,
+  ) => {
+    // A word the table has no move for is the factory's fault, not the item's: it is escalated, with why, and never
+    // left open to run again.
+    let to: State;
+    let verdict = v;
+    try {
+      to = next(state, v.word, counts(r.name, state, v.word));
+    } catch (e) {
+      to = "escalated";
+      verdict = { ...v, reason: `${(e as Error).message}: ${v.reason}` };
+    }
+    ledger.end(r.name, r.n, verdict, to, usage, result);
+  };
 
-  async function finish(
+  /**
+   * Writes the attempt span, the root of the attempt's trace, with the ids it began with. A trace that fails to write
+   * is logged and the attempt still ends: the ledger's record of the step comes first.
+   */
+  async function traced(
     r: Run,
     state: State,
     step: AnyStep,
-    stopped: boolean,
-  ): Promise<void> {
+    o: { verdict: Verdict; usage?: Usage; error?: string },
+  ) {
+    try {
+      const judged = (step.judges?.(r, ledger) ?? []).flatMap((j) => {
+        const s = ledger.traceOf(j.name, j.step);
+        return s ? [s] : [];
+      });
+      const [commit, imageId] = await Promise.all([head(r), imageOf(r)]);
+      const row = ledger.attempt(r.name, r.n) as { started: string };
+      endAttempt(ledger.span(r.name, r.n), {
+        run: r,
+        step: state,
+        agent: step.agent,
+        started: Date.parse(row.started),
+        judged,
+        resumed: ledger.resumed(r.name, r.n),
+        ...o,
+        ...(commit ? { commit } : {}),
+        ...(imageId ? { imageId } : {}),
+      });
+    } catch (e) {
+      console.error(`the trace of ${r.name}/${r.n} was not written:`, e);
+    }
+  }
+
+  /**
+   * One attempt, from its run to its move in the ledger. It never throws: a failure is a retry, with its reason. A run
+   * the loop's closing stopped is not a failure: the attempt is left open, with its sandbox, for the next process.
+   */
+  async function attempt(
+    r: Run,
+    state: State,
+    step: AnyStep,
+    signal: AbortSignal,
+  ) {
     let v: Verdict;
-    const file = join(r.out, "result.json");
-    if (!stopped) v = { word: "retry", reason: "the container is gone" };
-    else if (!existsSync(file))
-      v = { word: "retry", reason: "no out/result.json" };
-    else {
-      const parsed = resultOf(step).safeParse(
-        JSON.parse(readFileSync(file, "utf8")),
+    let usage: Usage | undefined;
+    let result: unknown;
+    let error: string | undefined;
+    const span = ledger.span(r.name, r.n);
+    try {
+      const input = step.input ? step.input(r, ledger) : read(r.path);
+      // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
+      const out = await abortable(
+        within(span, () =>
+          runner.run(step.agent, input, {
+            run: r,
+            retry: ledger.attempts(r.name, state) > 1,
+            signal,
+          }),
+        ),
+        signal,
       );
+      usage = out.usage;
+      const parsed = z.object({ result: resultOf(step) }).safeParse(out.value);
       if (!parsed.success)
         v = {
           word: "retry",
-          reason: `result.json is not a ${state} result: ${parsed.error.message}`,
+          cause: "invalid_output",
+          reason: `not a ${state} result: ${parsed.error.message}`,
         };
-      else if (parsed.data.word === "raise") {
-        v = { word: "raise", reason: parsed.data.missing };
-        writeSection(r.path, "Raise", raiseText(parsed.data));
+      else if (parsed.data.result.word === "raise") {
+        result = parsed.data.result;
+        // A cl's raise is the plan's gap; the planner's is the issue's.
+        v = {
+          word: "raise",
+          cause: r.kind === "cl" ? "plan_gap" : "missing_context",
+          reason: parsed.data.result.missing,
+        };
+        writeSection(r.path, "Raise", raiseText(parsed.data.result));
       } else {
-        v = await step.check(r, parsed.data);
-        // A pass, or a review's send-back, is the step's done work: its section is written, and the attempt is
-        // committed and becomes the cl's branch.
+        const done = parsed.data.result;
+        result = done;
+        // The check is in the attempt's time too: a test run that hangs ends the attempt, and its own limit stops it.
+        v = await abortable(step.check(r, done), signal);
+        if (v.ran) checkSpan(span, state, v.ran);
+        // A pass, or a review's send-back, is the step's done work: it is written, and a step that edits the
+        // worktree has its attempt committed, which becomes the item's branch.
         if (v.word !== "retry") {
-          writeSection(r.path, step.section, step.render(parsed.data));
-          await commit(
-            r,
-            `${step.agent}(${r.cl}): ${step.section.toLowerCase()}`,
-          );
+          if (step.write) step.write(r, done, v);
+          else writeSection(r.path, step.section, step.render(done));
+          if (step.worktree !== "ro")
+            await commit(
+              r,
+              `${step.agent}(${r.name}): ${step.section.toLowerCase()}`,
+            );
         }
       }
+    } catch (e) {
+      if (closing) return;
+      error = (e as Error).message;
+      // A failed run spent too.
+      if (e instanceof RunFailed) usage ??= e.usage;
+      // Past the time limit, the run is over its budget. A run that failed on its own gave no valid result. Any other
+      // failure (git, podman) is the factory's, with no cause on the list.
+      const cause = signal.aborted
+        ? ("budget_exceeded" as const)
+        : e instanceof RunFailed
+          ? ("invalid_output" as const)
+          : undefined;
+      v = {
+        word: "retry",
+        ...(cause ? { cause } : {}),
+        reason: `the attempt failed: ${error.slice(0, 400)}`,
+      };
     }
-    ledger.end(r.cl, r.n, v, next(state, v.word, counts(r.cl, state, v.word)));
-    if (stopped) await collect(r);
+    await traced(r, state, step, {
+      verdict: v,
+      ...(usage ? { usage } : {}),
+      ...(error !== undefined ? { error } : {}),
+    });
+    end(r, state, v, usage, result);
+    await close(r);
   }
 
+  // One tick at a time: a second one would start an attempt a first one is still opening.
+  let ticking = false;
   async function tick() {
-    for (const a of ledger.open()) {
-      const key = `${a.cl}/${a.n}`;
-      if (busy.has(key)) continue;
-      const step = stepAt(a.step);
-      if (!step)
-        throw new Error(`an attempt is open at ${a.step}, which has no step`);
-      const r = runOf(ledger.item(a.cl), a.n, runs);
-      const s = await status(r);
-      if (s && s.status !== "exited") continue;
-      busy.add(key);
-      // Not awaited: the tick moves on while the check runs. A failed finish leaves the attempt open, so the next
-      // tick tries it again.
-      void finish(r, a.step, step, s !== null)
-        .catch((e: unknown) => console.error(`finish ${key} failed:`, e))
-        .finally(() => busy.delete(key));
-    }
-
-    const states = steps.map((s) => s.from);
-    for (const i of ledger.waiting(states)) {
-      const step = stepAt(i.state) as AnyStep;
-      const agent = agents[step.agent];
-      if (!agent) throw new Error(`no agent ${step.agent}`);
-      const n = ledger.begin(i.cl);
-      const r = runOf(i, n, runs);
-      try {
-        await start(r, step, agent);
-      } catch (e) {
-        const v: Verdict = {
-          word: "retry",
-          reason: `start failed: ${(e as Error).message.slice(0, 400)}`,
-        };
-        ledger.end(
-          i.cl,
-          n,
-          v,
-          next(i.state, v.word, counts(i.cl, i.state, v.word)),
-        );
-      }
+    if (ticking || closing) return;
+    ticking = true;
+    try {
+      await advance(ledger);
+      await start();
+    } finally {
+      ticking = false;
     }
   }
 
-  return { tick };
+  /** Runs an attempt as a task: its sandbox, then its run under the time limit, which each process gives afresh. */
+  async function launch(r: Run, state: State, step: AnyStep) {
+    try {
+      await open(r, step);
+    } catch (e) {
+      await close(r);
+      end(r, state, {
+        word: "retry",
+        reason: `the sandbox did not open: ${(e as Error).message.slice(0, 400)}`,
+      });
+      return;
+    }
+    const key = `${r.name}/${r.n}`;
+    const limit = new AbortController();
+    const timer = setTimeout(
+      () => limit.abort(new Error(`timed out after ${timeoutMs} ms`)),
+      timeoutMs,
+    );
+    timers.add(timer);
+    running.set(
+      key,
+      attempt(r, state, step, limit.signal)
+        .catch((e: unknown) => console.error(`attempt ${key} failed:`, e))
+        .finally(() => {
+          clearTimeout(timer);
+          timers.delete(timer);
+          running.delete(key);
+        }),
+    );
+  }
+
+  /** The open attempts this process is not running: a stopped orchestrator left them, to be taken up. */
+  const left = () =>
+    ledger.open().filter((a) => !running.has(`${a.name}/${a.n}`));
+
+  async function start() {
+    for (const a of left()) {
+      if (running.size >= concurrent) return;
+      const r = runOf(ledger.item(a.name), a.n, runs);
+      const step = stepAt(a.step);
+      if (!step) {
+        end(r, a.step, {
+          word: "retry",
+          reason: `no step runs from ${a.step} any more`,
+        });
+        continue;
+      }
+      ledger.resume(a.name, a.n);
+      log(r, `taken up by a new orchestrator`);
+      await launch(r, a.step, step);
+    }
+    for (const i of ledger.waiting(steps.map((s) => s.from))) {
+      if (running.size >= concurrent) return;
+      const n = ledger.begin(i.name);
+      await launch(runOf(i, n, runs), i.state, stepAt(i.state) as AnyStep);
+    }
+  }
+
+  // The open attempts' sandboxes come up before the runner: it goes on with their runs as it opens. One that does not
+  // open now is tried again when its attempt is taken up, which ends it if it still does not.
+  for (const a of left()) {
+    const step = stepAt(a.step);
+    if (!step) continue;
+    try {
+      await open(runOf(ledger.item(a.name), a.n, runs), step);
+    } catch {
+      // taken up, and ended, at the first tick
+    }
+  }
+  // Spans go to their attempt's folder, found by their trace id. Tracing is up before the runner, whose runs a stopped
+  // orchestrator left go on, traced, as it opens.
+  openTracing((traceId) => {
+    const a = ledger.ofTrace(traceId);
+    return a && runOf(ledger.item(a.name), a.n, runs).dir;
+  });
+  const runner = await openRunner();
+
+  /** Waits for every attempt running now to settle. */
+  async function settled() {
+    await Promise.all(running.values());
+  }
+
+  /** Stops the loop and closes the runner. It ends no attempt: each one stays open, with its sandbox and its run. */
+  async function stop() {
+    closing = true;
+    for (const t of timers) clearTimeout(t);
+    timers.clear();
+    await runner.close();
+  }
+
+  return { tick, settled, close: stop, running: () => running.size };
 }

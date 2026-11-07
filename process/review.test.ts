@@ -1,3 +1,4 @@
+import { ran } from "./ran.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runTests } from "../orchestrator/start.ts";
 import { review } from "./review.ts";
@@ -15,7 +16,7 @@ const done = (decision: "approve" | "tests" | "code", findings = [finding]) =>
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(runTests).mockResolvedValue({ code: 0, out: "ok" });
+  vi.mocked(runTests).mockResolvedValue(ran(0, "ok"));
 });
 
 describe("the review step's check", () => {
@@ -23,6 +24,7 @@ describe("the review step's check", () => {
     expect(await review.check(r, done("approve", []))).toEqual({
       word: "pass",
       reason: "approved",
+      ran: ran(0, "ok").check,
     });
   });
 
@@ -43,7 +45,7 @@ describe("the review step's check", () => {
   });
 
   it("retries when the tests are no longer green", async () => {
-    vi.mocked(runTests).mockResolvedValue({ code: 1, out: "AssertionError" });
+    vi.mocked(runTests).mockResolvedValue(ran(1, "AssertionError"));
     expect(await review.check(r, done("approve", []))).toMatchObject({
       word: "retry",
       reason: /not green at review/,
