@@ -12,11 +12,21 @@ import { must, type Ran, sh } from "./sh.ts";
 
 const container = (r: Run) => `assembly-${r.name}-${r.n}`;
 
-/** No network, and the host's user: every container an attempt starts, the sandbox and the test runs. */
+/**
+ * Every container an attempt starts, the sandbox and the test runs: no network, the host's user as the image's node
+ * (uid 1000), so what it writes in the worktree is the host user's, and a share of the CPU, so several run at once and
+ * the machine stays usable. The same mapping and cap as the dev containers. An image with no USER would run as root.
+ */
 export const offline = [
   "--network",
   "none",
-  "--userns=keep-id",
+  "--userns=keep-id:uid=1000,gid=1000",
+  "--user",
+  "1000:1000",
+  "-e",
+  "HOME=/home/node",
+  "--cpus=3",
+  "--cpu-shares=256",
   "--security-opt",
   "label=disable",
 ];
