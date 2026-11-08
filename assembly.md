@@ -25,6 +25,7 @@ Four layers, and `main.ts` puts them together. The engine runs the process and c
 	- a step, one per state: its agent, its result's shape, its check (`process/*.ts`, listed in `process/index.ts`)
 		- plan (the plan lints), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check reads the result and the attempt's worktree, which it asks through a port (`Worktree`: a test run, the changed files, the files there), and gives the word
+		- nail and hammer work inside their cut: the planner explored, so they do not. A step's view is its cut's files (`process/plan.ts`'s `viewOf`): its tools read those, write only the ones it changes, and to them nothing else exists. A file the cut did not give is a raise. Code its tests run can still write elsewhere, so an attempt whose worktree changed any other file is a retry (`scope_exceeds_change`), and only the change files are committed. Hammer changes no test file: none its Tests section names, and none its test command runs The cut's test command runs its new test files and the existing ones that test the code it changes
 	- the agents (`agents/`): each one's instructions are a note beside it, of assembly's type instructions, and each names a bin (plan, implement, review), never a model
 - engine, what moves it: `orchestrator/`
 	- the state: `ledger.ts`, SQLite, the only state the orchestrator holds: where each item stands, and every move, with its cause
@@ -32,7 +33,7 @@ Four layers, and `main.ts` puts them together. The engine runs the process and c
 	- the orchestrator's own moves: `advance.ts` (an approved plan's cls, each cl in turn, the merges)
 - effects, how it touches the world: `effects/`, each behind a small seam
 	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` the container · `tests.ts` a test run, in a container of its own · `runs.ts` the run folders · `sh.ts` the commands under them
-	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools/` what an agent may touch (`ls`, `read_file`, `write_file`, `edit_file`, `execute`, after LangChain's Deep Agents; the reviewers only read and run), each one exec'd into the sandbox
+	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools/` what an agent may touch, each one exec'd into the sandbox: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, after LangChain's Deep Agents, each over the run's view when it has one (`view.ts`); `test`, the cl's test command, for nail and hammer; `execute`, a shell, only for the steps with no view (the planner and the reviews, which only read)
 	- `notes.ts` the issue and cl notes · `trace.ts` the record of each attempt
 - wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The factory's command line (`just factory`) runs on it, and so does the e2e
 
@@ -87,4 +88,3 @@ Across a stop:
 - the repo's dependencies in the sandbox: it has no network, so a repo that needs packages needs an image that holds them ([[warm-image]])
 - landing an accepted issue's branch: Matt lands it
 - check reuse: check runs are recorded with their input hash, but a run is never skipped on it
-- not checked: that the hammer changed only the files the cl names

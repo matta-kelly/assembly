@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import { items, section } from "../effects/notes.ts";
+import { viewOf } from "./plan.ts";
 import type { Step, Verdict } from "./step.ts";
 
 const done = z.object({
@@ -79,6 +80,8 @@ export function judge(code: number, out: string): Verdict {
 export const nail: Step<Done> = {
   from: "ready",
   agent: "da-nail",
+  // its cut's files, and nothing else
+  view: (r, ledger) => viewOf(ledger, r),
   done,
   section: "Tests",
   render: (d) =>

@@ -11,7 +11,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { items, read } from "../effects/notes.ts";
-import type { Run, Step, Verdict, Worktree } from "./step.ts";
+import type { Run, Step, Verdict, View, Worktree } from "./step.ts";
 
 /** A name the factory can use in its branches and its containers: kebab-case. */
 export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
@@ -40,12 +40,12 @@ export const cut = z.object({
       .array(z.string())
       .min(1)
       .describe(
-        "each file the cl edits or adds, its tests too, from the repo's root",
+        "each file the cl edits or adds, from the repo's root: its new test files, and each existing test file whose expectations it changes",
       ),
     read: z
       .array(z.string())
       .describe(
-        "each file the cl must understand but not edit, from the repo's root",
+        "each file the cl must understand but not edit, from the repo's root. Its agents can reach only these and the files it changes",
       ),
   }),
   grounds: z
@@ -57,7 +57,7 @@ export const cut = z.object({
     .string()
     .min(1)
     .describe(
-      "the command that runs the cut's test files, by path, from the repo's root",
+      "the command that runs, by path, from the repo's root: its new test files, and the existing test files that test code it changes. Its agents and its checks run this and no other tests",
     ),
   traces: z
     .array(z.number().int().min(1))
@@ -114,6 +114,17 @@ export function planText(p: Plan): string {
   ].join("\n");
 }
 
+/**
+ * The files a test command names, by path: each argument after the program that is not a flag and looks like a path
+ * (a folder in it, or a file extension). `node --test test/a.test.mjs` names test/a.test.mjs.
+ */
+export function pathsIn(command: string): string[] {
+  const [, ...args] = command.trim().split(/\s+/);
+  return args.filter(
+    (a) => !a.startsWith("-") && /^[\w.@/-]+$/.test(a) && /\/|\.\w+$/.test(a),
+  );
+}
+
 /** A path from the repo's root that stays inside it. */
 const inside = (f: string) => !isAbsolute(f) && !normalize(f).startsWith("..");
 
@@ -141,6 +152,8 @@ export function lint(
       cause: "contract_invalid",
       reason: `a cl of this issue already has the name: ${taken.join(", ")}`,
     };
+  // A cut may read a file an earlier cut makes: it is there by the time the cut runs.
+  const made = new Set<string>();
   for (const c of p.cuts) {
     const outside = [...c.files.change, ...c.files.read].filter(
       (f) => !inside(f),
@@ -152,12 +165,20 @@ export function lint(
         reason: `cut ${c.name}: files outside the repo: ${outside.join(", ")}`,
       };
     const there = new Set(o.exists(c.files.read));
-    const missing = c.files.read.filter((f) => !there.has(f));
+    const missing = c.files.read.filter((f) => !there.has(f) && !made.has(f));
     if (missing.length)
       return {
         word: "retry",
         cause: "contract_invalid",
         reason: `cut ${c.name}: files to read are not in the repo: ${missing.join(", ")}`,
+      };
+    const known = new Set([...c.files.change, ...c.files.read]);
+    const unnamed = pathsIn(c.test).filter((f) => !known.has(f));
+    if (unnamed.length)
+      return {
+        word: "retry",
+        cause: "contract_invalid",
+        reason: `cut ${c.name}: its test command runs files it does not name in its files: ${unnamed.join(", ")}`,
       };
     const beyond = c.traces.filter((t) => t > o.checks);
     if (beyond.length)
@@ -166,6 +187,7 @@ export function lint(
         cause: "contract_invalid",
         reason: `cut ${c.name}: traces Check items the issue does not have: ${beyond.join(", ")}`,
       };
+    for (const f of c.files.change) made.add(f);
   }
   if (o.checks === 0)
     return {
@@ -204,6 +226,26 @@ function input(r: Run, ledger: Ledger): string {
       : []),
   ].join("\n");
 }
+
+/**
+ * A cl's cut, from its issue's plan: the plan that passed last, whose cuts are the cls in flight. A cl is named
+ * <issue>-<cut>.
+ */
+export function cutOf(ledger: Ledger, r: Pick<Run, "name" | "issue">): Cut {
+  const p = ledger.passed(r.issue, "open") as Plan | undefined;
+  const c = p?.cuts.find((x) => `${r.issue}-${x.name}` === r.name);
+  if (!c) throw new Error(`${r.name} is not a cut of ${r.issue}'s plan`);
+  return c;
+}
+
+/** What a cl's step can reach: its cut's files, to read and to change. */
+export const viewOf = (
+  ledger: Ledger,
+  r: Pick<Run, "name" | "issue">,
+): View => {
+  const { files } = cutOf(ledger, r);
+  return { read: files.read, change: files.change };
+};
 
 export const plan: Step<Plan> = {
   from: "open",

@@ -108,9 +108,18 @@ export async function merge(
   return files;
 }
 
-/** Commits what the agent left in the worktree, and moves the item's branch to it. Nothing to commit is not an error. */
-export async function commit(r: Run, message: string) {
-  await must("git", ["-C", r.work, "add", "-A"]);
+/**
+ * Commits what the agent left in the worktree, and moves the item's branch to it. Nothing to commit is not an error.
+ * With `only`, a bound step's change files, it commits those and leaves the rest, such as what a test run wrote.
+ */
+export async function commit(r: Run, message: string, only?: string[]) {
+  if (!only) await must("git", ["-C", r.work, "add", "-A"]);
+  else {
+    const keep = new Set(only);
+    const these = (await touched(r)).filter((f) => keep.has(f));
+    if (these.length)
+      await must("git", ["-C", r.work, "add", "-A", "--", ...these]);
+  }
   const staged = await sh("git", ["-C", r.work, "diff", "--cached", "--quiet"]);
   if (staged.code !== 0)
     await must("git", ["-C", r.work, "commit", "-m", message]);
@@ -141,6 +150,27 @@ export async function treeOf(r: Run): Promise<string> {
     await must("git", ["-C", r.work, "read-tree", "HEAD"], env);
     await must("git", ["-C", r.work, "add", "-A"], env);
     return (await must("git", ["-C", r.work, "write-tree"], env)).trim();
+  } finally {
+    rmSync(index, { force: true });
+  }
+}
+
+/**
+ * Every file of the worktree that differs from where its attempt started (its HEAD: an agent never commits), staged,
+ * changed, new or removed. Staged into a scratch index, so the worktree's own index is left as it is.
+ */
+export async function touched(r: Run): Promise<string[]> {
+  const index = join(r.dir, "touched.index");
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  try {
+    await must("git", ["-C", r.work, "read-tree", "HEAD"], env);
+    await must("git", ["-C", r.work, "add", "-A"], env);
+    const out = await must(
+      "git",
+      ["-C", r.work, "diff", "--cached", "--name-only", "HEAD"],
+      env,
+    );
+    return out.split("\n").filter(Boolean);
   } finally {
     rmSync(index, { force: true });
   }

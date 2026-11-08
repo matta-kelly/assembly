@@ -22,7 +22,12 @@ export const ran = (code: number, out: string): TestRun => ({
  * test runs and keeps what `changed` was asked.
  */
 export function fakeWorktree(
-  o: { test?: TestRun; changed?: string[]; files?: string[] } = {},
+  o: {
+    test?: TestRun;
+    changed?: string[];
+    files?: string[];
+    touched?: string[];
+  } = {},
 ): Worktree & { runs: number; asked: string[][] } {
   const at = {
     runs: 0,
@@ -35,6 +40,7 @@ export function fakeWorktree(
       at.asked.push(files);
       return (o.changed ?? []).filter((f) => files.includes(f));
     },
+    touched: async () => o.touched ?? o.changed ?? [],
     exists: (files: string[]) =>
       files.filter((f) => (o.files ?? []).includes(f)),
   };

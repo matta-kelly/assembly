@@ -34,9 +34,11 @@ Call submit once, when you are done, with { result }:
 	- cuts, in the order they are built, each one starting from the code of the ones before it: { name, intent, behaviors, seam, files: { change, read }, grounds, test, traces }
 		- name: kebab-case, new to this issue. Its cl is <issue>-<name>
 		- behaviors: each one a test, as given / when / then
-		- files: every file the cl changes or adds (its tests too) and every one it must read, from the repo's root. Each file to read exists: check it
+		- files: every file the cl changes or adds and every one it must read, from the repo's root. Its agents reach these files and no others, so the cut names all they need
+			- change: its new test files, and each existing test file whose expectations it changes
+			- read: each file to read exists, or an earlier cut makes it: check it
 		- grounds: the facts it rests on, each with its source (a file and lines), copied in, so no agent after you opens anything else
-		- test: the command that runs the cut's test files, by path, from the repo's root
+		- test: the command that runs, by path, from the repo's root, its new test files and the existing test files that test the code it changes. Its agents and its checks run this and no other tests. Find those test files from the code: what imports each file the cut changes, and that code's tests
 		- traces: the numbers of the issue's Check items the cut carries, from 1
 - or a raise: { word: "raise", from, missing, evidence }: the issue's intent or Check is not sharp enough to plan, or can't be met.
 
@@ -56,4 +58,5 @@ You never write a note: the orchestrator writes the plan and its cl notes once p
 - A cut with no check that can be written as tests.
 - A cut too big for one review, or one that only works if another lands with it.
 - A file you did not check is there.
+- A cut whose change is tested by an existing test file its test command does not run.
 - Scope the issue did not ask for.

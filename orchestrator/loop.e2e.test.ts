@@ -18,6 +18,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -97,6 +98,7 @@ const cut = (
   intent: string,
   behavior: string,
   traces: number[],
+  read: string[] = [],
 ) => ({
   name,
   intent,
@@ -104,7 +106,7 @@ const cut = (
   seam: `src/${name}.mjs's export, which the next cut imports`,
   files: {
     change: [`src/${name}.mjs`, `test/${name}.test.mjs`],
-    read: ["README"],
+    read: ["README", ...read],
   },
   grounds: ["README: the repo has no code yet"],
   test: `node --test test/${name}.test.mjs`,
@@ -135,6 +137,8 @@ const plannerScript = (input: string, done: number) => {
         "src/double.mjs exports double",
         "given value is 2, when double() runs, then it returns 4",
         [2],
+        // the earlier cut makes it
+        ["src/value.mjs"],
       ),
     ],
   });
@@ -190,19 +194,42 @@ const nailScript = (input: string, done: number) => {
         ? "export const double = () => 0;\n"
         : "export const value = 0;\n",
     });
-  if (done === 2)
-    return fauxToolCall("execute", {
-      command: `node --test test/${name}.test.mjs`,
-    });
+  if (done === 2) return fauxToolCall("test", {});
   return submit({
     word: "done",
     tests: [{ behavior: 1, file: `test/${name}.test.mjs`, name }],
   });
 };
 
-/** da-hammer makes its cut's test pass. */
-const hammerScript = (input: string, done: number) => {
+/** A tool result as the model got it: its text parts, joined. */
+const plain = (last: string) => {
+  try {
+    const parts = JSON.parse(last) as { text?: string }[];
+    return parts.map((p) => p.text ?? "").join("");
+  } catch {
+    return last;
+  }
+};
+
+/**
+ * What value's da-hammer saw when it reached past its cut, before it coded: a file in no cut, the root, and a write
+ * outside its change files.
+ */
+const probed: string[] = [];
+const probes = [
+  fauxToolCall("read_file", { path: "NOTES" }),
+  fauxToolCall("ls", { path: "." }),
+  fauxToolCall("write_file", { path: "src/stray.mjs", content: "x" }),
+];
+
+/** da-hammer makes its cut's test pass. value's first reaches past its cut. */
+const hammerScript = (input: string, at: number, last: string) => {
   const double = input.includes("The cut double of");
+  // a run of value's hammer starts its probes again: the last run's are the ones checked
+  if (!double && at === 0) probed.length = 0;
+  if (!double && at > 0 && at <= probes.length) probed.push(plain(last));
+  if (!double && at < probes.length) return probes[at] as Call;
+  const done = double ? at : at - probes.length;
   if (done === 0)
     return double
       ? fauxToolCall("write_file", {
@@ -294,6 +321,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       mkdirSync(repo);
       git(repo, "init", "-q", "-b", "main");
       writeFileSync(join(repo, "README"), "a repo\n");
+      // in no cut: no bound agent may see it
+      writeFileSync(join(repo, "NOTES"), "not in any cut\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "init");
       mkdirSync(join(dir, "work"));
@@ -384,6 +413,24 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         }
         // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
         await l.tick();
+
+        // value's da-hammer reached only its cut: NOTES, which is in its worktree, answered as missing; the root held
+        // only the cut's files; the write outside its change files left nothing.
+        expect(probed).toEqual([
+          "exit 1\nno such file: NOTES\n",
+          "README\nsrc/\ntest/",
+          expect.stringMatching(
+            /^src\/stray.mjs is not a file this cl changes/,
+          ),
+        ]);
+        const valueRuns = join(runs, "is", "cl", "value");
+        const works = readdirSync(valueRuns).map((n) =>
+          join(valueRuns, n, "work"),
+        );
+        expect(works.some((w) => existsSync(join(w, "NOTES")))).toBe(true);
+        expect(
+          works.filter((w) => existsSync(join(w, "src", "stray.mjs"))),
+        ).toEqual([]);
 
         // The issue went through each of its steps once, in order, and each cl through its own.
         const moves = (name: string) =>
@@ -599,6 +646,27 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           image,
           test: suite,
         });
+        // A cl comes from its issue's plan, which gives its view: the issue planned, with its one cut.
+        ledger.end(
+          "rs",
+          ledger.begin("rs"),
+          { word: "pass", reason: "the plan lints" },
+          "planned",
+          {
+            result: {
+              word: "done",
+              seams: [],
+              cuts: [
+                cut(
+                  "value",
+                  "value is 2",
+                  "given value, when read, then 2",
+                  [1],
+                ),
+              ],
+            },
+          },
+        );
         ledger.addCl(
           {
             name: "rs-value",
@@ -666,8 +734,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .filter((n) => n.startsWith("execute_tool"))
             .sort(),
         ).toEqual([
-          "execute_tool execute",
           "execute_tool submit",
+          "execute_tool test",
           "execute_tool write_file",
           "execute_tool write_file",
         ]);

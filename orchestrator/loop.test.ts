@@ -8,7 +8,7 @@ import type { Step, Verdict } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
 import { writeSection } from "../effects/notes.ts";
-import { commit, worktree } from "../effects/git.ts";
+import { commit, touched, worktree } from "../effects/git.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
 import { ran } from "../process/fake-worktree.ts";
@@ -20,6 +20,7 @@ vi.mock("../effects/git.ts", () => ({
   merge: vi.fn(),
   head: vi.fn(),
   changed: vi.fn(),
+  touched: vi.fn(),
 }));
 vi.mock("../effects/sandbox.ts", () => ({
   open: vi.fn(),
@@ -143,6 +144,53 @@ describe("an attempt", () => {
       tokens: 120,
       cost: 0.002,
     });
+  });
+
+  it("retries a bound step whose worktree changed a file outside its change files, before its check", async () => {
+    const view = { read: ["README"], change: ["src/a.ts"] };
+    vi.mocked(touched).mockResolvedValue(["src/a.ts", "src/stray.ts"]);
+    const check = vi.fn(async () => verdict);
+    await once(
+      make(gives(done("x")), { steps: [{ ...step, view: () => view, check }] }),
+    );
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "scope_exceeds_change",
+      reason: "changed files its cut does not: src/stray.ts",
+    });
+    expect(check).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("commits only a bound step's change files, and everything for a step with no view", async () => {
+    vi.mocked(touched).mockResolvedValue(["src/a.ts"]);
+    const view = { read: [], change: ["./src/a.ts"] };
+    await once(
+      make(gives(done("x")), { steps: [{ ...step, view: () => view }] }),
+    );
+    expect(vi.mocked(commit).mock.calls[0]?.[2]).toEqual(["src/a.ts"]);
+  });
+
+  it("gives the runner the step's view, and none for a step that has none", async () => {
+    const view = { read: ["README"], change: ["src/a.ts"] };
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner, { steps: [{ ...step, view: () => view }] }));
+    expect(runner.mock.calls[0]?.[2]).toMatchObject({ view });
+    ledger.addCl(
+      {
+        name: "d",
+        issue: "i",
+        seq: 2,
+        path: join(dir, "cl.md"),
+        repo: "/repo",
+        image: "img",
+        test: "t",
+      },
+      "ready",
+    );
+    const free = vi.fn<Run1>(gives(done("x")));
+    await once(make(free));
+    expect(free.mock.calls[0]?.[2]).not.toHaveProperty("view");
   });
 
   it("opens the attempt's worktree before its sandbox, read-only for a step that must not edit", async () => {

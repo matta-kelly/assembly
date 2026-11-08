@@ -23,8 +23,8 @@
 
 import { z } from "zod";
 import { existsSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
-import { changed, commit, head, worktree } from "../effects/git.ts";
+import { isAbsolute, join, normalize, posix } from "node:path";
+import { changed, commit, head, touched, worktree } from "../effects/git.ts";
 import { read, writeSection } from "../effects/notes.ts";
 import { log, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
@@ -43,6 +43,7 @@ import {
   type Step,
   type TestRun,
   type Verdict,
+  type View,
   type Worktree,
 } from "../process/step.ts";
 import { next, sendBack, type State, type Word } from "../process/table.ts";
@@ -57,14 +58,15 @@ type AnyStep = Step<{ word: "done" }>;
  * - run: one step's agent, by its name, on its input, for one attempt, gives back its output and what its model calls
  *   used. The attempt is the run: run again for an attempt it has, it goes on with that run. `retry` says the attempt
  *   is not the state's first, so a bin's fallback model takes it. It stops when `signal` aborts. A run that failed on
- *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called.
+ *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called. `view`,
+ *   a bound step's, is what its tools reach; none is the whole worktree.
  * - close: stops it, and keeps the runs still going, for the next runner on the same storage.
  */
 export interface Runner {
   run(
     agent: string,
     input: string,
-    o: { run: Run; retry: boolean; signal: AbortSignal },
+    o: { run: Run; retry: boolean; signal: AbortSignal; view?: View },
   ): Promise<{ value: unknown; usage?: Usage }>;
   close(): Promise<void>;
 }
@@ -91,6 +93,12 @@ export interface Loop {
 const raiseText = (r: Raise) =>
   `- from: ${r.from}\n- missing: ${r.missing}\n- evidence: ${r.evidence}`;
 
+/** The files the worktree changed that are not the view's change files. */
+async function outside(view: View, at: Worktree) {
+  const change = new Set(view.change.map((f) => posix.normalize(f)));
+  return (await at.touched()).filter((f) => !change.has(f));
+}
+
 /**
  * The attempt's worktree, as its step's check asks it: the test run is made once, and kept for the ledger and the
  * trace.
@@ -108,6 +116,7 @@ function worktreeOf(
         return t;
       })),
     changed: (files) => changed(r, files),
+    touched: () => touched(r),
     // A path that leaves the worktree is never in it.
     exists: (files) =>
       files.filter(
@@ -229,6 +238,7 @@ export async function loop({
     const span = ledger.span(r.name, r.n);
     try {
       const input = step.input ? step.input(r, ledger) : read(r.path);
+      const view = step.view?.(r, ledger);
       // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
       const out = await abortable(
         within(span, () =>
@@ -236,6 +246,7 @@ export async function loop({
             run: r,
             retry: ledger.attempts(r.name, state) > 1,
             signal,
+            ...(view ? { view } : {}),
           }),
         ),
         signal,
@@ -264,7 +275,15 @@ export async function loop({
         const checking = AbortSignal.any([signal, closed.signal]);
         const at = worktreeOf(r, checking);
         try {
-          v = await abortable(step.check(r, done, at), checking);
+          // A bound step changes only its cut's change files, whatever made the change: its tools, or code its tests ran.
+          const stray = view ? await outside(view, at) : [];
+          v = stray.length
+            ? {
+                word: "retry",
+                cause: "scope_exceeds_change",
+                reason: `changed files its cut does not: ${stray.join(", ")}`,
+              }
+            : await abortable(step.check(r, done, at), checking);
         } finally {
           // A test run is recorded whether its check gave a word or failed after it.
           ran = at.ran();
@@ -279,6 +298,7 @@ export async function loop({
             await commit(
               r,
               `${step.agent}(${r.name}): ${step.section.toLowerCase()}`,
+              view?.change.map((f) => posix.normalize(f)),
             );
         }
       }

@@ -8,11 +8,13 @@ import { z } from "zod";
 import { nail } from "../process/nail.ts";
 import { resultOf } from "../process/step.ts";
 import {
+  edit_file,
+  glob,
+  grep,
   ls,
   read_file,
+  test,
   write_file,
-  edit_file,
-  execute,
 } from "../effects/tools/index.ts";
 import { instructions } from "./instructions.ts";
 
@@ -21,6 +23,7 @@ export const daNail = (model: string) =>
     name: "da-nail",
     model,
     instructions: instructions("./da-nail.md", import.meta.url),
-    tools: [ls, read_file, write_file, edit_file, execute],
+    // its cut's files only, and its tests: no shell, which would reach any file
+    tools: [ls, read_file, write_file, edit_file, glob, grep, test],
     output: z.object({ result: resultOf(nail) }),
   });

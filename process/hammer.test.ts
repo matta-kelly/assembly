@@ -6,7 +6,7 @@ import { fakeWorktree, ran } from "./fake-worktree.ts";
 vi.mock("./nail.ts", () => ({ testFiles: vi.fn(() => files) }));
 
 let files: string[];
-const r = { path: "/cl.md" } as Run;
+const r = { path: "/cl.md", test: "node --test a.test.ts old.test.ts" } as Run;
 const d = { word: "done" as const, changed: ["src/a.ts"] };
 
 beforeEach(() => {
@@ -31,6 +31,15 @@ describe("the hammer step's check", () => {
     expect(at.runs).toBe(0);
   });
 
+  it("retries when an existing test file the cl's command runs was changed", async () => {
+    const at = fakeWorktree({ changed: ["old.test.ts"] });
+    expect(await hammer.check(r, d, at)).toMatchObject({
+      word: "retry",
+      cause: "scope_exceeds_change",
+      reason: /a test was changed: old.test.ts/,
+    });
+  });
+
   it("retries when the tests are still red", async () => {
     const at = fakeWorktree({ test: ran(1, "AssertionError") });
     expect(await hammer.check(r, d, at)).toMatchObject({
@@ -45,7 +54,7 @@ describe("the hammer step's check", () => {
       word: "pass",
       reason: "green",
     });
-    expect(at.asked).toEqual([["a.test.ts"]]);
+    expect(at.asked).toEqual([["a.test.ts", "old.test.ts"]]);
     expect(at.runs).toBe(1);
   });
 });

@@ -6,7 +6,7 @@
  * Each attempt is one run, its id the attempt's (`<item>/<n>`), so the same attempt taken up again is the same run: it
  * goes on from where it stopped, with the model and context it started with. `modelFor` picks the run's model: on the
  * bins, their default, and their fallback on a retry. The run's context is the attempt, so its tools exec into that attempt's
- * sandbox. Its usage is summed for the ledger. que-pasa traces the run itself, with its messages, under the attempt's
+ * sandbox, and a bound step's view, the files its tools reach. Its usage is summed for the ledger. que-pasa traces the run itself, with its messages, under the attempt's
  * span (trace.ts).
  */
 
@@ -62,7 +62,7 @@ export async function quePasa(
   const run: Runner["run"] = async (
     name,
     input,
-    { run: attempt, retry, signal },
+    { run: attempt, retry, signal, view },
   ) => {
     const agent = built.get(name);
     if (!agent) throw new Error(`no agent ${name}`);
@@ -73,7 +73,8 @@ export async function quePasa(
         runId: `${attempt.name}/${attempt.n}`,
         caller: { id: "assembly" },
         model,
-        context: { run: attempt },
+        // A run taken up after a stop keeps the context it started with: its view too.
+        context: view ? { run: attempt, view } : { run: attempt },
         signal,
         onUsage: (u) => (usage = total(u)),
       });

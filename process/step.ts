@@ -65,10 +65,12 @@ export interface TestRun {
  * - test: runs the item's test command, once: asked again, it gives back the same run
  * - changed: which of `files` differ from the item's branch, committed or not
  * - exists: which of `files` are in the worktree
+ * - touched: every file that differs from where the attempt started, new and removed ones too
  */
 export interface Worktree {
   test(): Promise<TestRun>;
   changed(files: string[]): Promise<string[]>;
+  touched(): Promise<string[]>;
   exists(files: string[]): string[];
 }
 
@@ -105,6 +107,12 @@ export type Run = {
   work: string; // the worktree, mounted at /work in the attempt's sandbox
 };
 
+/**
+ * What a bound step's agent can reach in the worktree: its cut's files, from the repo's root. It reads `read` and
+ * `change`, and writes `change`; to it, nothing else in the worktree exists. Plain JSON: it is part of a run's context.
+ */
+export type View = { read: string[]; change: string[] };
+
 export interface Step<D extends { word: "done" }> {
   from: State;
   agent: string; // the agent's name, in agents/
@@ -117,6 +125,11 @@ export interface Step<D extends { word: "done" }> {
   input?(run: Run, ledger: Ledger): string;
   /** What a done result writes, once its check passes or sends it back: its section of the item's note when left out. */
   write?(run: Run, d: D, v: Verdict): void;
+  /**
+   * What its agent can reach: its cut's files. Left out, the agent sees the whole worktree, as a step that explores
+   * does (the planner) or judges (the reviews).
+   */
+  view?(run: Run, ledger: Ledger): View;
   /** The runs this step judges, as the item and the step each passed: its trace links to them. A review has them. */
   judges?(run: Run, ledger: Ledger): { name: string; step: State }[];
 }

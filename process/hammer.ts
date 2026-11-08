@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import { testFiles } from "./nail.ts";
+import { pathsIn, viewOf } from "./plan.ts";
 import type { Step, Verdict, Worktree } from "./step.ts";
 
 const done = z.object({
@@ -36,6 +37,8 @@ export async function green(at: Worktree): Promise<Verdict> {
 export const hammer: Step<Done> = {
   from: "red",
   agent: "da-hammer",
+  // its cut's files, and nothing else
+  view: (r, ledger) => viewOf(ledger, r),
   done,
   section: "Code",
   render: (d) =>
@@ -44,8 +47,9 @@ export const hammer: Step<Done> = {
       ...(d.notes ? ["", d.notes] : []),
     ].join("\n"),
   async check(r, _d, at) {
-    const tests = testFiles(r.path);
-    if (!tests.length)
+    // The tests: da-nail's, and every test file the cl's test command runs, the existing ones too.
+    const tests = [...new Set([...testFiles(r.path), ...pathsIn(r.test)])];
+    if (!testFiles(r.path).length)
       return {
         word: "retry",
         cause: "contract_invalid",
