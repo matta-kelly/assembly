@@ -23,5 +23,7 @@ export default defineSchema({
   imports: [it],
   typeNotes: new URL("./types/", import.meta.url),
   notes: new URL("./", import.meta.url),
+  // The README is for GitHub, with no frontmatter: not a note.
+  skip: (path) => path === "README.md",
   exports: () => import("./schema.ts"),
 });
