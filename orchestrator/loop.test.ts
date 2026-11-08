@@ -129,6 +129,7 @@ describe("an attempt", () => {
       cl,
       expect.objectContaining({
         run: expect.objectContaining({ name: "c", n: 1 }),
+        readOnly: false,
       }),
     );
     expect(close).toHaveBeenCalledOnce();
@@ -191,6 +192,12 @@ describe("an attempt", () => {
     const free = vi.fn<Run1>(gives(done("x")));
     await once(make(free));
     expect(free.mock.calls[0]?.[2]).not.toHaveProperty("view");
+  });
+
+  it("tells the runner a step that must not edit is read-only, as its sandbox is", async () => {
+    const ro = vi.fn<Run1>(gives(done("x")));
+    await once(make(ro, { steps: [{ ...step, worktree: "ro" }] }));
+    expect(ro.mock.calls[0]?.[2]).toMatchObject({ readOnly: true });
   });
 
   it("opens the attempt's worktree before its sandbox, read-only for a step that must not edit", async () => {
@@ -326,6 +333,17 @@ describe("an attempt", () => {
     });
     expect(runner).not.toHaveBeenCalled();
   });
+
+  it("ends the attempt when its sandbox neither opens nor is removed", async () => {
+    vi.mocked(open).mockRejectedValue(new Error("podman is gone"));
+    vi.mocked(close).mockRejectedValue(new Error("podman is gone"));
+    await once(make(gives(done("x"))));
+    expect(last()).toMatchObject({
+      word: "retry",
+      reason: expect.stringMatching(/did not open: podman is gone/),
+    });
+    expect(ledger.open()).toEqual([]);
+  });
 });
 
 describe("a retry", () => {
@@ -344,8 +362,9 @@ describe("the tick", () => {
     const n = ledger.begin("c");
     const run = vi.fn<Run1>(gives(done("- b1: a.test.ts")));
     await once(make(run));
-    // Its sandbox comes up before the runner opens, and again when it is taken up.
-    expect(open).toHaveBeenCalledTimes(2);
+    // Its worktree is there before the runner opens, and its sandbox comes up when it is taken up.
+    expect(worktree).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenCalledOnce();
     expect(run).toHaveBeenCalledWith(
       "fake",
       cl,

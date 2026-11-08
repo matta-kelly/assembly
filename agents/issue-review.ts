@@ -6,7 +6,7 @@ import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { accept } from "../process/accept.ts";
 import { resultOf } from "../process/step.ts";
-import { execute, ls, read_file } from "../effects/tools/index.ts";
+import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 
 export const issueReviewer = (model: string) =>
@@ -14,6 +14,6 @@ export const issueReviewer = (model: string) =>
     name: "issue-review",
     model,
     instructions: instructions("./issue-review.md", import.meta.url),
-    tools: [ls, read_file, execute],
+    tools: [...readTools, execute],
     output: z.object({ result: resultOf(accept) }),
   });

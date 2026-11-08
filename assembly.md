@@ -32,8 +32,8 @@ Four layers, and `main.ts` puts them together. The engine runs the process and c
 	- the tick: `loop.ts`. It starts attempts, up to `concurrent` at once, the open ones first. It answers each check's worktree, and records its test run
 	- the orchestrator's own moves: `advance.ts` (an approved plan's cls, each cl in turn, the merges)
 - effects, how it touches the world: `effects/`, each behind a small seam
-	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` the container · `tests.ts` a test run, in a container of its own · `runs.ts` the run folders · `sh.ts` the commands under them
-	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools/` what an agent may touch, each one exec'd into the sandbox: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, after LangChain's Deep Agents, each over the run's view when it has one (`view.ts`); `test`, the cl's test command, for nail and hammer; `execute`, a shell, only for the steps with no view (the planner and the reviews, which only read)
+	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` what each container is given (que-pasa's `podman()` makes it) · `tests.ts` a test run, in a container of its own · `runs.ts` the run folders · `sh.ts` the commands under them
+	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools.ts` the run's context, and `test`, the cl's test command, for nail and hammer. Every other tool is que-pasa's, after LangChain's Deep Agents, in the sandbox the runner provides each run: `ls`, `read_file`, `glob`, `grep` for every agent; `write_file`, `edit_file` for nail and hammer, over que-pasa's `view` of their cut's files; `execute`, a shell, only for the steps with no view (the planner and the reviews, which only read)
 	- `notes.ts` the issue and cl notes · `trace.ts` the record of each attempt
 - wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
 - its ways in: `cli/`, the factory's command line, one module per command, on what `compose` builds (`just factory`)
@@ -44,7 +44,7 @@ The chart of the path and its words is drawn with pele, from `process/table.ts` 
 
 One step on one item: its run, its sandbox and its worktree are its own, and it lives until it ends.
 - begin: the ledger opens it, with its trace's ids
-- sandbox: a container with no network, the worktree mounted (read-only for a review). The agent's loop runs in the orchestrator and holds the key; its tools exec into the sandbox (LangChain's "sandbox as tool")
+- sandbox: a container with no network, the worktree mounted (read-only for a review). The agent's loop runs in the orchestrator and holds the key; its tools work in the sandbox (LangChain's "sandbox as tool"), which comes up on their first call
 - run: que-pasa's, with the attempt's id, under the attempt's span, on the bin's model
 - check: the step's, on the worktree; its test run in a container of its own
 - write and commit: a pass or a send-back writes its section of the note, and a step that edits commits, which moves the item's branch
@@ -53,7 +53,7 @@ One step on one item: its run, its sandbox and its worktree are its own, and it 
 Across a stop:
 - a stopped orchestrator ends nothing: each attempt stays open, and its container, which outlives the orchestrator, stays up
 - the next one takes each open attempt up: its sandbox again (kept, started again, or run again on the same worktree), and its run goes on from where it stopped, with no model call redone
-- a tool call a crash cut off runs again only if twice is the same as once (`ls`, `read_file`, `write_file`). For the others the model gets `interrupted`
+- a tool call a crash cut off runs again only if twice is the same as once (`ls`, `read_file`, `write_file`, `glob`, `grep`). For the others (`edit_file`, `execute`, `test`) the model gets `interrupted`
 - the time limit is per process
 
 ## Seams
@@ -68,7 +68,7 @@ Across a stop:
 
 - the ledger (`ledger.db`): items; attempts (state, word, reason, cause, duration, tokens in, out and cached, cost, the result, trace ids, times taken up); events, one per move, with their cause; each cl's planned and actual paths; check runs (command, image, tree, input hash, exit code, duration)
 - pi's store (`pi.db`, beside the ledger): que-pasa's runs, so a run goes on after a stop
-- run folders, by issue: `runs/<issue>/issue/<n>/` and `runs/<issue>/cl/<cut>/<n>/`, each with the attempt's worktree, its log (each tool call), and its trace
+- run folders, by issue: `runs/<issue>/issue/<n>/` and `runs/<issue>/cl/<cut>/<n>/`, each with the attempt's worktree, its log (the orchestrator's own lines, such as a take-up), and its trace, which holds each tool call
 - the trace (`trace.jsonl`): each attempt as one OpenTelemetry trace, OTLP JSON, semconv 1.43.0
 	- the attempt span is the root: what only assembly knows (issue, cl, attempt, step, word, cause, cost, the end commit, the sandbox's image and its id), and links to the attempts a review judged. Its ids are made at begin, and it is written at end, so a stop cannot lose it
 	- que-pasa's spans under it, live, in the GenAI conventions: an invoke_agent span per process that worked on the run (a resumed one is marked), a chat span per model call, an execute_tool span per tool call, with the messages

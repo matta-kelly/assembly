@@ -1,14 +1,15 @@
 /**
  * The loop: it moves issues and their cls through their steps. The agents' loops run here, in the orchestrator, and
- * hold the key; each attempt's sandbox is a container its tools exec into (effects/sandbox.ts).
+ * hold the key; each attempt's sandbox is a container its tools work in (effects/sandbox.ts).
  *
  * An attempt lives until it ends, whatever happens to the process that runs it. Its run is que-pasa's, durable, with
  * the attempt's id; its sandbox and worktree are its own, and a container outlives the orchestrator. So a stopped
  * orchestrator leaves its attempts open in the ledger, and the next one takes each one up: its sandbox again, and its
  * run goes on from where it stopped. A taken-up attempt goes the same way as a new one.
  *
- * Opening the loop opens the sandboxes of the open attempts first, then the runner: que-pasa's runtime goes on with
- * their runs at once, and their tools need their sandboxes. Each tick then does two things:
+ * Opening the loop makes the worktrees of the open attempts first, then opens the runner: que-pasa's runtime goes on
+ * with their runs at once, and their sandboxes, which come up on a tool's first call, mount those worktrees. Each tick
+ * then does two things:
  * - it makes the orchestrator's own moves (advance.ts): an approved plan's cls, each cl in turn, the merges.
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
  *   then a new one for each item waiting in a state that has a step. It does not wait for one: the run goes on as a
@@ -59,14 +60,20 @@ type AnyStep = Step<{ word: "done" }>;
  *   used. The attempt is the run: run again for an attempt it has, it goes on with that run. `retry` says the attempt
  *   is not the state's first, so a bin's fallback model takes it. It stops when `signal` aborts. A run that failed on
  *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called. `view`,
- *   a bound step's, is what its tools reach; none is the whole worktree.
+ *   a bound step's, is what its tools reach; none is the whole worktree. `readOnly`: its worktree is mounted read-only.
  * - close: stops it, and keeps the runs still going, for the next runner on the same storage.
  */
 export interface Runner {
   run(
     agent: string,
     input: string,
-    o: { run: Run; retry: boolean; signal: AbortSignal; view?: View },
+    o: {
+      run: Run;
+      retry: boolean;
+      signal: AbortSignal;
+      view?: View;
+      readOnly: boolean;
+    },
   ): Promise<{ value: unknown; usage?: Usage }>;
   close(): Promise<void>;
 }
@@ -84,7 +91,7 @@ export class RunFailed extends Error {
 export interface Loop {
   ledger: Ledger;
   steps: AnyStep[];
-  runner: () => Promise<Runner>; // opened once the open attempts' sandboxes are up
+  runner: () => Promise<Runner>; // opened once the open attempts' worktrees are there
   runs: string; // where run folders go
   concurrent?: number; // attempts at once, at most
   timeoutMs?: number; // the most one attempt may take
@@ -246,6 +253,7 @@ export async function loop({
             run: r,
             retry: ledger.attempts(r.name, state) > 1,
             signal,
+            readOnly: step.worktree === "ro",
             ...(view ? { view } : {}),
           }),
         ),
@@ -348,7 +356,12 @@ export async function loop({
       await worktree(r);
       await open(r, { readOnly: step.worktree === "ro" });
     } catch (e) {
-      await close(r);
+      // the same fault may stop the remove too: the attempt ends all the same
+      try {
+        await close(r);
+      } catch {
+        // left for podman to remove
+      }
       end(r, state, {
         word: "retry",
         reason: `the sandbox did not open: ${(e as Error).message.slice(0, 400)}`,
@@ -401,15 +414,12 @@ export async function loop({
     }
   }
 
-  // The open attempts' sandboxes come up before the runner: it goes on with their runs as it opens. One that does not
-  // open now is tried again when its attempt is taken up, which ends it if it still does not.
+  // The open attempts' worktrees are there before the runner: it goes on with their runs as it opens, and their
+  // sandboxes mount them. One whose worktree or sandbox can't be had is ended when its attempt is taken up.
   for (const a of left()) {
-    const step = stepAt(a.step);
-    if (!step) continue;
+    if (!stepAt(a.step)) continue;
     try {
-      const r = runOf(ledger.item(a.name), a.n, runs);
-      await worktree(r);
-      await open(r, { readOnly: step.worktree === "ro" });
+      await worktree(runOf(ledger.item(a.name), a.n, runs));
     } catch {
       // taken up, and ended, at the first tick
     }

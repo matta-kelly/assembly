@@ -7,15 +7,8 @@ import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { hammer } from "../process/hammer.ts";
 import { resultOf } from "../process/step.ts";
-import {
-  edit_file,
-  glob,
-  grep,
-  ls,
-  read_file,
-  test,
-  write_file,
-} from "../effects/tools/index.ts";
+import { fileTools } from "@mku1tra/que-pasa/sandbox";
+import { test } from "../effects/tools.ts";
 import { instructions } from "./instructions.ts";
 
 export const daHammer = (model: string) =>
@@ -24,6 +17,6 @@ export const daHammer = (model: string) =>
     model,
     instructions: instructions("./da-hammer.md", import.meta.url),
     // its cut's files only, and its tests: no shell, which would reach any file
-    tools: [ls, read_file, write_file, edit_file, glob, grep, test],
+    tools: [...fileTools, test],
     output: z.object({ result: resultOf(hammer) }),
   });

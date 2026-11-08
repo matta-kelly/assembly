@@ -8,7 +8,7 @@ import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { review } from "../process/review.ts";
 import { resultOf } from "../process/step.ts";
-import { ls, read_file, execute } from "../effects/tools/index.ts";
+import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 
 export const clReview = (model: string) =>
@@ -16,6 +16,6 @@ export const clReview = (model: string) =>
     name: "cl-review",
     model,
     instructions: instructions("./cl-review.md", import.meta.url),
-    tools: [ls, read_file, execute],
+    tools: [...readTools, execute],
     output: z.object({ result: resultOf(review) }),
   });

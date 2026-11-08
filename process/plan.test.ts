@@ -38,9 +38,12 @@ describe("plan lint", () => {
     ).toMatch(/already has the name: one/);
   });
 
-  it("retries a file outside the repo, and a file to read that is not there", () => {
+  it("retries a file outside the repo, the repo's root, and a file to read that is not there", () => {
     expect(lint(plan(cut("one", [1, 2], ["../etc/passwd"])), o).reason).toMatch(
       /outside the repo/,
+    );
+    expect(lint(plan(cut("one", [1, 2], ["./"])), o).reason).toMatch(
+      /or its root: \.\//,
     );
     expect(lint(plan(cut("one", [1, 2], ["src/gone.ts"])), o).reason).toMatch(
       /not in the repo: src\/gone.ts/,

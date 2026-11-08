@@ -6,7 +6,7 @@ import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { planReview } from "../process/plan-review.ts";
 import { resultOf } from "../process/step.ts";
-import { execute, ls, read_file } from "../effects/tools/index.ts";
+import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 
 export const planReviewer = (model: string) =>
@@ -14,6 +14,6 @@ export const planReviewer = (model: string) =>
     name: "plan-review",
     model,
     instructions: instructions("./plan-review.md", import.meta.url),
-    tools: [ls, read_file, execute],
+    tools: [...readTools, execute],
     output: z.object({ result: resultOf(planReview) }),
   });

@@ -175,7 +175,7 @@ const nailScript = (input: string, done: number) => {
   const name = double ? "double" : "value";
   if (done === 0)
     return fauxToolCall("write_file", {
-      path: `test/${name}.test.mjs`,
+      file_path: `test/${name}.test.mjs`,
       content: double
         ? testOf(
             "double",
@@ -190,7 +190,7 @@ const nailScript = (input: string, done: number) => {
     });
   if (done === 1)
     return fauxToolCall("write_file", {
-      path: `src/${name}.mjs`,
+      file_path: `src/${name}.mjs`,
       content: double
         ? "export const double = () => 0;\n"
         : "export const value = 0;\n",
@@ -218,9 +218,9 @@ const plain = (last: string) => {
  */
 const probed: string[] = [];
 const probes = [
-  fauxToolCall("read_file", { path: "NOTES" }),
+  fauxToolCall("read_file", { file_path: "NOTES" }),
   fauxToolCall("ls", { path: "." }),
-  fauxToolCall("write_file", { path: "src/stray.mjs", content: "x" }),
+  fauxToolCall("write_file", { file_path: "src/stray.mjs", content: "x" }),
 ];
 
 /** da-hammer makes its cut's test pass. value's first reaches past its cut. */
@@ -234,14 +234,14 @@ const hammerScript = (input: string, at: number, last: string) => {
   if (done === 0)
     return double
       ? fauxToolCall("write_file", {
-          path: "src/double.mjs",
+          file_path: "src/double.mjs",
           content:
             'import { value } from "./value.mjs";\n\nexport const double = () => value * 2;\n',
         })
       : fauxToolCall("edit_file", {
-          path: "src/value.mjs",
-          old: "value = 0",
-          new: "value = 2",
+          file_path: "src/value.mjs",
+          old_string: "value = 0",
+          new_string: "value = 2",
         });
   return submit({
     word: "done",
@@ -418,10 +418,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // value's da-hammer reached only its cut: NOTES, which is in its worktree, answered as missing; the root held
         // only the cut's files; the write outside its change files left nothing.
         expect(probed).toEqual([
-          "exit 1\nno such file: NOTES\n",
+          "Error: File 'NOTES' not found",
           "README\nsrc/\ntest/",
           expect.stringMatching(
-            /^src\/stray.mjs is not a file this cl changes/,
+            /^Error: permission denied for write on src\/stray.mjs/,
           ),
         ]);
         const valueRuns = join(runs, "is", "cl", "value");
@@ -497,13 +497,17 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // Every trial is under its issue: the issue's own attempts, and each cl's.
         for (const n of [1, 2, 3])
           expect(existsSync(join(runs, "is", "issue", String(n)))).toBe(true);
+        // Each tool call is in its attempt's trace, not its log.
         for (const cl of ["value", "double"])
           expect(
-            readFileSync(join(runs, "is", "cl", cl, "1", "log"), "utf8"),
-          ).toMatch(/^write_file /m);
+            traceIn(join(runs, "is", "cl", cl, "1")).spans.map((x) => x.name),
+          ).toContain("execute_tool write_file");
+        // the acceptance review ran the suite itself
         expect(
-          readFileSync(join(runs, "is", "issue", "3", "log"), "utf8"),
-        ).toMatch(/^execute .*node --test/m);
+          traceIn(join(runs, "is", "issue", "3"))
+            .spans.filter((x) => x.name === "execute_tool execute")
+            .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
+        ).toContainEqual(expect.stringMatching(/node --test/));
 
         // The planner's raise is counted as the issue's missing context, and each cl's planned and merged files are
         // the context hit rate's two sides.

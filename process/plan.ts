@@ -362,7 +362,11 @@ export function pathsIn(command: string): string[] {
 }
 
 /** A path from the repo's root that stays inside it. */
-const inside = (f: string) => !isAbsolute(f) && !normalize(f).startsWith("..");
+/** A file in the repo, from its root: not the root itself, nor outside it. */
+const inside = (f: string) => {
+  const n = normalize(f).replace(/\/+$/, "");
+  return !isAbsolute(f) && n !== "." && !n.startsWith("..");
+};
 
 /**
  * The part of plan lint that holds for any plan, the factory's or one made outside it: its cuts' names are its own and
@@ -428,7 +432,7 @@ function cutsLint(
       return {
         word: "retry",
         cause: "contract_invalid",
-        reason: `cut ${c.name}: files outside the repo: ${outside.join(", ")}`,
+        reason: `cut ${c.name}: files outside the repo, or its root: ${outside.join(", ")}`,
       };
     const there = new Set(o.exists(c.files.read));
     const missing = c.files.read.filter((f) => !there.has(f) && !made.has(f));

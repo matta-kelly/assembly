@@ -1,6 +1,6 @@
 /**
  * Run folders: each attempt's files, under its issue, so every trial of an issue is in one place. An attempt's folder
- * holds its worktree, its log (each tool call) and its trace.
+ * holds its worktree, its log (the orchestrator's own lines) and its trace (each tool call).
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
