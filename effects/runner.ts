@@ -12,8 +12,8 @@
 
 import type { Models } from "@earendil-works/pi-ai";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import type { Agent } from "que-pasa/define";
-import { openRuntime, type RunUsage } from "que-pasa/loop";
+import type { Agent } from "@mku1tra/que-pasa/define";
+import { openRuntime, type RunUsage } from "@mku1tra/que-pasa/loop";
 import type { z } from "zod";
 import type { Context } from "./tools/index.ts";
 import type { Usage } from "../orchestrator/ledger.ts";

@@ -5,8 +5,8 @@
  */
 
 import { MemoryStorage } from "@earendil-works/pi-durable";
-import { defineAgent } from "que-pasa/define";
-import { openRuntime } from "que-pasa/loop";
+import { defineAgent } from "@mku1tra/que-pasa/define";
+import { openRuntime } from "@mku1tra/que-pasa/loop";
 import { z } from "zod";
 import { bins, models } from "../effects/models.ts";
 import { total } from "../effects/runner.ts";

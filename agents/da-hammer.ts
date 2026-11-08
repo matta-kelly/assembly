@@ -3,7 +3,7 @@
  * refactor on green. It never changes a test. Its instructions are its note, da-hammer.md, ported from loke's da-hammer skill, cut to what holds in the factory.
  */
 
-import { defineAgent } from "que-pasa/define";
+import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { hammer } from "../process/hammer.ts";
 import { resultOf } from "../process/step.ts";

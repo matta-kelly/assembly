@@ -17,7 +17,7 @@
  */
 
 import { posix } from "node:path";
-import { defineTool, type Runtime } from "que-pasa/define";
+import { defineTool, type Runtime } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import type { Run, View } from "../../process/step.ts";
 import { log } from "../runs.ts";

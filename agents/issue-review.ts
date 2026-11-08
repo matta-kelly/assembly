@@ -2,7 +2,7 @@
  * issue-review: the agent of the accept step, an issue from built to accepted. It judges whether the merged cls meet the issue. Its instructions are its note, issue-review.md. It reads the repo, read-only: no tool of its can write.
  */
 
-import { defineAgent } from "que-pasa/define";
+import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { accept } from "../process/accept.ts";
 import { resultOf } from "../process/step.ts";

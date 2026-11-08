@@ -2,7 +2,7 @@
  * plan-review: the agent of the plan review step, an issue from planned to building. It judges whether the plan's cuts meet the issue. Its instructions are its note, plan-review.md. It reads the repo, read-only: no tool of its can write.
  */
 
-import { defineAgent } from "que-pasa/define";
+import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { planReview } from "../process/plan-review.ts";
 import { resultOf } from "../process/step.ts";

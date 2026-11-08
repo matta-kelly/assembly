@@ -3,7 +3,7 @@
  * failing at its assertion. Its instructions are its note, da-nail.md, ported from loke's da-nail skill, cut to what holds in the factory.
  */
 
-import { defineAgent } from "que-pasa/define";
+import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { nail } from "../process/nail.ts";
 import { resultOf } from "../process/step.ts";

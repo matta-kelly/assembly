@@ -4,7 +4,7 @@
  * holds in the factory.
  */
 
-import { defineAgent } from "que-pasa/define";
+import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { review } from "../process/review.ts";
 import { resultOf } from "../process/step.ts";

@@ -57,7 +57,7 @@ Across a stop:
 
 ## Seams
 
-- que-pasa, the harness: assembly gives it agents, tools, a model and a context (the attempt) per run; it gives back the result and the usage, keeps the run across a stop, and traces it. A `file:` dependency on `../que-pasa`, copied in (`install-links`); `just que-pasa` builds and copies it again
+- que-pasa, the harness: assembly gives it agents, tools, a model and a context (the attempt) per run; it gives back the result and the usage, keeps the run across a stop, and traces it. A published package, `@mku1tra/que-pasa` on npm, by version range: a new que-pasa reaches assembly when its range moves
 - kinetic, the work: the issue and cl notes and their types. Kinetic lints them where they live, and assembly reads and writes them by path
 - evals: the traces and the ledger, read later; scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, comes from the vault (`secrets.toml`, through rbw-run) into the orchestrator's environment only, never a sandbox. `just smoke-model` makes one real call per model the bins name
@@ -78,7 +78,6 @@ Across a stop:
 - the whole machine, an issue from open to accepted, proven end to end on scripted models, and an attempt taken up after a stop (`just e2e`)
 - the factory's command line, `just factory`: `add` an issue by its note, `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
 - the gate: `just check` lints every note against its type, then checks the code: types, eslint, prettier, and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
-- only on this machine: the pipeline cannot install que-pasa until it is published
 
 ## Not built
 

@@ -2,7 +2,7 @@
  * planner: the agent of the plan step, an issue from open to planned. It cuts the issue into cls along seams named from the code. Its instructions are its note, planner.md. It reads the repo, read-only: no tool of its can write.
  */
 
-import { defineAgent } from "que-pasa/define";
+import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { plan } from "../process/plan.ts";
 import { resultOf } from "../process/step.ts";
