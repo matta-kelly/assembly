@@ -31,7 +31,7 @@ smoke-model:
 
 # Its home is on the host, at the same path, and so is lot, where the issue notes and the repos are. Only `run` gets
 # the model key, from the vault (secrets.toml, through rbw-run).
-# The factory's command line (main.ts), in the orchestrator's image: `just factory status`
+# The factory's command line (cli/), in the orchestrator's image: `just factory status`
 factory +args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -41,7 +41,7 @@ factory +args:
     just _node true
     key=()
     [ "$1" = run ] && key=(rbw-run -f "{{root}}/secrets.toml" --)
-    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e ASSEMBLY_HOME="$home" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/main.ts" "$@"
+    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e ASSEMBLY_HOME="$home" -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/cli/index.ts" "$@"
 
 # Run a command in the Node image: `just run npm install zod`
 run +command:

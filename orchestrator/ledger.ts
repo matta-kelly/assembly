@@ -89,7 +89,11 @@ export function open(file: string) {
   const db = new DatabaseSync(file);
   db.exec(tables);
 
+  // A write inside another write joins its transaction, so a write made of others is still one.
+  let depth = 0;
   function tx<T>(f: () => T): T {
+    if (depth) return f();
+    depth++;
     db.exec("BEGIN");
     try {
       const r = f();
@@ -98,6 +102,8 @@ export function open(file: string) {
     } catch (e) {
       db.exec("ROLLBACK");
       throw e;
+    } finally {
+      depth--;
     }
   }
 
@@ -143,6 +149,9 @@ export function open(file: string) {
         event(i.name, null, "new", null, "open", "added");
       });
     },
+
+    /** Runs `f` as one transaction: the ledger's writes inside it are all made, or none. */
+    transaction: <T>(f: () => T): T => tx(f),
 
     /** Adds a cl of an issue, at `state`: ready, or waiting for the cl before it. */
     addCl(i: Omit<Item, "kind" | "state">, state: State) {

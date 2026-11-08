@@ -151,6 +151,16 @@ describe("advance", () => {
     expect(read("is-double")).toMatch(/status: dropped/);
   });
 
+  it("sends the issue back to the planner when its last cl raises, not on as built", async () => {
+    await advance(ledger);
+    ledger.move([{ name: "is-value", to: "approved", reason: "test" }]);
+    await advance(ledger);
+    await advance(ledger);
+    ledger.move([{ name: "is-double", to: "raised", reason: "test" }]);
+    await advance(ledger);
+    expect(state("is")).toBe("open");
+  });
+
   it("hands a cl's raise over once: the raising cl is dropped, so the next plan builds", async () => {
     await advance(ledger);
     ledger.move([{ name: "is-value", to: "raised", reason: "test" }]);

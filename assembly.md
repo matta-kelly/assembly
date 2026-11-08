@@ -35,7 +35,8 @@ Four layers, and `main.ts` puts them together. The engine runs the process and c
 	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` the container · `tests.ts` a test run, in a container of its own · `runs.ts` the run folders · `sh.ts` the commands under them
 	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools/` what an agent may touch, each one exec'd into the sandbox: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, after LangChain's Deep Agents, each over the run's view when it has one (`view.ts`); `test`, the cl's test command, for nail and hammer; `execute`, a shell, only for the steps with no view (the planner and the reviews, which only read)
 	- `notes.ts` the issue and cl notes · `trace.ts` the record of each attempt
-- wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The factory's command line (`just factory`) runs on it, and so does the e2e
+- wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
+- its ways in: `cli/`, the factory's command line, one module per command, on what `compose` builds (`just factory`)
 
 The chart of the path and its words is drawn with pele, from `process/table.ts` and `orchestrator/advance.ts`.
 
@@ -76,7 +77,7 @@ Across a stop:
 ## Built
 
 - the whole machine, an issue from open to accepted, proven end to end on scripted models, and an attempt taken up after a stop (`just e2e`)
-- the factory's command line, `just factory`: `add` an issue by its note, `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
+- the factory's command line, `just factory`: `add` an issue by its note; `add-plan` a plan made outside the factory (a kinetic plan and its cl notes, each with its test command in its Files), whose cls enter ready and waiting, so only the inner loop and acceptance run them, writing into those notes. Its notes are checked as the factory's own plan is (the cut schema, plan lint), and a raise or a send-back on it goes to Matt, escalated, never to the factory's planner; `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
 - the gate: `just check` lints every note against its type, then checks the code: types, eslint, prettier, and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
 
 ## Not built
@@ -84,6 +85,7 @@ Across a stop:
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
 - the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default
-- the repo's dependencies in the sandbox: it has no network, so a repo that needs packages needs an image that holds them ([[warm-image]])
+- the repo's dependencies in the sandbox: it has no network, so a repo that needs packages needs an image that holds them ([[warm-image]]), and an attempt that starts on it with an offline install
+- a plan's cls in parallel, or a plan across repos: a plan's cls run one at a time, in one repo
 - landing an accepted issue's branch: Matt lands it
 - check reuse: check runs are recorded with their input hash, but a run is never skipped on it

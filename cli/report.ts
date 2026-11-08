@@ -1,0 +1,70 @@
+/** The factory's reports, each a read of the ledger: status, blocked and explain. */
+
+import { runOf } from "../effects/runs.ts";
+import { traceFile } from "../effects/trace.ts";
+import type { Ledger } from "../orchestrator/ledger.ts";
+
+const money = (n: number) => `$${n.toFixed(4)}`;
+
+/** Each issue and its state, its cls under it, the attempts open now, and what the factory has spent. */
+export function status(ledger: Ledger): string[] {
+  const open = ledger.open();
+  return [
+    ...ledger
+      .items()
+      .filter((i) => i.kind === "issue")
+      .flatMap((i) => [
+        `${i.name}  ${i.state}`,
+        ...ledger.cls(i.name).map((c) => `  ${c.name}  ${c.state}`),
+      ]),
+    "",
+    `open attempts: ${open.length ? open.map((a) => `${a.name}/${a.n} (${a.step})`).join(", ") : "none"}`,
+    `spent: ${money(ledger.spent())}`,
+  ];
+}
+
+/** The items that wait for Matt: each one raised or escalated, with the reason of its last move. */
+export function blocked(ledger: Ledger): string[] {
+  const stuck = ledger
+    .items()
+    .filter((i) => i.state === "raised" || i.state === "escalated");
+  if (!stuck.length) return ["nothing is blocked"];
+  return stuck.map((i) => {
+    const last = ledger.events(i.name).at(-1) as
+      { reason: string | null; cause: string | null } | undefined;
+    const cause = last?.cause ? ` [${last.cause}]` : "";
+    return `${i.name}  ${i.state}${cause}: ${last?.reason ?? ""}`;
+  });
+}
+
+/** An item's whole record: its moves, and each attempt with what it did, what it cost and where its trace is. */
+export function explain(ledger: Ledger, runs: string, name: string): string[] {
+  const item = ledger.item(name);
+  const moves = ledger.events(name) as {
+    n: number | null;
+    from_state: string;
+    word: string | null;
+    to_state: string;
+    at: string;
+    reason: string | null;
+    cause: string | null;
+  }[];
+  return [
+    `${item.name} (${item.kind}${item.kind === "cl" ? ` of ${item.issue}` : ""})  ${item.state}`,
+    `note: ${item.path}`,
+    "",
+    "moves:",
+    ...moves.map(
+      (e) =>
+        `  ${e.at}  ${e.from_state} -${e.word ?? "add"}-> ${e.to_state}${e.cause ? ` [${e.cause}]` : ""}: ${e.reason ?? ""}`,
+    ),
+    "",
+    "attempts:",
+    ...ledger
+      .attemptsOf(name)
+      .flatMap((a) => [
+        `  ${a.n}  ${a.step}  ${a.ended ? `${a.word}${a.cause ? ` [${a.cause}]` : ""}: ${a.reason ?? ""}` : "open"}${a.cost !== null ? `  ${money(a.cost)}` : ""}${a.resumed ? `  taken up ${a.resumed}x` : ""}`,
+        `     trace: ${traceFile(runOf(item, a.n, runs))}`,
+      ]),
+  ];
+}

@@ -6,11 +6,19 @@
  * - an approved cl is merged into its issue's branch
  * - an issue whose cls are all merged is built, and its acceptance starts
  * - a cl that raised sends its issue back to the planner, with the raise in the issue's note; its cls not merged are
- *   dropped. A cl escalated escalates its issue
+ *   dropped. A cl escalated escalates its issue. An issue whose plan was made outside the factory (admit) goes to
+ *   Matt instead of the planner, on a raise or a send-back, escalated
  * - an accepted issue's notes are done
  */
 
-import { type Cut, clPath, type Plan, planPath } from "../process/plan.ts";
+import {
+  type Cut,
+  clPath,
+  madeOutside,
+  type Outside,
+  type Plan,
+  planPath,
+} from "../process/plan.ts";
 import type { Item, Ledger } from "./ledger.ts";
 import {
   items,
@@ -111,19 +119,11 @@ function build(ledger: Ledger, issue: Item, p: Plan) {
     planNote(issue, p),
     true,
   );
-  const names = new Set(p.cuts.map((c) => `${issue.name}-${c.name}`));
-  const had = ledger.cls(issue.name);
-  // This plan's cls come after every cl of the plans before it.
-  const seq = Math.max(
-    0,
-    ...had.filter((c) => !names.has(c.name)).map((c) => c.seq),
-  );
+  const had = new Set(ledger.cls(issue.name).map((c) => c.name));
   p.cuts.forEach((c, i) => {
-    const name = `${issue.name}-${c.name}`;
-    if (had.some((h) => h.name === name)) return;
-    const path = clPath(issue.path, issue.name, c.name);
+    if (had.has(`${issue.name}-${c.name}`)) return;
     writeNote(
-      path,
+      clPath(issue.path, issue.name, c.name),
       {
         type: "cl",
         description: `The cut ${c.name} of ${issue.name}: ${c.intent} The whole input of the cl that builds it.`,
@@ -137,12 +137,34 @@ function build(ledger: Ledger, issue: Item, p: Plan) {
       ),
       true,
     );
+  });
+  addCls(ledger, issue, p);
+  // The raise and the plan review it answered are closed: the plan that answers them is active.
+  removeSection(issue.path, "Raise");
+  setStatus(issue.path, "in-progress");
+}
+
+/**
+ * Puts a plan's cls in the ledger, at their notes beside the issue's: the first ready and the rest waiting, after
+ * every cl of the plans before it, each with its planned paths. A cl the ledger has already is left as it is.
+ */
+function addCls(ledger: Ledger, issue: Item, p: Plan) {
+  const names = new Set(p.cuts.map((c) => `${issue.name}-${c.name}`));
+  const had = ledger.cls(issue.name);
+  // This plan's cls come after every cl of the plans before it.
+  const seq = Math.max(
+    0,
+    ...had.filter((c) => !names.has(c.name)).map((c) => c.seq),
+  );
+  p.cuts.forEach((c, i) => {
+    const name = `${issue.name}-${c.name}`;
+    if (had.some((h) => h.name === name)) return;
     ledger.addCl(
       {
         name,
         issue: issue.name,
         seq: seq + i + 1,
-        path,
+        path: clPath(issue.path, issue.name, c.name),
         repo: issue.repo,
         image: issue.image,
         test: c.test,
@@ -151,9 +173,36 @@ function build(ledger: Ledger, issue: Item, p: Plan) {
     );
     ledger.paths(name, "planned", c.files.change);
   });
-  // The raise and the plan review it answered are closed: the plan that answers them is active.
-  removeSection(issue.path, "Raise");
-  setStatus(issue.path, "in-progress");
+}
+
+/**
+ * Admits a plan made and reviewed outside the factory, in one transaction: its issue, the plan as its open step's
+ * passed result, moved to building, and its cls, at their own notes, which the factory then writes its steps'
+ * sections into and never writes over.
+ */
+export function admit(
+  ledger: Ledger,
+  issue: Pick<Item, "name" | "path" | "repo" | "image" | "test">,
+  p: Outside,
+) {
+  ledger.transaction(() => {
+    ledger.addIssue(issue);
+    ledger.end(
+      issue.name,
+      ledger.begin(issue.name),
+      { word: "pass", reason: "planned outside the factory" },
+      "planned",
+      { result: p },
+    );
+    ledger.move([
+      {
+        name: issue.name,
+        to: "building",
+        reason: "its plan was reviewed outside the factory",
+      },
+    ]);
+    addCls(ledger, ledger.item(issue.name), p);
+  });
 }
 
 const live = (c: Item) => c.state !== "dropped" && c.state !== "raised";
@@ -186,7 +235,8 @@ export async function advance(ledger: Ledger) {
         cls.some((i) => i.name === `${issue.name}-${c.name}`),
       );
       if (!added) build(ledger, issue, p);
-      else if (!cls.some((c) => live(c) && c.state !== "merged"))
+      // Built once every cl is merged or dropped: a raised one is still the plan's, until its raise is handled.
+      else if (!cls.some((c) => c.state !== "merged" && c.state !== "dropped"))
         ledger.move([
           { name: issue.name, to: "built", reason: "its cls are all merged" },
         ]);
@@ -228,6 +278,17 @@ export async function advance(ledger: Ledger) {
       "Raise",
       `- from: ${cl.name}\n${section(cl.path, "Raise").trim()}`,
     );
+    // A plan made outside the factory is Matt's to answer: the issue is escalated to him, with its cls as they are.
+    if (madeOutside(ledger, issue.name)) {
+      ledger.move([
+        {
+          name: issue.name,
+          to: "escalated",
+          reason: `${cl.name} raised, and its plan was made outside the factory: Matt answers it`,
+        },
+      ]);
+      continue;
+    }
     const rest = ledger
       .cls(issue.name)
       .filter((c) => c.name !== cl.name && live(c) && c.state !== "merged");
@@ -264,6 +325,18 @@ export async function advance(ledger: Ledger) {
         },
       ]);
   }
+
+  // An issue sent back to the planner whose plan was made outside the factory goes to Matt, who made it.
+  for (const issue of ledger.inState("open"))
+    if (madeOutside(ledger, issue.name))
+      ledger.move([
+        {
+          name: issue.name,
+          to: "escalated",
+          reason:
+            "sent back to its plan, which was made outside the factory: Matt replans it",
+        },
+      ]);
 
   for (const issue of ledger.inState("accepted")) {
     if (read(issue.path).match(/^status: done$/m)) continue;

@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import { items, read } from "../effects/notes.ts";
+import { items, itemsIn, read, sectionIn } from "../effects/notes.ts";
 import type { Run, Step, Verdict, View, Worktree } from "./step.ts";
 
 /** A name the factory can use in its branches and its containers: kebab-case. */
@@ -92,6 +92,150 @@ export const planPath = (issuePath: string, issue: string) =>
 export const clPath = (issuePath: string, issue: string, cut: string) =>
   join(dirname(issuePath), `${issue}-${cut}.md`);
 
+/** A plan made outside the factory, as the ledger holds it: so its issue goes back to Matt, never to the planner. */
+export type Outside = Plan & { outside: true };
+
+/** Whether the issue's plan was made outside the factory: its answer to a raise is Matt's, not the planner's. */
+export const madeOutside = (ledger: Ledger, issue: string) =>
+  (ledger.passed(issue, "open") as Partial<Outside> | undefined)?.outside ===
+  true;
+
+/**
+ * A plan made outside the factory, from its kinetic notes, read and checked for what only the notes can say: the plan
+ * note is `<issue>-plan.md` and active, its issue's note is beside it, and its cls (each link under Phases, in order)
+ * are notes beside it, named `<issue>-<cut>`, not done or dropped, each a cut the factory's own planner could have
+ * made (its intent, Check, Seam, Files and test), all in one repo. Gives back the plan, its issue and its repo, or
+ * each reason it can't. `home` is what a repo's `~` is. What the repo must hold is plan lint's (`lintCuts`).
+ */
+export function readPlan(
+  planNote: string,
+  home: string,
+):
+  | {
+      ok: true;
+      issue: { name: string; path: string };
+      repo: string;
+      plan: Outside;
+    }
+  | { ok: false; errors: string[] } {
+  const text = read(planNote);
+  if (!text) return { ok: false, errors: [`no plan note at ${planNote}`] };
+  const issueName = /^belongsTo:\s*"?\[\[([^\]|#]+)/m.exec(text)?.[1];
+  if (!issueName)
+    return { ok: false, errors: [`${planNote}: no issue in its belongsTo`] };
+  const errors: string[] = [];
+  const dir = dirname(planNote);
+  const issuePath = join(dir, `${issueName}.md`);
+  if (!kebab.test(issueName))
+    errors.push(`${issueName}: an issue's name is kebab-case`);
+  if (planNote !== planPath(issuePath, issueName))
+    errors.push(
+      `${planNote}: an issue's plan is ${issueName}-plan.md, beside it`,
+    );
+  if (!/^status: active$/m.test(text))
+    errors.push(
+      `${planNote}: the plan is not active: plan-review has not passed it`,
+    );
+  if (!existsSync(issuePath)) errors.push(`no issue note at ${issuePath}`);
+  const names = [
+    ...sectionIn(text, "Phases").matchAll(/^- \[\[([^\]|#]+)\]\]/gm),
+  ].map((m) => m[1] ?? "");
+  if (!names.length) errors.push(`${planNote}: no cls under Phases`);
+  const twice = names.filter((n, k) => names.indexOf(n) !== k);
+  if (twice.length)
+    errors.push(`linked twice under Phases: ${[...new Set(twice)].join(", ")}`);
+  const cuts: Cut[] = [];
+  const repos = new Set<string>();
+  for (const name of new Set(names)) {
+    const doc = read(join(dir, `${name}.md`));
+    if (!doc) {
+      errors.push(`no cl note at ${join(dir, `${name}.md`)}`);
+      continue;
+    }
+    if (!name.startsWith(`${issueName}-`)) {
+      errors.push(`${name}: a cl of ${issueName} is named ${issueName}-<cut>`);
+      continue;
+    }
+    if (/^status: (done|dropped)$/m.test(doc))
+      errors.push(`${name}: it is done or dropped already`);
+    const f = filesOf(doc, home);
+    if (f.repo) repos.add(f.repo);
+    else errors.push(`${name}: its Files names no repo by an absolute path`);
+    const c = cut.omit({ traces: true }).safeParse({
+      name: name.slice(issueName.length + 1),
+      intent: firstLine(doc),
+      behaviors: itemsIn(doc, "Check").map((x) => x.slice(2)),
+      seam: sectionIn(doc, "Seam").trim(),
+      files: { change: f.change, read: f.read },
+      grounds: itemsIn(doc, "Grounds").map((x) => x.slice(2)),
+      test: f.test,
+    });
+    if (!c.success)
+      errors.push(
+        `${name}: not a cut: ${c.error.issues.map((x) => `${x.path.join(".") || "it"} ${x.message}`).join("; ")}`,
+      );
+    else cuts.push({ ...c.data, traces: [] });
+  }
+  if (repos.size > 1)
+    errors.push(`its cls are in more than one repo: ${[...repos].join(", ")}`);
+  if (errors.length) return { ok: false, errors };
+  return {
+    ok: true,
+    issue: { name: issueName, path: issuePath },
+    repo: [...repos][0] as string,
+    plan: { word: "done", seams: [], cuts, outside: true },
+  };
+}
+
+/** A note's first line after its frontmatter: a cl's intent. */
+const firstLine = (doc: string) =>
+  doc
+    .replace(/^---\n[\s\S]*?\n---\n/, "")
+    .split("\n")
+    .find((l) => l.trim())
+    ?.trim() ?? "";
+
+/**
+ * A cl note's Files, as kinetic's cl type writes them: `- repo:` (an absolute path, or one from `~`, which is `home`),
+ * `- change` and `- read` (their paths inline, or one per item under them), and `- test:`. A path is the first
+ * backticked text of its item, with no `:line` or `:from-to`.
+ */
+function filesOf(doc: string, home: string) {
+  const out = {
+    repo: "",
+    change: [] as string[],
+    read: [] as string[],
+    test: "",
+  };
+  const clean = (p: string) => p.replace(/:\d+(-\d+)?$/, "");
+  const ticks = (t: string) =>
+    [...t.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? "");
+  let key = "";
+  for (const line of sectionIn(doc, "Files").split("\n")) {
+    const top = /^- (\w+)(?::\s*(.*))?$/.exec(line);
+    if (top) {
+      key = top[1] ?? "";
+      const rest = top[2] ?? "";
+      if (key === "repo") {
+        const raw = (ticks(rest)[0] ?? rest.split(/[\s,]/)[0] ?? "").replace(
+          /^~(?=\/|$)/,
+          home,
+        );
+        out.repo = isAbsolute(raw) ? normalize(raw).replace(/\/+$/, "") : "";
+      } else if (key === "test") out.test = ticks(rest)[0] ?? "";
+      else if (key === "change" || key === "read")
+        out[key].push(...ticks(rest).map(clean));
+      continue;
+    }
+    const child = /^(?:\t| {2})- (.*)$/.exec(line);
+    if (child && (key === "change" || key === "read")) {
+      const first = ticks(child[1] ?? "")[0];
+      if (first) out[key].push(clean(first));
+    }
+  }
+  return out;
+}
+
 /** The plan as text, for a review to read. */
 export function planText(p: Plan): string {
   return [
@@ -128,7 +272,19 @@ export function pathsIn(command: string): string[] {
 /** A path from the repo's root that stays inside it. */
 const inside = (f: string) => !isAbsolute(f) && !normalize(f).startsWith("..");
 
-/** Plan lint: what can be decided about a plan without judgment. */
+/**
+ * The part of plan lint that holds for any plan, the factory's or one made outside it: its cuts' names are its own and
+ * new, their files are inside the repo, a file to read is there (or an earlier cut makes it), and a cut's test
+ * command runs only files the cut names.
+ */
+export function lintCuts(
+  p: Pick<Plan, "cuts">,
+  o: { exists: Worktree["exists"]; taken: (cut: string) => boolean },
+): Verdict {
+  return cutsLint(p, o);
+}
+
+/** Plan lint: what can be decided about a plan without judgment. Its cuts' part, then the trace to the issue's Check. */
 export function lint(
   p: Plan,
   o: {
@@ -136,6 +292,24 @@ export function lint(
     exists: Worktree["exists"];
     taken: (cut: string) => boolean;
   },
+): Verdict {
+  const cuts = cutsLint(p, o);
+  if (cuts.word !== "pass") return cuts;
+  for (const c of p.cuts) {
+    const beyond = c.traces.filter((t) => t > o.checks);
+    if (beyond.length)
+      return {
+        word: "retry",
+        cause: "contract_invalid",
+        reason: `cut ${c.name}: traces Check items the issue does not have: ${beyond.join(", ")}`,
+      };
+  }
+  return traceLint(p, o.checks);
+}
+
+function cutsLint(
+  p: Pick<Plan, "cuts">,
+  o: { exists: Worktree["exists"]; taken: (cut: string) => boolean },
 ): Verdict {
   const names = p.cuts.map((c) => c.name);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
@@ -180,15 +354,14 @@ export function lint(
         cause: "contract_invalid",
         reason: `cut ${c.name}: its test command runs files it does not name in its files: ${unnamed.join(", ")}`,
       };
-    const beyond = c.traces.filter((t) => t > o.checks);
-    if (beyond.length)
-      return {
-        word: "retry",
-        cause: "contract_invalid",
-        reason: `cut ${c.name}: traces Check items the issue does not have: ${beyond.join(", ")}`,
-      };
     for (const f of c.files.change) made.add(f);
   }
+  return { word: "pass", reason: "its cuts lint" };
+}
+
+/** Each of the issue's Check items is carried by a cut. */
+function traceLint(p: Plan, checks: number): Verdict {
+  const o = { checks };
   if (o.checks === 0)
     return {
       word: "retry",

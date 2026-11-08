@@ -40,6 +40,7 @@ import { issueReviewer } from "../agents/issue-review.ts";
 import { planReviewer } from "../agents/plan-review.ts";
 import { planner } from "../agents/planner.ts";
 import { compose } from "../main.ts";
+import { admit } from "./advance.ts";
 import { nail } from "../process/nail.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
@@ -639,45 +640,23 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           timeoutMs: 120_000,
         });
         const ledger = f.ledger;
-        ledger.addIssue({
-          name: "rs",
-          path: join(at, "work", "rs.md"),
-          repo,
-          image,
-          test: suite,
-        });
-        // A cl comes from its issue's plan, which gives its view: the issue planned, with its one cut.
-        ledger.end(
-          "rs",
-          ledger.begin("rs"),
-          { word: "pass", reason: "the plan lints" },
-          "planned",
-          {
-            result: {
-              word: "done",
-              seams: [],
-              cuts: [
-                cut(
-                  "value",
-                  "value is 2",
-                  "given value, when read, then 2",
-                  [1],
-                ),
-              ],
-            },
-          },
+        // A cl enters as add-plan enters it: its issue's plan, made outside the factory, gives its view.
+        const value = cut(
+          "value",
+          "value is 2",
+          "given value, when read, then 2",
+          [1],
         );
-        ledger.addCl(
+        admit(
+          ledger,
           {
-            name: "rs-value",
-            issue: "rs",
-            seq: 1,
-            path: clPath,
+            name: "rs",
+            path: join(at, "work", "rs.md"),
             repo,
             image,
-            test: "node --test test/value.test.mjs",
+            test: suite,
           },
-          "ready",
+          { word: "done", seams: [], cuts: [value], outside: true },
         );
         const sandbox = () =>
           execFileSync(

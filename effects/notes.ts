@@ -36,15 +36,22 @@ export function removeSection(path: string, heading: string) {
 }
 
 /** The text of a note's `## <heading>` section, or "" when it has none. */
-export function section(path: string, heading: string): string {
-  const parts = readFileSync(path, "utf8").split(/^## /m);
-  const s = parts.find((p) => p.startsWith(`${heading}\n`));
+export const section = (path: string, heading: string): string =>
+  sectionIn(readFileSync(path, "utf8"), heading);
+
+/** The top-level items of a note's `## <heading>` list. */
+export const items = (path: string, heading: string): string[] =>
+  itemsIn(readFileSync(path, "utf8"), heading);
+
+/** The text of `## <heading>` in a note's text, or "" when it has none: for a note read once. */
+export function sectionIn(doc: string, heading: string): string {
+  const s = doc.split(/^## /m).find((p) => p.startsWith(`${heading}\n`));
   return s ? s.slice(heading.length + 1) : "";
 }
 
-/** The top-level items of a note's `## <heading>` list. */
-export function items(path: string, heading: string): string[] {
-  return section(path, heading)
+/** The top-level items of `## <heading>`'s list in a note's text. */
+export function itemsIn(doc: string, heading: string): string[] {
+  return sectionIn(doc, heading)
     .split("\n")
     .filter((line) => line.startsWith("- "));
 }
