@@ -640,7 +640,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           timeoutMs: 120_000,
         });
         const ledger = f.ledger;
-        // A cl enters as add-plan enters it: its issue's plan, made outside the factory, gives its view.
+        // A cl enters as add enters a plan: its issue's plan, made outside the factory, gives its view.
         const value = cut(
           "value",
           "value is 2",

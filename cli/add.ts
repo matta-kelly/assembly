@@ -1,37 +1,67 @@
 /**
- * What enters the factory: add, an issue for its planner; add-plan, a plan made outside it, whose cls go straight to
- * the inner loop. Each checks its input whole before it writes, so a refusal leaves the ledger as it was.
+ * What enters the factory: add <note.md>, by the note's kinetic type. An issue enters at open, for the factory's
+ * planner. A plan made outside the factory, or the lone cl of an issue that takes one, enters with its cls ready and
+ * waiting, so only the inner loop and acceptance run them. Each is checked whole before anything is written, so a
+ * refusal leaves the ledger as it was.
  */
 
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { Built } from "../main.ts";
 import { admit } from "../orchestrator/advance.ts";
-import { kebab, lintCuts, readPlan } from "../process/plan.ts";
+import { read } from "../effects/notes.ts";
+import {
+  kebab,
+  lintCuts,
+  type Read,
+  readCl,
+  readPlan,
+  typeOf,
+} from "../process/plan.ts";
 
 /** What a command gives back: an exit code, and the lines it prints (to stderr when it refuses). */
 export type Done = { code: number; lines: string[] };
 
 const refused = (...lines: string[]): Done => ({ code: 1, lines });
+const misused = (line: string): Done => ({ code: 2, lines: [line] });
 
-/** The issue's own parts, for either: the image its attempts run on, and the full suite acceptance runs. */
-export interface IssueRun {
+/**
+ * What add is given: the issue's image, which its attempts run on, and its full suite, which acceptance runs; the repo,
+ * for an issue only (a cl's is in its Files); and what a repo's `~` is.
+ */
+export interface Options {
   image: string;
   test: string;
+  repo?: string | undefined;
+  home: string;
 }
 
-/** add <issue.md> --repo --image --test: an issue at open, which the factory's planner plans. */
-export function add(
-  f: () => Built,
-  note: string,
-  o: IssueRun & { repo: string },
-): Done {
+/** add <note.md>: an issue, a plan or a lone cl, by its note's type. */
+export function add(f: () => Built, note: string, o: Options): Done {
   const path = resolve(note);
+  const doc = read(path);
+  if (!doc)
+    return refused(
+      existsSync(path) ? `${path} is empty` : `no note at ${path}`,
+    );
+  const type = typeOf(doc);
+  if (type === "issue") return addIssue(f, path, o);
+  if (type !== "plan" && type !== "cl")
+    return refused(
+      `${path}: its type is ${type || "not set"}: add takes an issue, a plan or a cl`,
+    );
+  if (o.repo !== undefined)
+    return misused(`--repo is an issue's: a ${type}'s repo is in its Files`);
+  return addCuts(f, (type === "plan" ? readPlan : readCl)(path, o.home), o);
+}
+
+/** An issue at open, which the factory's planner plans. */
+function addIssue(f: () => Built, path: string, o: Options): Done {
+  if (!o.repo) return misused("an issue needs --repo");
   const name = basename(path, ".md");
   const repo = resolve(o.repo);
   if (!kebab.test(name))
     return refused(`${name}: an issue's name is kebab-case, from its note`);
-  if (!existsSync(path)) return refused(`no issue note at ${path}`);
   if (!existsSync(join(repo, ".git")))
     return refused(`${repo} is not a git repo`);
   const b = f();
@@ -42,18 +72,12 @@ export function add(
 }
 
 /**
- * add-plan <plan.md> --image --test: a kinetic plan and its cl notes, made and reviewed outside the factory. Its issue
- * enters at building and its cls at ready and waiting, so only the inner loop and acceptance run them. Its notes are
- * read whole (readPlan), and its cuts linted against the repo as the factory's own planner's are (lintCuts).
+ * Cuts made and reviewed outside the factory: their issue enters at building and its cls at ready and waiting. Read
+ * whole from their notes (readPlan, readCl), and linted against the repo as the factory's own planner's are (lintCuts).
  */
-export function addPlan(
-  f: () => Built,
-  note: string,
-  o: IssueRun & { home: string },
-): Done {
-  const read = readPlan(resolve(note), o.home);
-  if (!read.ok) return refused(...read.errors);
-  const { issue, repo, plan } = read;
+function addCuts(f: () => Built, got: Read, o: Options): Done {
+  if (!got.ok) return refused(...got.errors);
+  const { issue, repo, plan } = got;
   if (!existsSync(join(repo, ".git")))
     return refused(`${repo} is not a git repo`);
   const b = f();
@@ -65,10 +89,11 @@ export function addPlan(
   if (lint.word !== "pass") return refused(lint.reason);
   if (has(issue.name)) return refused(`${issue.name} is in the ledger already`);
   admit(b.ledger, { ...issue, repo, image: o.image, test: o.test }, plan);
+  const n = plan.cuts.length;
   return {
     code: 0,
     lines: [
-      `added ${issue.name}, building, with ${plan.cuts.length} cls:`,
+      `added ${issue.name}, building, with ${n} ${n === 1 ? "cl" : "cls"}:`,
       ...plan.cuts.map(
         (c, i) => `  ${issue.name}-${c.name}  ${i === 0 ? "ready" : "waiting"}`,
       ),

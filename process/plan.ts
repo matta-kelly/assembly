@@ -7,10 +7,10 @@
  */
 
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import { items, itemsIn, read, sectionIn } from "../effects/notes.ts";
+import { field, items, itemsIn, read, sectionIn } from "../effects/notes.ts";
 import type { Run, Step, Verdict, View, Worktree } from "./step.ts";
 
 /** A name the factory can use in its branches and its containers: kebab-case. */
@@ -92,51 +92,146 @@ export const planPath = (issuePath: string, issue: string) =>
 export const clPath = (issuePath: string, issue: string, cut: string) =>
   join(dirname(issuePath), `${issue}-${cut}.md`);
 
-/** A plan made outside the factory, as the ledger holds it: so its issue goes back to Matt, never to the planner. */
-export type Outside = Plan & { outside: true };
+/**
+ * A plan made outside the factory, as the ledger holds it: so its issue goes back to Matt, never to the planner.
+ * `alone`: the lone cl of an issue that takes one, which has no plan note.
+ */
+export type Outside = Plan & { outside: true; alone?: true };
+
+/** Whether the issue has a plan note: every plan does but a lone cl's. */
+export const hasPlanNote = (ledger: Ledger, issue: string) =>
+  (ledger.passed(issue, "open") as Partial<Outside> | undefined)?.alone !==
+  true;
 
 /** Whether the issue's plan was made outside the factory: its answer to a raise is Matt's, not the planner's. */
 export const madeOutside = (ledger: Ledger, issue: string) =>
   (ledger.passed(issue, "open") as Partial<Outside> | undefined)?.outside ===
   true;
 
-/**
- * A plan made outside the factory, from its kinetic notes, read and checked for what only the notes can say: the plan
- * note is `<issue>-plan.md` and active, its issue's note is beside it, and its cls (each link under Phases, in order)
- * are notes beside it, named `<issue>-<cut>`, not done or dropped, each a cut the factory's own planner could have
- * made (its intent, Check, Seam, Files and test), all in one repo. Gives back the plan, its issue and its repo, or
- * each reason it can't. `home` is what a repo's `~` is. What the repo must hold is plan lint's (`lintCuts`).
- */
-export function readPlan(
-  planNote: string,
-  home: string,
-):
+/** A note's kinetic type, from its frontmatter: issue, plan, cl, and the rest. Empty when it has none. */
+export const typeOf = (doc: string) => field(doc, "type");
+
+/** What a reading of notes made outside the factory gives back: a plan, its issue and its repo, or each reason it can't. */
+export type Read =
   | {
       ok: true;
       issue: { name: string; path: string };
       repo: string;
       plan: Outside;
     }
-  | { ok: false; errors: string[] } {
+  | { ok: false; errors: string[] };
+
+/** The issue a plan or a lone cl belongs to, in `dir`: a kebab-case name, and an issue note there. */
+function issueIn(dir: string, name: string, errors: string[]) {
+  const path = join(dir, `${name}.md`);
+  if (!kebab.test(name)) errors.push(`${name}: an issue's name is kebab-case`);
+  const doc = read(path);
+  if (!doc) errors.push(`no issue note at ${path}`);
+  else if (typeOf(doc) !== "issue")
+    errors.push(
+      `${path}: not an issue note: its type is ${typeOf(doc) || "not set"}`,
+    );
+  return path;
+}
+
+/**
+ * One cl note in `dir`, as a cut of `issue`: named `<issue>-<cut>`, not done or dropped, and a cut the factory's own
+ * planner could have made (its intent, Check, Seam, Files and test), with its repo from its Files.
+ */
+function clIn(
+  dir: string,
+  name: string,
+  issue: string,
+  home: string,
+): { cut?: Cut; repo: string; errors: string[] } {
+  const path = join(dir, `${name}.md`);
+  const doc = read(path);
+  if (!doc) return { repo: "", errors: [`no cl note at ${path}`] };
+  if (!name.startsWith(`${issue}-`))
+    return {
+      repo: "",
+      errors: [`${name}: a cl of ${issue} is named ${issue}-<cut>`],
+    };
+  const errors: string[] = [];
+  if (["done", "dropped"].includes(field(doc, "status")))
+    errors.push(`${name}: it is done or dropped already`);
+  const f = filesOf(doc, home);
+  if (!f.repo)
+    errors.push(`${name}: its Files names no repo by an absolute path`);
+  const c = cut.omit({ traces: true }).safeParse({
+    name: name.slice(issue.length + 1),
+    intent: firstLine(doc),
+    behaviors: itemsIn(doc, "Check").map((x) => x.slice(2)),
+    seam: sectionIn(doc, "Seam").trim(),
+    files: { change: f.change, read: f.read },
+    grounds: itemsIn(doc, "Grounds").map((x) => x.slice(2)),
+    test: f.test,
+  });
+  if (!c.success)
+    errors.push(
+      `${name}: not a cut: ${c.error.issues.map((x) => `${x.path.join(".") || "it"} ${x.message}`).join("; ")}`,
+    );
+  return {
+    ...(c.success && !errors.length ? { cut: { ...c.data, traces: [] } } : {}),
+    repo: f.repo,
+    errors,
+  };
+}
+
+/** The plan its cl notes make, once each is read whole: its cuts, all in one repo. */
+function readCuts(
+  issue: { name: string; path: string },
+  cls: ReturnType<typeof clIn>[],
+  errors: string[],
+  alone = false,
+): Read {
+  const cuts: Cut[] = [];
+  const repos = new Set<string>();
+  for (const r of cls) {
+    if (r.cut) cuts.push(r.cut);
+    if (r.repo) repos.add(r.repo);
+    errors.push(...r.errors);
+  }
+  if (repos.size > 1)
+    errors.push(`its cls are in more than one repo: ${[...repos].join(", ")}`);
+  if (errors.length) return { ok: false, errors };
+  return {
+    ok: true,
+    issue,
+    repo: [...repos][0] as string,
+    plan: {
+      word: "done",
+      seams: [],
+      cuts,
+      outside: true,
+      ...(alone ? { alone: true as const } : {}),
+    },
+  };
+}
+
+/**
+ * A plan made outside the factory, from its kinetic notes, read and checked for what only the notes can say: the plan
+ * note is `<issue>-plan.md` and active, its issue's note is beside it, and its cls (each link under Phases, in order)
+ * are notes beside it, each read as clIn reads it. `home` is what a repo's `~` is. What the repo must hold is plan
+ * lint's (`lintCuts`).
+ */
+export function readPlan(planNote: string, home: string): Read {
   const text = read(planNote);
   if (!text) return { ok: false, errors: [`no plan note at ${planNote}`] };
-  const issueName = /^belongsTo:\s*"?\[\[([^\]|#]+)/m.exec(text)?.[1];
+  const issueName = field(text, "belongsTo");
   if (!issueName)
     return { ok: false, errors: [`${planNote}: no issue in its belongsTo`] };
   const errors: string[] = [];
   const dir = dirname(planNote);
-  const issuePath = join(dir, `${issueName}.md`);
-  if (!kebab.test(issueName))
-    errors.push(`${issueName}: an issue's name is kebab-case`);
+  const issuePath = issueIn(dir, issueName, errors);
   if (planNote !== planPath(issuePath, issueName))
     errors.push(
       `${planNote}: an issue's plan is ${issueName}-plan.md, beside it`,
     );
-  if (!/^status: active$/m.test(text))
+  if (field(text, "status") !== "active")
     errors.push(
       `${planNote}: the plan is not active: plan-review has not passed it`,
     );
-  if (!existsSync(issuePath)) errors.push(`no issue note at ${issuePath}`);
   const names = [
     ...sectionIn(text, "Phases").matchAll(/^- \[\[([^\]|#]+)\]\]/gm),
   ].map((m) => m[1] ?? "");
@@ -144,47 +239,44 @@ export function readPlan(
   const twice = names.filter((n, k) => names.indexOf(n) !== k);
   if (twice.length)
     errors.push(`linked twice under Phases: ${[...new Set(twice)].join(", ")}`);
-  const cuts: Cut[] = [];
-  const repos = new Set<string>();
-  for (const name of new Set(names)) {
-    const doc = read(join(dir, `${name}.md`));
-    if (!doc) {
-      errors.push(`no cl note at ${join(dir, `${name}.md`)}`);
-      continue;
-    }
-    if (!name.startsWith(`${issueName}-`)) {
-      errors.push(`${name}: a cl of ${issueName} is named ${issueName}-<cut>`);
-      continue;
-    }
-    if (/^status: (done|dropped)$/m.test(doc))
-      errors.push(`${name}: it is done or dropped already`);
-    const f = filesOf(doc, home);
-    if (f.repo) repos.add(f.repo);
-    else errors.push(`${name}: its Files names no repo by an absolute path`);
-    const c = cut.omit({ traces: true }).safeParse({
-      name: name.slice(issueName.length + 1),
-      intent: firstLine(doc),
-      behaviors: itemsIn(doc, "Check").map((x) => x.slice(2)),
-      seam: sectionIn(doc, "Seam").trim(),
-      files: { change: f.change, read: f.read },
-      grounds: itemsIn(doc, "Grounds").map((x) => x.slice(2)),
-      test: f.test,
-    });
-    if (!c.success)
-      errors.push(
-        `${name}: not a cut: ${c.error.issues.map((x) => `${x.path.join(".") || "it"} ${x.message}`).join("; ")}`,
-      );
-    else cuts.push({ ...c.data, traces: [] });
-  }
-  if (repos.size > 1)
-    errors.push(`its cls are in more than one repo: ${[...repos].join(", ")}`);
-  if (errors.length) return { ok: false, errors };
-  return {
-    ok: true,
-    issue: { name: issueName, path: issuePath },
-    repo: [...repos][0] as string,
-    plan: { word: "done", seams: [], cuts, outside: true },
-  };
+  return readCuts(
+    { name: issueName, path: issuePath },
+    [...new Set(names)].map((n) => clIn(dir, n, issueName, home)),
+    errors,
+  );
+}
+
+/**
+ * A cl made outside the factory with no plan: the one cl of an issue that takes one ([[cl]]), which `belongsTo` the
+ * issue, beside it. Read as a plan of one cut, so it enters as a plan's cls do. A cl that belongs to a plan is read
+ * with its plan, which holds its order and the cls beside it.
+ */
+export function readCl(clNote: string, home: string): Read {
+  const text = read(clNote);
+  if (!text) return { ok: false, errors: [`no cl note at ${clNote}`] };
+  const to = field(text, "belongsTo");
+  if (!to)
+    return { ok: false, errors: [`${clNote}: no issue in its belongsTo`] };
+  const dir = dirname(clNote);
+  if (typeOf(read(join(dir, `${to}.md`))) === "plan")
+    return {
+      ok: false,
+      errors: [
+        `${clNote}: a cut of ${to}: add the plan, which holds its order`,
+      ],
+    };
+  const errors: string[] = [];
+  const issuePath = issueIn(dir, to, errors);
+  if (existsSync(planPath(issuePath, to)))
+    errors.push(
+      `${to} has a plan, ${planPath(issuePath, to)}: add the plan, which holds its cls`,
+    );
+  return readCuts(
+    { name: to, path: issuePath },
+    [clIn(dir, basename(clNote, ".md"), to, home)],
+    errors,
+    true,
+  );
 }
 
 /** A note's first line after its frontmatter: a cl's intent. */

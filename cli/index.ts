@@ -4,13 +4,13 @@
  * error with exit 2 (clig.dev). The factory is opened only for a verb it has, so a usage error leaves nothing behind.
  *
  *   factory add <issue.md> --repo <path> --image <image> --test <command>
- *   factory add-plan <plan.md> --image <image> --test <command>
+ *   factory add <plan.md | cl.md> --image <image> --test <command>
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
  *   factory explain <item>
  *
- * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly. A plan's repo written with
+ * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly. A cl's repo written with
  * `~` is $HOST_HOME, the host user's home, else this process's.
  */
 
@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
-import { add, addPlan, type Done } from "./add.ts";
+import { add, type Done } from "./add.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
 
@@ -31,7 +31,7 @@ export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export const usage = `factory add <issue.md> --repo <path> --image <image> --test <command>
-factory add-plan <plan.md> --image <image> --test <command>
+factory add <plan.md | cl.md> --image <image> --test <command>
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -66,18 +66,17 @@ export async function main(argv: string[], env = process.env): Promise<number> {
   const factory = () => compose({ home: homeOf(env) });
   const { repo, image, test } = values;
   switch (verb) {
-    case "add":
-      if (!arg || !repo || !image || !test) break;
-      return print(add(factory, arg, { repo, image, test }));
-    case "add-plan":
+    case "add": {
       if (!arg || !image || !test) break;
-      return print(
-        addPlan(factory, arg, {
-          image,
-          test,
-          home: env["HOST_HOME"] || homedir(),
-        }),
-      );
+      const done = add(factory, arg, {
+        repo,
+        image,
+        test,
+        home: env["HOST_HOME"] || homedir(),
+      });
+      if (done.code === 2) done.lines.push(usage);
+      return print(done);
+    }
     case "run": {
       const every = Number(values.every);
       if (!Number.isFinite(every) || every <= 0)

@@ -16,7 +16,7 @@ Node runs in a pinned image, never on the host. You need `just` and `podman`, an
 
 - `just check`: the check set, `scripts/check.sh`: notes, then types, lint, format and the unit tests. The pre-push hook and the pipeline run the same file
 - `just e2e`: the whole loop on scripted models, with real sandboxes, through the host's podman socket. Not in the check set, since the pipeline has no podman socket
-- `just factory <verb>`: the factory itself, in its own image: `add` an issue, `add-plan` a plan made outside it (its cls go straight to the inner loop), `run`, `status`, `blocked`, `explain`
+- `just factory <verb>`: the factory itself, in its own image: `add` a note by its type (an issue, for the factory's planner; a plan or a lone cl made outside it, whose cls go straight to the inner loop), `run`, `status`, `blocked`, `explain`
 - `just smoke-model`: one real call per model the bins name. The key comes from the vault (`secrets.toml`, through rbw-run)
 - `just run <command>`: a command in the Node image, such as `just run npm install zod`
 

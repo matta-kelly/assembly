@@ -39,7 +39,7 @@ describe("the command line", () => {
   it("adds an issue by its note, named by the file", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const note = join(home, "my-issue.md");
-    writeFileSync(note, "an issue\n");
+    writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
     mkdirSync(join(home, "repo", ".git"), { recursive: true });
     expect(await add(note, join(home, "repo"))).toBe(0);
     expect(log).toHaveBeenCalledWith("added my-issue, open");
@@ -57,8 +57,8 @@ describe("the command line", () => {
     const note = join(home, "is.md");
     const repo = join(home, "repo");
     expect(await add(note, repo)).toBe(1);
-    expect(err).toHaveBeenLastCalledWith(`no issue note at ${note}`);
-    writeFileSync(note, "an issue\n");
+    expect(err).toHaveBeenLastCalledWith(`no note at ${note}`);
+    writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
     expect(await add(note, repo)).toBe(1);
     expect(err).toHaveBeenLastCalledWith(`${repo} is not a git repo`);
     mkdirSync(join(repo, ".git"), { recursive: true });
@@ -70,6 +70,7 @@ describe("the command line", () => {
   it("refuses a note whose name is not kebab-case, an item it does not have, and a tick that is not a time", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const env = { ASSEMBLY_HOME: home };
+    writeFileSync(join(home, "My Issue.md"), "---\ntype: issue\n---\n");
     expect(await add(join(home, "My Issue.md"), home)).toBe(1);
     expect(err).toHaveBeenLastCalledWith(
       "My Issue: an issue's name is kebab-case, from its note",
@@ -87,5 +88,14 @@ describe("the command line", () => {
     expect(existsSync(join(home, "ledger.db"))).toBe(false);
     expect(await main(["add", "x.md"], env)).toBe(2);
     expect(err).toHaveBeenCalledWith(expect.stringMatching(/^factory add/));
+    const note = join(home, "is.md");
+    writeFileSync(note, "---\ntype: issue\n---\n");
+    expect(
+      await main(["add", note, "--image", "img", "--test", "t"], env),
+    ).toBe(2);
+    expect(err).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^an issue needs --repo\nfactory add/),
+    );
+    expect(existsSync(join(home, "ledger.db"))).toBe(false);
   });
 });

@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { read, writeSection } from "../effects/notes.ts";
-import { planPath } from "./plan.ts";
+import { hasPlanNote, planPath } from "./plan.ts";
 import type { Step } from "./step.ts";
 
 const done = z.object({
@@ -61,12 +61,13 @@ export const accept: Step<Done> = {
   render,
   input(r, ledger) {
     const cls = ledger.cls(r.name).filter((c) => c.state === "merged");
+    // the lone cl of an issue that takes one has no plan note: its cl is its plan
     return [
       read(r.path),
       "",
-      "# The plan",
-      read(planPath(r.path, r.name)),
-      "",
+      ...(hasPlanNote(ledger, r.name)
+        ? ["# The plan", read(planPath(r.path, r.name)), ""]
+        : []),
       "# Its cls, each merged into the issue's branch",
       ...cls.map((c) => read(c.path)),
     ].join("\n");

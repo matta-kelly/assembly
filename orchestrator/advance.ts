@@ -14,6 +14,7 @@
 import {
   type Cut,
   clPath,
+  hasPlanNote,
   madeOutside,
   type Outside,
   type Plan,
@@ -341,6 +342,7 @@ export async function advance(ledger: Ledger) {
   for (const issue of ledger.inState("accepted")) {
     if (read(issue.path).match(/^status: done$/m)) continue;
     setStatus(issue.path, "done");
-    setStatus(planPath(issue.path, issue.name), "done");
+    if (hasPlanNote(ledger, issue.name))
+      setStatus(planPath(issue.path, issue.name), "done");
   }
 }

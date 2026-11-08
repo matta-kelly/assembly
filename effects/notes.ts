@@ -56,6 +56,13 @@ export function itemsIn(doc: string, heading: string): string[] {
     .filter((line) => line.startsWith("- "));
 }
 
+/** A note's frontmatter field, as is: a link's name for a link. Empty when it has none. */
+export const field = (doc: string, key: string) => {
+  const front = /^---\n([\s\S]*?)\n---/.exec(doc)?.[1] ?? "";
+  const v = new RegExp(`^${key}:\\s*(.*)$`, "m").exec(front)?.[1]?.trim() ?? "";
+  return /^"?\[\[([^\]|#]+)/.exec(v)?.[1] ?? v.replace(/^"(.*)"$/, "$1");
+};
+
 /** Sets a note's frontmatter status. */
 export function setStatus(path: string, status: string) {
   const doc = readFileSync(path, "utf8");
