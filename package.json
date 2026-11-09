@@ -37,7 +37,7 @@
     "@opentelemetry/resources": "3.0.0",
     "@opentelemetry/sdk-trace": "3.0.0",
     "@opentelemetry/semantic-conventions": "1.43.0",
-    "@mku1tra/que-pasa": "^0.2.1",
+    "@mku1tra/que-pasa": "^0.2.2",
     "zod": "4.6.7"
   }
 }

@@ -16,7 +16,7 @@ import {
   defineTool,
   type Runtime,
 } from "@mku1tra/que-pasa/define";
-import type { Podman } from "@mku1tra/que-pasa/sandbox";
+import { commandAnswer, type Podman } from "@mku1tra/que-pasa/sandbox";
 import { z } from "zod";
 import type { Run, View } from "../process/step.ts";
 
@@ -30,27 +30,16 @@ export type Context = {
 /** The attempt's box itself, past any view: what `test` runs its command in. */
 export const Container = defineResource<Podman>("container");
 
-/** The most of a test run's output `test` gives back: its tail, where a failure is. */
-const limit = 20_000;
-
 export const test = defineTool({
   name: "test",
   description:
-    "Runs this cl's tests: its test command, which the plan set, in the worktree. Returns the output and the exit code.",
+    "Runs this cl's tests: its test command, which the plan set, in the worktree. Returns the tail of its output and its exit code.",
   schema: z.object({}),
   uses: [Container],
   // Not replay-safe: a test run may write.
   run: async (_input, runtime: Runtime<Context>) => {
     const box = await runtime.use(Container);
-    const r = await box.execute(runtime.context.run.test);
-    const out =
-      r.output.length > limit
-        ? `[first ${r.output.length - limit} characters cut]\n${r.output.slice(-limit)}`
-        : r.output;
-    const status =
-      r.exitCode === null
-        ? "[Command was killed]"
-        : `[Command ${r.exitCode === 0 ? "succeeded" : "failed"} with exit code ${r.exitCode}]`;
-    return `${out}${out.endsWith("\n") || out === "" ? "" : "\n"}${status}`;
+    // answered as execute answers
+    return commandAnswer(await box.execute(runtime.context.run.test));
   },
 });
