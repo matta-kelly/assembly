@@ -60,7 +60,7 @@ Across a stop:
 ## Seams
 
 - que-pasa, the harness: assembly gives it agents, tools, a model and a context (the attempt) per run; it gives back the result and the usage, keeps the run across a stop, and traces it. A published package, `@mku1tra/que-pasa` on npm, by version range: a new que-pasa reaches assembly when its range moves
-- kinetic, the work: the issue and cl notes and their types. kinetic is the spec, assembly is its controller, and the ledger is the status, keyed by the note's name ([[kinetic#Status]]). Kinetic lints the notes where they live; assembly reads them by path, and writes back only its projections
+- kinetic, the work: the issue and cl notes and their types. kinetic is the spec, assembly is its controller, and the ledger is the status, keyed by the note's name ([[kinetic#Policy]], one fact, one place). Kinetic lints the notes where they live; assembly reads them by path, and writes back only its projections
 - evals: the traces and the ledger, read later; scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, comes from the vault (`secrets.toml`, through rbw-run) into the orchestrator's environment only, never a sandbox. `just smoke-model` makes one real call per model the bins name
 - the host: git (each item's passed work on `assembly/<name>/head`, each attempt on `assembly/<name>/<n>`, made from the item's branch, else its issue's, else main) and podman. The orchestrator runs in its own image (`orchestrator/Containerfile`: node, git, the podman client) and starts containers through the host's podman socket, with host paths at the same path
