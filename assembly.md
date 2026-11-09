@@ -3,7 +3,7 @@ type: moc
 description: "Root of assembly, the software factory: a deployment of que-pasa that moves an issue through its plan and its cls to accepted. Read for how the factory works as a system, where it meets other systems, what it records, and what is built."
 status: active
 ---
-The software factory: a deployment of [[que-pasa]] that moves an issue through its plan and its cls, one cl at a time, to accepted. It is [[shit-sdlc]] as code.
+The software factory: a deployment of [[que-pasa]] that moves an issue through its plan and its cls, one cl at a time, to accepted. It is the inner loop of [[kinetic]], as code.
 - [[#The machine]] what moves, and the part that moves it
 - [[#An attempt]] one step's life, across a stop
 - [[#Seams]] where it meets other systems, and what crosses each
