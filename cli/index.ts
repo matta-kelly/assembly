@@ -3,8 +3,8 @@
  * report.ts) on the factory main.ts builds. Output goes to stdout; a refusal goes to stderr with exit 1, and a usage
  * error with exit 2 (clig.dev). The factory is opened only for a verb it has, so a usage error leaves nothing behind.
  *
- *   factory add <issue.md> --repo <path> --image <image> --test <command>
- *   factory add <plan.md | cl.md> --image <image> --test <command>
+ *   factory add <issue.md> --repo <path> --image <image> --test <command> [--setup <command>]
+ *   factory add <plan.md | cl.md> --image <image> --test <command> [--setup <command>]
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
@@ -30,8 +30,8 @@ export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
   return join(state, "assembly");
 }
 
-export const usage = `factory add <issue.md> --repo <path> --image <image> --test <command>
-factory add <plan.md | cl.md> --image <image> --test <command>
+export const usage = `factory add <issue.md> --repo <path> --image <image> --test <command> [--setup <command>]
+factory add <plan.md | cl.md> --image <image> --test <command> [--setup <command>]
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -53,6 +53,7 @@ export async function main(argv: string[], env = process.env): Promise<number> {
         repo: { type: "string" },
         image: { type: "string" },
         test: { type: "string" },
+        setup: { type: "string" },
         every: { type: "string", default: "5" },
       },
     });
@@ -64,7 +65,7 @@ export async function main(argv: string[], env = process.env): Promise<number> {
   const { positionals, values } = parsed;
   const [verb, arg] = positionals;
   const factory = () => compose({ home: homeOf(env) });
-  const { repo, image, test } = values;
+  const { repo, image, test, setup } = values;
   switch (verb) {
     case "add": {
       if (!arg || !image || !test) break;
@@ -72,6 +73,7 @@ export async function main(argv: string[], env = process.env): Promise<number> {
         repo,
         image,
         test,
+        setup,
         home: env["HOST_HOME"] || homedir(),
       });
       if (done.code === 2) done.lines.push(usage);

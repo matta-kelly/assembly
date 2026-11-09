@@ -29,6 +29,7 @@ import { changed, commit, head, touched, worktree } from "../effects/git.ts";
 import { read, writeSection } from "../effects/notes.ts";
 import { log, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
+import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { runTests } from "../effects/tests.ts";
 import {
   checkSpan,
@@ -350,10 +351,40 @@ export async function loop({
     }
   }
 
-  /** Runs an attempt as a task: its sandbox, then its run under the time limit, which each process gives afresh. */
-  async function launch(r: Run, state: State, step: AnyStep) {
+  /**
+   * Readies an attempt: its worktree, its setup once (effects/setup.ts), and its sandbox. Each failure ends it as a
+   * retry, before any agent: a setup's with missing_dependency, since a fault in the image or the lockfile fails every
+   * attempt the same way. Gives back whether it is ready. One the loop's closing stopped is left open, unended.
+   */
+  async function ready(r: Run, state: State, step: AnyStep): Promise<boolean> {
     try {
-      await worktree(r);
+      if (await worktree(r)) forgetSetup(r);
+    } catch (e) {
+      end(r, state, {
+        word: "retry",
+        reason: `the worktree was not made: ${(e as Error).message.slice(0, 400)}`,
+      });
+      return false;
+    }
+    if (needsSetup(r)) {
+      const at = Date.now();
+      try {
+        await runSetup(r, closed.signal);
+      } catch (e) {
+        // a setup the loop's closing stopped is not a failure: the attempt is set up when it is taken up
+        if (closed.signal.aborted) return false;
+        // setup.ts keeps the tail of its output, where the failure is
+        end(r, state, {
+          word: "retry",
+          cause: "missing_dependency",
+          reason: `the setup failed: ${(e as Error).message}`,
+        });
+        return false;
+      }
+      log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
+    }
+    if (closed.signal.aborted) return false;
+    try {
       await open(r, { readOnly: step.worktree === "ro" });
     } catch (e) {
       // the same fault may stop the remove too: the attempt ends all the same
@@ -366,24 +397,37 @@ export async function loop({
         word: "retry",
         reason: `the sandbox did not open: ${(e as Error).message.slice(0, 400)}`,
       });
-      return;
+      return false;
     }
+    return true;
+  }
+
+  /**
+   * Runs an attempt as a task, so a tick never waits on one: readied, then its run under the time limit, which each
+   * process gives afresh. The loop's settling and its cap count it from the start, setup included.
+   */
+  function launch(r: Run, state: State, step: AnyStep) {
     const key = `${r.name}/${r.n}`;
-    const limit = new AbortController();
-    const timer = setTimeout(
-      () => limit.abort(new Error(`timed out after ${timeoutMs} ms`)),
-      timeoutMs,
-    );
-    timers.add(timer);
+    const task = async () => {
+      if (!(await ready(r, state, step))) return;
+      const limit = new AbortController();
+      const timer = setTimeout(
+        () => limit.abort(new Error(`timed out after ${timeoutMs} ms`)),
+        timeoutMs,
+      );
+      timers.add(timer);
+      try {
+        await attempt(r, state, step, limit.signal);
+      } finally {
+        clearTimeout(timer);
+        timers.delete(timer);
+      }
+    };
     running.set(
       key,
-      attempt(r, state, step, limit.signal)
+      task()
         .catch((e: unknown) => console.error(`attempt ${key} failed:`, e))
-        .finally(() => {
-          clearTimeout(timer);
-          timers.delete(timer);
-          running.delete(key);
-        }),
+        .finally(() => running.delete(key)),
     );
   }
 
@@ -405,12 +449,12 @@ export async function loop({
       }
       ledger.resume(a.name, a.n);
       log(r, `taken up by a new orchestrator`);
-      await launch(r, a.step, step);
+      launch(r, a.step, step);
     }
     for (const i of ledger.waiting(steps.map((s) => s.from))) {
       if (running.size >= concurrent) return;
       const n = ledger.begin(i.name);
-      await launch(runOf(i, n, runs), i.state, stepAt(i.state) as AnyStep);
+      launch(runOf(i, n, runs), i.state, stepAt(i.state) as AnyStep);
     }
   }
 
@@ -419,7 +463,8 @@ export async function loop({
   for (const a of left()) {
     if (!stepAt(a.step)) continue;
     try {
-      await worktree(runOf(ledger.item(a.name), a.n, runs));
+      const r = runOf(ledger.item(a.name), a.n, runs);
+      if (await worktree(r)) forgetSetup(r);
     } catch {
       // taken up, and ended, at the first tick
     }

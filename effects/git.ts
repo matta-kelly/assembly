@@ -42,10 +42,11 @@ async function baseOf(r: Run): Promise<string> {
 /**
  * Makes the attempt's run folder and its worktree, or keeps the one it has. A worktree that is gone while git still has
  * its registration is pruned, and an attempt's branch that is there already is checked out again, with its commits.
+ * Gives back whether it made one: a new worktree holds nothing a setup installed.
  */
-export async function worktree(r: Run) {
+export async function worktree(r: Run): Promise<boolean> {
   mkdirSync(r.dir, { recursive: true });
-  if (existsSync(join(r.work, ".git"))) return;
+  if (existsSync(join(r.work, ".git"))) return false;
   await must("git", ["-C", r.repo, "worktree", "prune"]);
   await must(
     "git",
@@ -62,6 +63,7 @@ export async function worktree(r: Run) {
           await baseOf(r),
         ],
   );
+  return true;
 }
 
 /**

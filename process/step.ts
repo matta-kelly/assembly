@@ -20,7 +20,9 @@ import type { State, Word } from "./table.ts";
  * - plan_gap: a cl raised: the plan did not give it what it needs
  * - missing_context: the planner raised: the issue does not hold what a plan needs
  * - budget_exceeded: the run went past its time limit
- * The other causes on the list name parts not built yet: untestable_as_specified, missing_dependency, flaky_check,
+ * - missing_dependency: the attempt's setup could not install the repo's dependencies (an image older than the
+ *   lockfile), so no agent ran
+ * The other causes on the list name parts not built yet: untestable_as_specified, flaky_check,
  * restack_conflict, escape.
  */
 export const causes = [
@@ -103,6 +105,7 @@ export type Run = {
   repo: string; // the repo the item changes
   image: string; // the repo's image: the sandbox and the checks run in it
   test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
+  setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
   work: string; // the worktree, mounted at /work in the attempt's sandbox
 };

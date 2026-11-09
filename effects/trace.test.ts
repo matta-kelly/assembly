@@ -46,6 +46,7 @@ beforeEach(() => {
     repo: "",
     image: "node:22",
     test: "",
+    setup: "",
     dir: join(dir, "runs", "is", "cl", "value", "2"),
     work: "",
   };

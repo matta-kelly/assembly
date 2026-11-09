@@ -19,6 +19,7 @@ export interface Item {
   repo: string;
   image: string;
   test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
+  setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
   state: State;
 }
 
@@ -56,7 +57,7 @@ const cause = `CHECK (cause IS NULL OR cause IN (${causes.map((c) => `'${c}'`).j
 const tables = `
   CREATE TABLE IF NOT EXISTS items (
     name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
-    repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, state TEXT NOT NULL
+    repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS attempts (
     name TEXT NOT NULL REFERENCES items(name), n INTEGER NOT NULL, step TEXT NOT NULL,
@@ -141,11 +142,14 @@ export function open(file: string) {
     item,
 
     /** Adds an issue, at open. */
-    addIssue(i: Pick<Item, "name" | "path" | "repo" | "image" | "test">) {
+    addIssue(
+      i: Pick<Item, "name" | "path" | "repo" | "image" | "test"> &
+        Partial<Pick<Item, "setup">>,
+    ) {
       tx(() => {
         db.prepare(
-          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, state) VALUES (?, 'issue', ?, 0, ?, ?, ?, ?, 'open')",
-        ).run(i.name, i.name, i.path, i.repo, i.image, i.test);
+          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state) VALUES (?, 'issue', ?, 0, ?, ?, ?, ?, ?, 'open')",
+        ).run(i.name, i.name, i.path, i.repo, i.image, i.test, i.setup ?? "");
         event(i.name, null, "new", null, "open", "added");
       });
     },
@@ -154,11 +158,24 @@ export function open(file: string) {
     transaction: <T>(f: () => T): T => tx(f),
 
     /** Adds a cl of an issue, at `state`: ready, or waiting for the cl before it. */
-    addCl(i: Omit<Item, "kind" | "state">, state: State) {
+    addCl(
+      i: Omit<Item, "kind" | "state" | "setup"> & Partial<Pick<Item, "setup">>,
+      state: State,
+    ) {
       tx(() => {
         db.prepare(
-          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, state) VALUES (?, 'cl', ?, ?, ?, ?, ?, ?, ?)",
-        ).run(i.name, i.issue, i.seq, i.path, i.repo, i.image, i.test, state);
+          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state) VALUES (?, 'cl', ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+          i.name,
+          i.issue,
+          i.seq,
+          i.path,
+          i.repo,
+          i.image,
+          i.test,
+          i.setup ?? "",
+          state,
+        );
         event(i.name, null, "new", null, state, "added");
       });
     },

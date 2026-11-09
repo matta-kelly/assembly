@@ -45,6 +45,8 @@ import { nail } from "../process/nail.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
 const suite = "node --test test/*.test.mjs";
+/** The issue's setup: what installs its dependencies into each new worktree, here a folder git ignores. */
+const setup = "mkdir -p deps && echo 'export const two = 2;' > deps/two.mjs";
 
 const issueNote = (raise: boolean) => `---
 type: issue
@@ -184,8 +186,8 @@ const nailScript = (input: string, done: number) => {
           )
         : testOf(
             "value",
-            'import { value } from "../src/value.mjs";',
-            "assert.strictEqual(value, 2)",
+            'import { value } from "../src/value.mjs";\nimport { two } from "../deps/two.mjs";',
+            "assert.strictEqual(value, two)",
           ),
     });
   if (done === 1)
@@ -324,6 +326,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       writeFileSync(join(repo, "README"), "a repo\n");
       // in no cut: no bound agent may see it
       writeFileSync(join(repo, "NOTES"), "not in any cut\n");
+      // what setup installs: in no commit, and outside every cut's scope check
+      writeFileSync(join(repo, ".gitignore"), "deps/\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "init");
       mkdirSync(join(dir, "work"));
@@ -391,6 +395,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           repo,
           image,
           test: suite,
+          setup,
         });
         ledger.addIssue({
           name: "gap",
@@ -414,6 +419,23 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         }
         // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
         await l.tick();
+
+        // Each of is's attempts was set up once, before its agent, from its own worktree: value's test imports what
+        // setup installed, and the folder, ignored, crossed no cut's scope check.
+        const attemptsOf = (under: string) =>
+          readdirSync(under).map((n) => join(under, n));
+        const isAttempts = [
+          ...attemptsOf(join(runs, "is", "issue")),
+          ...["value", "double"].flatMap((c) =>
+            attemptsOf(join(runs, "is", "cl", c)),
+          ),
+        ];
+        for (const a of isAttempts) {
+          expect(existsSync(join(a, "setup.done"))).toBe(true);
+          expect(readFileSync(join(a, "log"), "utf8")).toMatch(
+            /^set up in \d+ s$/m,
+          );
+        }
 
         // value's da-hammer reached only its cut: NOTES, which is in its worktree, answered as missing; the root held
         // only the cut's files; the write outside its change files left nothing.
@@ -659,6 +681,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             repo,
             image,
             test: suite,
+            setup,
           },
           { word: "done", seams: [], cuts: [value], outside: true },
         );
@@ -729,6 +752,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             "utf8",
           ),
         ).toMatch(/taken up by a new orchestrator/);
+        // set up once, by the first orchestrator: the second's take-up found it done, under its running agent
+        expect(
+          readFileSync(
+            join(at, "runs", "rs", "cl", "value", "1", "log"),
+            "utf8",
+          ).match(/^set up in/gm),
+        ).toHaveLength(1);
       },
     );
   },

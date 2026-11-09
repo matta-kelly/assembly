@@ -11,6 +11,7 @@ import { writeSection } from "../effects/notes.ts";
 import { commit, touched, worktree } from "../effects/git.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
+import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { ran } from "../process/fake-worktree.ts";
 
 // Podman and git are faked: git, the sandbox and the test runs are the loop's only ways out. runOf is the real one.
@@ -28,6 +29,11 @@ vi.mock("../effects/sandbox.ts", () => ({
   imageOf: vi.fn(),
 }));
 vi.mock("../effects/tests.ts", () => ({ runTests: vi.fn() }));
+vi.mock("../effects/setup.ts", () => ({
+  needsSetup: vi.fn(),
+  runSetup: vi.fn(),
+  forgetSetup: vi.fn(),
+}));
 
 const cl = "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
 
@@ -323,6 +329,17 @@ describe("an attempt", () => {
     expect(stopped).toBe(true);
   });
 
+  it("retries when its worktree is not made, without running the agent", async () => {
+    vi.mocked(worktree).mockRejectedValue(new Error("no such branch"));
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner));
+    expect(last()).toMatchObject({
+      word: "retry",
+      reason: expect.stringMatching(/worktree was not made: no such branch/),
+    });
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it("retries when the sandbox does not open, without running the agent", async () => {
     vi.mocked(open).mockRejectedValue(new Error("no such image"));
     const runner = vi.fn<Run1>(gives(done("x")));
@@ -343,6 +360,95 @@ describe("an attempt", () => {
       reason: expect.stringMatching(/did not open: podman is gone/),
     });
     expect(ledger.open()).toEqual([]);
+  });
+});
+
+describe("an attempt's setup", () => {
+  it("runs once its worktree is made, before its sandbox opens", async () => {
+    vi.mocked(needsSetup).mockReturnValue(true);
+    await once(make(gives(done("x"))));
+    expect(runSetup).toHaveBeenCalledOnce();
+    expect(vi.mocked(worktree).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(runSetup).mock.invocationCallOrder[0] as number,
+    );
+    expect(vi.mocked(runSetup).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(open).mock.invocationCallOrder[0] as number,
+    );
+    expect(ledger.item("c").state).toBe("red");
+  });
+
+  it("is forgotten when the worktree is made again, and kept when it is not", async () => {
+    vi.mocked(worktree).mockResolvedValue(true);
+    await once(make(gives(done("x"))));
+    expect(forgetSetup).toHaveBeenCalledOnce();
+    vi.mocked(worktree).mockResolvedValue(false);
+    ledger.addCl(
+      {
+        name: "d",
+        issue: "i",
+        seq: 2,
+        path: join(dir, "cl.md"),
+        repo: "/repo",
+        image: "img",
+        test: "t",
+      },
+      "ready",
+    );
+    await once(make(gives(done("x"))));
+    expect(forgetSetup).toHaveBeenCalledOnce();
+  });
+
+  it("does not hold up the tick: other attempts start while one sets up, and the loop waits for it", async () => {
+    vi.mocked(needsSetup).mockImplementation((r) => r.name === "c");
+    let finish: () => void = () => undefined;
+    vi.mocked(runSetup).mockImplementation(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    ledger.addCl(
+      {
+        name: "d",
+        issue: "j",
+        seq: 1,
+        path: join(dir, "cl.md"),
+        repo: "/repo",
+        image: "img",
+        test: "t",
+      },
+      "ready",
+    );
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner);
+    await l.tick();
+    expect(l.running()).toBe(2);
+    const settled = l.settled();
+    await vi.waitFor(() => expect(ledger.item("d").state).toBe("red"));
+    expect(ledger.item("c").state).toBe("ready");
+    finish();
+    await settled;
+    expect(ledger.item("c").state).toBe("red");
+  });
+
+  it("does not run when the worktree needs none, as one set up before a restart", async () => {
+    vi.mocked(needsSetup).mockReturnValue(false);
+    await once(make(gives(done("x"))));
+    expect(runSetup).not.toHaveBeenCalled();
+    expect(ledger.item("c").state).toBe("red");
+  });
+
+  it("ends the attempt as a retry when it fails, and never starts the agent", async () => {
+    vi.mocked(needsSetup).mockReturnValue(true);
+    vi.mocked(runSetup).mockRejectedValue(
+      new Error("img's cache lacks a package of this lockfile"),
+    );
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner));
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "missing_dependency",
+      reason: expect.stringMatching(/^the setup failed: img's cache lacks/),
+    });
+    expect(runner).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
   });
 });
 

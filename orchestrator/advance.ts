@@ -169,6 +169,7 @@ function addCls(ledger: Ledger, issue: Item, p: Plan) {
         repo: issue.repo,
         image: issue.image,
         test: c.test,
+        setup: issue.setup,
       },
       i === 0 ? "ready" : "waiting",
     );
@@ -183,7 +184,8 @@ function addCls(ledger: Ledger, issue: Item, p: Plan) {
  */
 export function admit(
   ledger: Ledger,
-  issue: Pick<Item, "name" | "path" | "repo" | "image" | "test">,
+  issue: Pick<Item, "name" | "path" | "repo" | "image" | "test"> &
+    Partial<Pick<Item, "setup">>,
   p: Outside,
 ) {
   ledger.transaction(() => {

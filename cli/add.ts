@@ -26,12 +26,14 @@ const refused = (...lines: string[]): Done => ({ code: 1, lines });
 const misused = (line: string): Done => ({ code: 2, lines: [line] });
 
 /**
- * What add is given: the issue's image, which its attempts run on, and its full suite, which acceptance runs; the repo,
+ * What add is given: the issue's image, which its attempts run on, its full suite, which acceptance runs, and its setup,
+ * which installs the repo's dependencies into each new worktree (none when left out); the repo,
  * for an issue only (a cl's is in its Files); and what a repo's `~` is.
  */
 export interface Options {
   image: string;
   test: string;
+  setup?: string | undefined; // what installs the repo's dependencies into a new worktree, offline
   repo?: string | undefined;
   home: string;
 }
@@ -67,7 +69,14 @@ function addIssue(f: () => Built, path: string, o: Options): Done {
   const b = f();
   if (b.ledger.items().some((i) => i.name === name))
     return refused(`${name} is in the ledger already`);
-  b.ledger.addIssue({ name, path, repo, image: o.image, test: o.test });
+  b.ledger.addIssue({
+    name,
+    path,
+    repo,
+    image: o.image,
+    test: o.test,
+    setup: o.setup ?? "",
+  });
   return { code: 0, lines: [`added ${name}, open`] };
 }
 
@@ -88,7 +97,11 @@ function addCuts(f: () => Built, got: Read, o: Options): Done {
   });
   if (lint.word !== "pass") return refused(lint.reason);
   if (has(issue.name)) return refused(`${issue.name} is in the ledger already`);
-  admit(b.ledger, { ...issue, repo, image: o.image, test: o.test }, plan);
+  admit(
+    b.ledger,
+    { ...issue, repo, image: o.image, test: o.test, setup: o.setup ?? "" },
+    plan,
+  );
   const n = plan.cuts.length;
   return {
     code: 0,

@@ -32,7 +32,7 @@ Four layers, and `main.ts` puts them together. The engine runs the process and c
 	- the tick: `loop.ts`. It starts attempts, up to `concurrent` at once, the open ones first. It answers each check's worktree, and records its test run
 	- the orchestrator's own moves: `advance.ts` (an approved plan's cls, each cl in turn, the merges)
 - effects, how it touches the world: `effects/`, each behind a small seam
-	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` what each container is given (que-pasa's `podman()` makes it) · `tests.ts` a test run, in a container of its own · `runs.ts` the run folders · `sh.ts` the commands under them
+	- `git.ts` the branches, worktrees, commits and merges · `sandbox.ts` what each container is given (que-pasa's `podman()` makes it) · `tests.ts` a test run, in a container of its own · `setup.ts` a worktree's setup, the same way · `runs.ts` the run folders · `sh.ts` the commands under them
 	- `runner.ts` the run, on que-pasa's durable runtime · `models.ts` the bins, after loke's: a default model and a fallback for a retry · `tools.ts` the run's context, and `test`, the cl's test command, for nail and hammer. Every other tool is que-pasa's, after LangChain's Deep Agents, in the sandbox the runner provides each run: `ls`, `read_file`, `glob`, `grep` for every agent; `write_file`, `edit_file` for nail and hammer, over que-pasa's `view` of their cut's files; `execute`, a shell, only for the steps with no view (the planner and the reviews, which only read)
 	- `notes.ts` the issue and cl notes · `trace.ts` the record of each attempt
 - wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
@@ -44,6 +44,7 @@ The chart of the path and its words is drawn with pele, from `process/table.ts` 
 
 One step on one item: its run, its sandbox and its worktree are its own, and it lives until it ends.
 - begin: the ledger opens it, with its trace's ids
+- setup: the issue's `--setup` (such as `npm ci --offline --no-audit --no-fund`, the command its dev image's smoke proves) installs the repo's dependencies into the new worktree from the image's cache, with no network, in a container of its own, once per worktree (`setup.done` in the attempt's folder, forgotten when the worktree is made again), inside the attempt's task, so a tick never waits on it. What it installs must be ignored by git. A failure ends the attempt as a retry with `missing_dependency`, before any agent, and names an image older than the lockfile (npm's ENOTCACHED) or the files it left unignored
 - sandbox: a container with no network, the worktree mounted (read-only for a review). The agent's loop runs in the orchestrator and holds the key; its tools work in the sandbox (LangChain's "sandbox as tool"), which comes up on their first call
 - run: que-pasa's, with the attempt's id, under the attempt's span, on the bin's model
 - check: the step's, on the worktree; its test run in a container of its own
@@ -78,6 +79,7 @@ Across a stop:
 
 - the whole machine, an issue from open to accepted, proven end to end on scripted models, and an attempt taken up after a stop (`just e2e`)
 - the factory's command line, `just factory`: `add` a note, by its kinetic type: an issue enters at open, for the factory's planner; a plan made outside the factory (a kinetic plan and its cl notes, each with its test command in its Files), or the lone cl of an issue that takes one (its `belongsTo` the issue), enters with its cls ready and waiting, so only the inner loop and acceptance run them, writing into those notes. Those notes are checked as the factory's own plan is (the cut schema, plan lint), and a raise or a send-back on them goes to Matt, escalated, never to the factory's planner; `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
+- the repo's dependencies in each attempt: an offline install from its dev image's cache ([[warm-image]]), once per worktree, proven on a que-pasa worktree with `que-pasa-dev:main` (setup in 11 s, then its tests pass, no network)
 - the gate: `just check` lints every note against its type, then checks the code: types, eslint, prettier, and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
 
 ## Not built
@@ -85,7 +87,7 @@ Across a stop:
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
 - the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default
-- the repo's dependencies in the sandbox: it has no network, so a repo that needs packages needs an image that holds them ([[warm-image]]), and an attempt that starts on it with an offline install
+- the dev image's tag per lockfile: `--image` names one tag, such as `<repo>-dev:main`, for every attempt; a worktree whose lockfile is newer than it fails its setup, named as such. The exact tag (`dev-image.sh local`) needs skopeo or a build in the orchestrator's image
 - a plan's cls in parallel, or a plan across repos: a plan's cls run one at a time, in one repo
 - landing an accepted issue's branch: Matt lands it
 - check reuse: check runs are recorded with their input hash, but a run is never skipped on it

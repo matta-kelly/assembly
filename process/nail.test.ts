@@ -39,6 +39,7 @@ beforeEach(() => {
     repo: "/repo",
     image: "img",
     test: "npm test",
+    setup: "",
     dir,
     work: join(dir, "work"),
   };
