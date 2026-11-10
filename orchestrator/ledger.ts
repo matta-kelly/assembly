@@ -12,7 +12,7 @@ import {
   type Finding,
   type Message,
 } from "../process/step.ts";
-import type { State } from "../process/table.ts";
+import { next, type State } from "../process/table.ts";
 import { newSpan, type SpanRef } from "../effects/trace.ts";
 
 /** An item the factory moves, and what its steps need to run it. */
@@ -21,6 +21,7 @@ export interface Item {
   kind: "issue" | "cl";
   issue: string; // the issue it is, or belongs to
   seq: number; // a cl's place in its plan's order, from 1. 0 for an issue
+  phase: number | null; // a cl's phase in its plan, from 1; null for an issue, and 1 for a lone cl
   path: string; // its note, which the orchestrator writes
   repo: string;
   image: string;
@@ -58,9 +59,22 @@ export interface Attempt {
   cost: number | null;
 }
 
-/** An event: one message, and the move it made. word is null for the orchestrator's own moves. */
+/** Who sends a message: an agent's attempt as it ends, the orchestrator, or Matt through the command line. */
+export type By =
+  | {
+      attempt: number;
+      usage?: Usage | undefined;
+      result?: unknown;
+      ran?: CheckRun | undefined;
+    }
+  | "orchestrator"
+  | "matt";
+
+/** An event: one message, and the move it made. word is null when an item is added. */
 export interface Event {
   n: number | null;
+  by: string | null; // attempt, orchestrator or matt
+
   from_state: string;
   word: string | null;
   to_state: string;
@@ -76,7 +90,11 @@ const cause = `CHECK (cause IS NULL OR cause IN (${causes.map((c) => `'${c}'`).j
 const tables = `
   CREATE TABLE IF NOT EXISTS items (
     name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
-    repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL
+    repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
+    phase INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS specs (
+    issue TEXT PRIMARY KEY REFERENCES items(name), spec TEXT NOT NULL, by TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS attempts (
     name TEXT NOT NULL REFERENCES items(name), n INTEGER NOT NULL, step TEXT NOT NULL,
@@ -88,7 +106,7 @@ const tables = `
   CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL REFERENCES items(name), n INTEGER,
     from_state TEXT NOT NULL, word TEXT, to_state TEXT NOT NULL, at TEXT NOT NULL, reason TEXT, cause TEXT ${cause},
-    findings TEXT NOT NULL DEFAULT '[]', notes TEXT
+    findings TEXT NOT NULL DEFAULT '[]', notes TEXT, by TEXT
   );
   CREATE TABLE IF NOT EXISTS check_runs (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER NOT NULL, step TEXT NOT NULL,
@@ -147,7 +165,7 @@ export function open(file: string) {
     (
       db
         .prepare(
-          "SELECT n, from_state, word, to_state, at, reason, cause, findings, notes FROM events WHERE name = ? ORDER BY id",
+          "SELECT n, by, from_state, word, to_state, at, reason, cause, findings, notes FROM events WHERE name = ? ORDER BY id",
         )
         .all(name) as (Omit<Event, "findings"> & { findings: string })[]
     ).map((e) => ({ ...e, findings: JSON.parse(e.findings) as Finding[] }));
@@ -162,10 +180,11 @@ export function open(file: string) {
     cause: string | null = null,
     findings: Finding[] = [],
     notes: string | null = null,
+    by: string | null = null,
   ) =>
     db
       .prepare(
-        "INSERT INTO events (name, n, from_state, word, to_state, at, reason, cause, findings, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO events (name, n, from_state, word, to_state, at, reason, cause, findings, notes, by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         name,
@@ -178,7 +197,121 @@ export function open(file: string) {
         cause,
         JSON.stringify(findings),
         notes,
+        by,
       );
+
+  /** Ends an attempt with its message, its test run, its usage and its result, and moves the item to `to`. */
+  function end(
+    name: string,
+    n: number,
+    v: Message,
+    to: State,
+    {
+      usage = {},
+      result,
+      ran,
+    }: {
+      usage?: Usage | undefined;
+      result?: unknown;
+      ran?: CheckRun | undefined;
+    } = {},
+  ) {
+    tx(() => {
+      const { state } = item(name);
+      const at = now();
+      db.prepare(
+        `UPDATE attempts SET ended = ?, duration_ms = CAST(ROUND((julianday(?) - julianday(started)) * 86400000) AS INTEGER),
+           word = ?, reason = ?, cause = ?, tokens = ?, tokens_in = ?, tokens_out = ?, cached_in = ?, cost = ?, result = ?
+           WHERE name = ? AND n = ?`,
+      ).run(
+        at,
+        at,
+        v.word,
+        v.reason,
+        v.cause ?? null,
+        usage.tokens ?? null,
+        usage.input ?? null,
+        usage.output ?? null,
+        usage.cached ?? null,
+        usage.cost ?? null,
+        result === undefined ? null : JSON.stringify(result),
+        name,
+        n,
+      );
+      if (ran)
+        db.prepare(
+          "INSERT INTO check_runs (name, n, step, command, image, tree, input_hash, code, at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+          name,
+          n,
+          state,
+          ran.command,
+          ran.image,
+          ran.tree,
+          ran.input,
+          ran.code,
+          new Date(ran.at).toISOString(),
+          ran.ms,
+        );
+      db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
+      event(
+        name,
+        n,
+        state,
+        v.word,
+        to,
+        v.reason,
+        v.cause,
+        v.findings,
+        v.notes ?? null,
+        "attempt",
+      );
+    });
+  }
+
+  /** Moves an item with no attempt, by the orchestrator or Matt, at the item's last attempt number. */
+  function moveTo(name: string, to: State, m: Message, by: string) {
+    const { state } = item(name);
+    db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
+    event(
+      name,
+      lastN(name),
+      state,
+      m.word,
+      to,
+      m.reason,
+      m.cause ?? null,
+      m.findings,
+      m.notes ?? null,
+      by,
+    );
+  }
+
+  /** The attempts made at this state since the item last entered it. */
+  function attemptsAt(name: string, state: State): number {
+    // The attempt at which the item moved into this state, or 0 when it was added in it. Attempts after it count.
+    const { n } = db
+      .prepare(
+        "SELECT COALESCE(MAX(n), 0) AS n FROM events WHERE name = ? AND to_state = ? AND from_state != to_state",
+      )
+      .get(name, state) as { n: number };
+    const { c } = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM attempts WHERE name = ? AND step = ? AND n > ?",
+      )
+      .get(name, state, n) as { c: number };
+    return c;
+  }
+
+  /** The times the item was sent back for another round: each back that did not raise it. */
+  function roundsOf(name: string): number {
+    const { c } = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM events WHERE name = ? AND word = 'back' AND to_state != 'raised'",
+      )
+      .get(name) as { c: number };
+    return c;
+  }
 
   return {
     item,
@@ -199,14 +332,15 @@ export function open(file: string) {
     /** Runs `f` as one transaction: the ledger's writes inside it are all made, or none. */
     transaction: <T>(f: () => T): T => tx(f),
 
-    /** Adds a cl of an issue, at `state`: ready, or waiting for the cl before it. */
+    /** Adds a cl of an issue, at `state`: ready, or waiting for the phase before it. A lone cl is phase 1. */
     addCl(
-      i: Omit<Item, "kind" | "state" | "setup"> & Partial<Pick<Item, "setup">>,
+      i: Omit<Item, "kind" | "state" | "setup" | "phase"> &
+        Partial<Pick<Item, "setup" | "phase">>,
       state: State,
     ) {
       tx(() => {
         db.prepare(
-          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state) VALUES (?, 'cl', ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state, phase) VALUES (?, 'cl', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).run(
           i.name,
           i.issue,
@@ -217,6 +351,7 @@ export function open(file: string) {
           i.test,
           i.setup ?? "",
           state,
+          i.phase ?? 1,
         );
         event(i.name, null, "new", null, state, "added");
       });
@@ -308,133 +443,63 @@ export function open(file: string) {
     },
 
     /** The attempts made at this state since the item last entered it. */
-    attempts(name: string, state: State): number {
-      // The attempt at which the item moved into this state, or 0 when it was added in it. Attempts after it count.
-      const { n } = db
-        .prepare(
-          "SELECT COALESCE(MAX(n), 0) AS n FROM events WHERE name = ? AND to_state = ? AND from_state != to_state",
-        )
-        .get(name, state) as { n: number };
-      const { c } = db
-        .prepare(
-          "SELECT COUNT(*) AS c FROM attempts WHERE name = ? AND step = ? AND n > ?",
-        )
-        .get(name, state, n) as { c: number };
-      return c;
-    },
+    attempts: attemptsAt,
 
     /** The times the item was sent back for another round: each back that did not raise it. */
-    rounds(name: string): number {
-      const { c } = db
-        .prepare(
-          "SELECT COUNT(*) AS c FROM events WHERE name = ? AND word = 'back' AND to_state != 'raised'",
-        )
-        .get(name) as { c: number };
-      return c;
-    },
+    rounds: roundsOf,
 
     /**
-     * Ends an attempt with its message, the test run the check made, what its model calls used and the agent's result,
-     * and moves the item to `to`, in one transaction with one event: the message.
+     * The one door: applies a message to an item by the table, whoever sends it, in one transaction with one event. An
+     * attempt's message counts against the limits, ends the attempt with its result, usage and test run, and a word the
+     * table has no row for escalates the item, with why, so it is never left open to run again. The orchestrator's and
+     * Matt's are applied as the table says, and a word with no row throws. Gives back the item's new state.
      */
-    end(
-      name: string,
-      n: number,
-      v: Message,
-      to: State,
-      {
-        usage = {},
-        result,
-        ran,
-      }: {
-        usage?: Usage | undefined;
-        result?: unknown;
-        ran?: CheckRun | undefined;
-      } = {},
-    ) {
-      tx(() => {
-        const { state } = item(name);
-        const at = now();
-        db.prepare(
-          `UPDATE attempts SET ended = ?, duration_ms = CAST(ROUND((julianday(?) - julianday(started)) * 86400000) AS INTEGER),
-           word = ?, reason = ?, cause = ?, tokens = ?, tokens_in = ?, tokens_out = ?, cached_in = ?, cost = ?, result = ?
-           WHERE name = ? AND n = ?`,
-        ).run(
-          at,
-          at,
-          v.word,
-          v.reason,
-          v.cause ?? null,
-          usage.tokens ?? null,
-          usage.input ?? null,
-          usage.output ?? null,
-          usage.cached ?? null,
-          usage.cost ?? null,
-          result === undefined ? null : JSON.stringify(result),
-          name,
-          n,
-        );
-        if (ran)
-          db.prepare(
-            "INSERT INTO check_runs (name, n, step, command, image, tree, input_hash, code, at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          ).run(
-            name,
-            n,
-            state,
-            ran.command,
-            ran.image,
-            ran.tree,
-            ran.input,
-            ran.code,
-            new Date(ran.at).toISOString(),
-            ran.ms,
-          );
-        db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
-        event(
-          name,
-          n,
-          state,
-          v.word,
-          to,
-          v.reason,
-          v.cause,
-          v.findings,
-          v.notes ?? null,
-        );
-      });
-    },
-
-    /**
-     * Moves items with no attempt: the orchestrator's own moves, as a cl made ready or an issue built. One transaction.
-     * A move that sends an item back carries the message it relays.
-     */
-    move(
-      moves: {
-        name: string;
-        to: State;
-        reason: string;
-        back?: Finding[];
-      }[],
-    ) {
-      tx(() => {
-        for (const m of moves) {
-          const { state } = item(m.name);
-          db.prepare("UPDATE items SET state = ? WHERE name = ?").run(
-            m.to,
-            m.name,
-          );
-          event(
-            m.name,
-            lastN(m.name),
-            state,
-            m.back ? "back" : null,
-            m.to,
-            m.reason,
-            null,
-            m.back,
-          );
+    apply(name: string, m: Message, by: By): State {
+      return tx(() => {
+        const { state, kind } = item(name);
+        const about = m.findings.map((f) => f.about);
+        if (typeof by !== "object") {
+          const to = next(state, kind, m.word, about, {
+            attempts: 0,
+            rounds: 0,
+          });
+          moveTo(name, to, m, by);
+          return to;
         }
+        let to: State;
+        let said = m;
+        try {
+          to = next(state, kind, m.word, about, {
+            attempts: attemptsAt(name, state),
+            rounds: roundsOf(name) + (m.word === "back" ? 1 : 0),
+          });
+        } catch (e) {
+          to = "escalated";
+          said = { ...m, reason: `${(e as Error).message}: ${m.reason}` };
+        }
+        end(name, by.attempt, said, to, by);
+        return to;
       });
+    },
+
+    /** The spec Matt submitted for an issue, kept with who made it, or undefined. */
+    spec(issue: string): { spec: unknown; by: string } | undefined {
+      const row = db
+        .prepare("SELECT spec, by FROM specs WHERE issue = ?")
+        .get(issue) as { spec: string; by: string } | undefined;
+      return row && { spec: JSON.parse(row.spec), by: row.by };
+    },
+
+    /** Keeps an issue's spec, and who made it, in place of any before. */
+    keepSpec(issue: string, spec: unknown, by: string) {
+      db.prepare(
+        "INSERT INTO specs (issue, spec, by) VALUES (?, ?, ?) ON CONFLICT(issue) DO UPDATE SET spec = excluded.spec, by = excluded.by",
+      ).run(issue, JSON.stringify(spec), by);
+    },
+
+    /** Lets go of an issue's kept spec: its next plan is the factory's planner's. */
+    dropSpec(issue: string) {
+      db.prepare("DELETE FROM specs WHERE issue = ?").run(issue);
     },
 
     /** The result of the item's last attempt at `step` that passed, or undefined. */

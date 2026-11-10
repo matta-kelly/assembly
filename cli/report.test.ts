@@ -26,12 +26,10 @@ describe("the factory's reports", () => {
   it("status: each item and its state, the open attempts, and the spend", () => {
     const { ledger } = compose({ home });
     ledger.addIssue(issue);
-    ledger.end(
+    ledger.apply(
       "is",
-      ledger.begin("is"),
       { word: "retry", reason: "r", findings: [] },
-      "open",
-      { usage: { cost: 0.5 } },
+      { attempt: ledger.begin("is"), ...{ usage: { cost: 0.5 } } },
     );
     ledger.begin("is");
     expect(status(ledger)).toEqual([
@@ -58,15 +56,14 @@ describe("the factory's reports", () => {
     const { ledger } = compose({ home });
     expect(blocked(ledger)).toEqual(["nothing is blocked"]);
     ledger.addIssue(issue);
-    ledger.end(
+    ledger.apply(
       "is",
-      ledger.begin("is"),
       {
         word: "back",
         reason: "back, about the issue",
         findings: [{ about: "issue", what: "no intent", where: "Intent" }],
       },
-      "raised",
+      { attempt: ledger.begin("is") },
     );
     expect(blocked(ledger)).toEqual(["is  raised: back, about the issue"]);
   });
@@ -74,16 +71,13 @@ describe("the factory's reports", () => {
   it("explain: an item's messages with their findings, and each attempt with where its trace is", () => {
     const f = compose({ home });
     f.ledger.addIssue(issue);
-    f.ledger.end(
+    f.ledger.apply(
       "is",
-      f.ledger.begin("is"),
       { word: "pass", reason: "the plan lints", findings: [] },
-      "planned",
-      { usage: { cost: 0.01 } },
+      { attempt: f.ledger.begin("is"), ...{ usage: { cost: 0.01 } } },
     );
-    f.ledger.end(
+    f.ledger.apply(
       "is",
-      f.ledger.begin("is"),
       {
         word: "back",
         reason: "back, about the plan",
@@ -91,7 +85,7 @@ describe("the factory's reports", () => {
           { about: "plan", what: "cut two needs cut one", where: "cut two" },
         ],
       },
-      "open",
+      { attempt: f.ledger.begin("is") },
     );
     const lines = explain(f.ledger, f.runs, "is");
     expect(lines[0]).toBe("is (issue)  open");

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Plan } from "../process/plan.ts";
+import type { ClSpec, Planned } from "../process/plan.ts";
 import { advance } from "./advance.ts";
 import { type Ledger, open } from "./ledger.ts";
 import { section } from "../effects/notes.ts";
@@ -22,21 +22,23 @@ vi.mock("../effects/git.ts", () => ({
 }));
 
 const issueNote =
-  "---\ntype: issue\nstatus: new\n---\nOne value.\n\n## Check\n\n- value is 2\n- double is 4\n";
-const cut = (name: string, traces: number[]) => ({
+  "---\ntype: issue\nstatus: new\n---\nOne value.\n\n---\n## Done\n\n- value is 2\n- double is 4\n";
+const cl = (name: string, phase?: number): ClSpec => ({
   name,
   intent: `${name} is right`,
-  behaviors: [`given ${name}, when read, then right`],
-  seam: "src/value.mjs's exports",
-  files: { change: [`src/${name}.mjs`], read: [] },
-  grounds: [],
+  ...(phase === undefined ? {} : { phase }),
+  shape: { change: "behavior", checked: "repo" },
+  checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`],
+  scope: [`src/${name}.mjs`],
   test: `node --test test/${name}.test.mjs`,
-  traces,
+  check: [`given ${name}, when read, then right`],
+  seam: "src/value.mjs's exports",
+  checkoutNotes: `- src/${name}.mjs: the code`,
 });
-const plan: Plan = {
+const plan: Planned = {
   word: "done",
-  seams: [{ name: "value", what: "the exports" }],
-  cuts: [cut("value", [1]), cut("double", [2])],
+  plan: { approach: "value, then double", phases: ["the value", "its double"] },
+  cls: [cl("value", 1), cl("double", 2)],
 };
 
 let dir: string;
@@ -56,52 +58,90 @@ beforeEach(() => {
     test: "suite",
   });
   // The issue planned, and its plan approved.
-  ledger.end(
+  ledger.apply(
     "is",
-    ledger.begin("is"),
     { word: "pass", reason: "lints", findings: [] },
-    "planned",
-    { result: plan },
+    { attempt: ledger.begin("is"), ...{ result: plan } },
   );
-  ledger.end(
+  ledger.apply(
     "is",
-    ledger.begin("is"),
     { word: "pass", reason: "approved", findings: [] },
-    "building",
+    { attempt: ledger.begin("is") },
   );
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const state = (name: string) => ledger.item(name).state;
+/** Puts an item at a state, as the steps a test skips would. */
+const force = (name: string, to: string) => {
+  const db = new DatabaseSync(join(dir, "ledger.db"));
+  db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
+  db.close();
+};
 const read = (name: string) => readFileSync(join(dir, `${name}.md`), "utf8");
 
 describe("advance", () => {
-  it("writes an approved plan's notes, and puts its cls in the ledger, the first ready", async () => {
+  it("writes an approved spec's notes in kinetic's format, and puts its cls in the ledger, phase 1 ready", async () => {
     await advance(ledger);
-    expect(ledger.cls("is").map((c) => [c.name, c.state, c.test])).toEqual([
-      ["is-value", "ready", "node --test test/value.test.mjs"],
-      ["is-double", "waiting", "node --test test/double.test.mjs"],
+    expect(
+      ledger.cls("is").map((c) => [c.name, c.phase, c.state, c.test]),
+    ).toEqual([
+      ["is-value", 1, "ready", "node --test test/value.test.mjs"],
+      ["is-double", 2, "waiting", "node --test test/double.test.mjs"],
     ]);
     expect(read("is-plan")).toMatch(/^---\ntype: plan\n/);
-    expect(read("is-plan")).toContain("- value is 2: [[is-value]]");
+    expect(read("is-plan")).toContain(
+      "- Phase 2: its double\n\t- [[is-double]]",
+    );
+    expect(read("is-plan")).not.toMatch(/one phase|## Trace/);
     expect(read("is-value")).toContain('belongsTo: "[[is-plan]]"');
+    expect(read("is-value")).toContain('scope: ["src/value.mjs"]');
     expect(section(join(dir, "is-value.md"), "Check").trim()).toBe(
       "- given value, when read, then right",
-    );
-    expect(section(join(dir, "is-double.md"), "Needs")).toContain(
-      "[[is-value]]",
     );
     expect(read("is")).toMatch(/status: in-progress/);
   });
 
+  it("starts every cl of a phase together, and the next phase once all of them merge", async () => {
+    ledger.apply(
+      "is",
+      {
+        word: "back",
+        reason: "again",
+        findings: [{ about: "plan", what: "w", where: "x" }],
+      },
+      { attempt: ledger.begin("is") },
+    );
+    ledger.apply(
+      "is",
+      { word: "pass", reason: "lints", findings: [] },
+      {
+        attempt: ledger.begin("is"),
+        result: { ...plan, cls: [cl("a", 1), cl("b", 1), cl("c", 2)] },
+      },
+    );
+    ledger.apply(
+      "is",
+      { word: "pass", reason: "approved", findings: [] },
+      { attempt: ledger.begin("is") },
+    );
+    await advance(ledger);
+    expect(["is-a", "is-b", "is-c"].map(state)).toEqual([
+      "ready",
+      "ready",
+      "waiting",
+    ]);
+    force("is-a", "merged");
+    await advance(ledger);
+    expect(state("is-c")).toBe("waiting");
+    force("is-b", "merged");
+    await advance(ledger);
+    expect(state("is-c")).toBe("ready");
+  });
+
   it("merges an approved cl into its issue's branch, then starts the next", async () => {
     await advance(ledger);
-    ledger.end(
-      "is-value",
-      ledger.begin("is-value"),
-      { word: "pass", reason: "approved", findings: [] },
-      "approved",
-    );
+    force("is-value", "approved");
     await advance(ledger);
     expect(merge).toHaveBeenCalledWith("/repo", "is-value", "is");
     expect([state("is-value"), state("is-double")]).toEqual([
@@ -129,7 +169,7 @@ describe("advance", () => {
   it("marks the issue built once its cls are all merged", async () => {
     await advance(ledger);
     for (const c of ["is-value", "is-double"]) {
-      ledger.move([{ name: c, to: "approved", reason: "test" }]);
+      force(c, "approved");
       await advance(ledger);
     }
     await advance(ledger);
@@ -137,9 +177,8 @@ describe("advance", () => {
   });
 
   const raise = (cl: string, about: "cl" | "plan" | "issue") =>
-    ledger.end(
+    ledger.apply(
       cl,
-      ledger.begin(cl),
       {
         word: "back",
         reason: "back",
@@ -147,7 +186,7 @@ describe("advance", () => {
           { about, what: "the seam is not there", where: "src/value.mjs" },
         ],
       },
-      "raised",
+      { attempt: ledger.begin(cl) },
     );
 
   it("relays a cl's raise to the planner, its findings with it, and drops the rest of its plan", async () => {
@@ -176,7 +215,7 @@ describe("advance", () => {
 
   it("sends the issue back to the planner when its last cl raises, not on as built", async () => {
     await advance(ledger);
-    ledger.move([{ name: "is-value", to: "approved", reason: "test" }]);
+    force("is-value", "approved");
     await advance(ledger);
     await advance(ledger);
     raise("is-double", "plan");
@@ -190,18 +229,18 @@ describe("advance", () => {
     await advance(ledger);
     expect(state("is-value")).toBe("dropped");
     // The planner answers with a plan of a new cut, and it is approved.
-    ledger.end(
+    ledger.apply(
       "is",
-      ledger.begin("is"),
       { word: "pass", reason: "lints", findings: [] },
-      "planned",
-      { result: { ...plan, cuts: [cut("seam", [1, 2])] } },
+      {
+        attempt: ledger.begin("is"),
+        ...{ result: { word: "done", cls: [cl("seam")] } },
+      },
     );
-    ledger.end(
+    ledger.apply(
       "is",
-      ledger.begin("is"),
       { word: "pass", reason: "approved", findings: [] },
-      "building",
+      { attempt: ledger.begin("is") },
     );
     await advance(ledger);
     expect(state("is")).toBe("building");
@@ -213,10 +252,12 @@ describe("advance", () => {
     vi.mocked(merge).mockRejectedValueOnce(
       new Error("assembly/is/head is not behind"),
     );
-    ledger.move([{ name: "is-value", to: "approved", reason: "test" }]);
+    force("is-value", "approved");
     await advance(ledger);
     expect(state("is-value")).toBe("escalated");
     expect(ledger.events("is-value").at(-1)).toMatchObject({
+      by: "orchestrator",
+      word: "escalate",
       reason: expect.stringMatching(/move failed: .*not behind/),
     });
     await advance(ledger);
@@ -248,17 +289,37 @@ describe("advance", () => {
 
   it("escalates the issue when one of its cls is", async () => {
     await advance(ledger);
-    ledger.move([{ name: "is-value", to: "escalated", reason: "test" }]);
+    force("is-value", "escalated");
     await advance(ledger);
     expect(state("is")).toBe("escalated");
   });
 
   it("marks an accepted issue's notes done", async () => {
     await advance(ledger);
-    ledger.move([{ name: "is", to: "accepted", reason: "test" }]);
+    force("is", "accepted");
     await advance(ledger);
     expect(read("is")).toMatch(/status: done/);
     expect(read("is-plan")).toMatch(/status: done/);
     expect(existsSync(join(dir, "is-double.md"))).toBe(true);
+  });
+
+  it("builds a spec Matt made from his notes, writing none, and escalates a raise about its plan to him", async () => {
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("DELETE FROM attempts").run();
+    db.close();
+    ledger.keepSpec("is", { plan: plan.plan, cls: plan.cls }, "matt");
+    await advance(ledger);
+    expect(existsSync(join(dir, "is-plan.md"))).toBe(false);
+    expect(ledger.cls("is").map((c) => c.name)).toEqual([
+      "is-value",
+      "is-double",
+    ]);
+    writeFileSync(
+      join(dir, "is-value.md"),
+      "---\ntype: cl\nstatus: new\n---\nv\n",
+    );
+    raise("is-value", "plan");
+    await advance(ledger);
+    expect(state("is")).toBe("escalated");
   });
 });

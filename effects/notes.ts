@@ -42,19 +42,22 @@ export function setStatus(path: string, status: string) {
   );
 }
 
-/** Writes a note: its frontmatter fields, then its body. It writes over a note that is there only when told to. */
+/**
+ * Writes a note: its frontmatter fields, then its body. A list or a mapping is written as a JSON flow value, which YAML
+ * reads as the same. It writes over a note that is there only when told to.
+ */
 export function writeNote(
   path: string,
-  fields: Record<string, string>,
+  fields: Record<string, string | number | object>,
   body: string,
   replace = false,
 ) {
   if (!replace && existsSync(path)) throw new Error(`${path} is there already`);
   const head = Object.entries(fields)
-    // quoted when YAML would read it otherwise: a mapping or comment mark, a newline, or a leading indicator
+    // a string quoted when YAML would read it otherwise: a mapping or comment mark, a newline, or a leading indicator
     .map(
       ([k, v]) =>
-        `${k}: ${/[:#[\]"\n]|^[\s\-?!&*|>%@`{}',]/.test(v) ? JSON.stringify(v) : v}`,
+        `${k}: ${typeof v !== "string" ? JSON.stringify(v) : /[:#[\]"\n]|^[\s\-?!&*|>%@`{}',]/.test(v) ? JSON.stringify(v) : v}`,
     )
     .join("\n");
   writeFileSync(path, `---\n${head}\n---\n${body.trim()}\n`);

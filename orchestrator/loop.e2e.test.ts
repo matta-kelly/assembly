@@ -40,7 +40,7 @@ import { issueReviewer } from "../agents/issue-review.ts";
 import { planReviewer } from "../agents/plan-review.ts";
 import { planner } from "../agents/planner.ts";
 import { compose } from "../main.ts";
-import { admit } from "./advance.ts";
+import { advance } from "./advance.ts";
 import { nail } from "../process/nail.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
@@ -57,11 +57,12 @@ status: new
 ---
 src/value.mjs exports value, and src/double.mjs exports double, which doubles it.${raise ? "\n\nRAISE" : ""}
 
+---
 ## Intent
 
 Two small exports, each with its tests.
 
-## Check
+## Done
 
 - src/value.mjs exports value, which is 2
 - src/double.mjs exports double(), which returns value times 2
@@ -96,24 +97,23 @@ function scripted(script: (input: string, done: number, last: string) => Call) {
 const submit = (result: object) =>
   fauxToolCall("submit", { result } as Parameters<typeof fauxToolCall>[1]);
 
-const cut = (
+const cl = (
   name: string,
   intent: string,
   behavior: string,
-  traces: number[],
+  phase: number | undefined,
   read: string[] = [],
 ) => ({
   name,
   intent,
-  behaviors: [behavior],
-  seam: `src/${name}.mjs's export, which the next cut imports`,
-  files: {
-    change: [`src/${name}.mjs`, `test/${name}.test.mjs`],
-    read: ["README", ...read],
-  },
-  grounds: ["README: the repo has no code yet"],
+  ...(phase === undefined ? {} : { phase }),
+  shape: { change: "behavior", checked: "repo" },
+  checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`, "README", ...read],
+  scope: [`src/${name}.mjs`, `test/${name}.test.mjs`],
   test: `node --test test/${name}.test.mjs`,
-  traces,
+  check: [behavior],
+  seam: `src/${name}.mjs's export, which the next cl imports`,
+  checkoutNotes: "- README: the repo has no code yet",
 });
 
 const plannerScript = (input: string, done: number) => {
@@ -131,20 +131,23 @@ const plannerScript = (input: string, done: number) => {
   if (done === 0) return fauxToolCall("ls", {});
   return submit({
     word: "done",
-    seams: [{ name: "exports", what: "value and double, each its own module" }],
-    cuts: [
-      cut(
+    plan: {
+      approach: "value first, then double, which imports it",
+      phases: ["value, which double imports", "double, once value is merged"],
+    },
+    cls: [
+      cl(
         "value",
         "src/value.mjs exports value, which is 2",
         "given src/value.mjs, when imported, then value is 2",
-        [1],
+        1,
       ),
-      cut(
+      cl(
         "double",
         "src/double.mjs exports double",
         "given value is 2, when double() runs, then it returns 4",
-        [2],
-        // the earlier cut makes it
+        2,
+        // the earlier phase makes it
         ["src/value.mjs"],
       ),
     ],
@@ -493,7 +496,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           );
         expect(note("is-plan")).toMatch(/^status: done$/m);
         expect(note("is-plan")).toContain(
-          "- src/double.mjs exports double(), which returns value times 2: [[is-double]]",
+          "- Phase 2: double, once value is merged\n\t- [[is-double]]",
+        );
+        expect(note("is-double")).toContain(
+          'scope: ["src/double.mjs","test/double.test.mjs"]',
         );
         expect(note("is-value")).toMatch(/^status: done$/m);
 
@@ -617,7 +623,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const clPath = join(at, "work", "rs-value.md");
         writeFileSync(
           clPath,
-          "---\ntype: cl\nstatus: new\n---\nThe cut value of rs.\n\n## Check\n\n- given value, when read, then 2\n",
+          "---\ntype: cl\nstatus: new\n---\nThe cut value of rs.\n\n---\n## Check\n\n- given value, when read, then 2\n",
         );
 
         // da-nail's third model call, after its two writes, waits: the first orchestrator closes while it is out. Its
@@ -663,25 +669,33 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           timeoutMs: 120_000,
         });
         const ledger = f.ledger;
-        // A cl enters as add enters a plan: its issue's plan, made outside the factory, gives its view.
-        const value = cut(
-          "value",
-          "value is 2",
-          "given value, when read, then 2",
-          [1],
-        );
-        admit(
-          ledger,
+        // A lone cl enters as submit enters it: Matt's spec, his two passes, and the engine builds it.
+        ledger.addIssue({
+          name: "rs",
+          path: join(at, "work", "rs.md"),
+          repo,
+          image,
+          test: suite,
+          setup,
+        });
+        const pass = { word: "pass" as const, reason: "Matt", findings: [] };
+        ledger.apply("rs", pass, "matt");
+        ledger.keepSpec(
+          "rs",
           {
-            name: "rs",
-            path: join(at, "work", "rs.md"),
-            repo,
-            image,
-            test: suite,
-            setup,
+            cls: [
+              cl(
+                "value",
+                "value is 2",
+                "given value, when read, then 2",
+                undefined,
+              ),
+            ],
           },
-          { word: "done", seams: [], cuts: [value], outside: true },
+          "matt",
         );
+        ledger.apply("rs", pass, "matt");
+        await advance(ledger);
         const sandbox = () =>
           execFileSync(
             "podman",

@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { read } from "../effects/notes.ts";
-import { hasPlanNote, planPath } from "./plan.ts";
+import { planPath, specOf } from "./plan.ts";
 import type { Step } from "./step.ts";
 
 // Accept: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to Matt (the
@@ -47,7 +47,7 @@ export const accept: Step<Done> = {
     return [
       read(r.path),
       "",
-      ...(hasPlanNote(ledger, r.name)
+      ...(specOf(ledger, r.name)?.spec.plan
         ? ["# The plan", read(planPath(r.path, r.name)), ""]
         : []),
       "# Its cls, each merged into the issue's branch",

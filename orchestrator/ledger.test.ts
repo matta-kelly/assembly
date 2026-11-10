@@ -61,14 +61,15 @@ describe("ledger", () => {
     const l = open(file);
     l.addIssue(issue);
     const n = l.begin("is");
-    l.end(
+    l.apply(
       "is",
-      n,
       { word: "pass", reason: "the plan lints", findings: [] },
-      "planned",
       {
-        usage: { tokens: 9, input: 7, output: 2, cached: 5, cost: 0.01 },
-        result: { word: "done", cuts: [] },
+        attempt: n,
+        ...{
+          usage: { tokens: 9, input: 7, output: 2, cached: 5, cost: 0.01 },
+          result: { word: "done", cuts: [] },
+        },
       },
     );
     expect(l.attempt("is", n)).toMatchObject({
@@ -93,30 +94,28 @@ describe("ledger", () => {
   it("records a failure's cause on its attempt and its event, and refuses one not on the list", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       {
         word: "retry",
         cause: "contract_invalid",
         reason: "two cuts share a name",
         findings: [],
       },
-      "open",
+      { attempt: l.begin("is") },
     );
     expect(l.attempt("is", 1)).toMatchObject({ cause: "contract_invalid" });
     expect(l.events("is").at(-1)).toMatchObject({ cause: "contract_invalid" });
     expect(() =>
-      l.end(
+      l.apply(
         "is",
-        l.begin("is"),
         {
           word: "retry",
           cause: "bad_luck" as never,
           reason: "?",
           findings: [],
         },
-        "open",
+        { attempt: l.begin("is") },
       ),
     ).toThrow(/CHECK constraint/);
   });
@@ -133,13 +132,14 @@ describe("ledger", () => {
       at: Date.parse("2026-11-07T00:00:00Z"),
       ms: 1200,
     };
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "green", findings: [] },
-      "planned",
       {
-        ran: check,
+        attempt: l.begin("is"),
+        ...{
+          ran: check,
+        },
       },
     );
     const db = new DatabaseSync(file);
@@ -161,58 +161,64 @@ describe("ledger", () => {
   it("gives the last passed result of a step, and none for a step that never passed", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "r", findings: [] },
-      "planned",
       {
-        result: { v: 1 },
+        attempt: l.begin("is"),
+        ...{
+          result: { v: 1 },
+        },
       },
     );
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "back", reason: "r", findings: [f("plan")] },
-      "open",
       {
-        result: { v: 2 },
+        attempt: l.begin("is"),
+        ...{
+          result: { v: 2 },
+        },
       },
     );
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "r", findings: [] },
-      "planned",
       {
-        result: { v: 3 },
+        attempt: l.begin("is"),
+        ...{
+          result: { v: 3 },
+        },
       },
     );
     expect(l.passed("is", "open")).toEqual({ v: 3 });
     expect(l.passed("is", "built")).toBeUndefined();
   });
 
-  it("moves items with no attempt, and counts a state's attempts again from the move", () => {
+  it("moves items with no attempt, by the orchestrator or Matt, and counts a state's attempts again from the move", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "retry", reason: "r", findings: [] },
-      "open",
+      { attempt: l.begin("is") },
     );
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "r", findings: [] },
-      "planned",
+      { attempt: l.begin("is") },
     );
-    l.move([{ name: "is", to: "open", reason: "a cl raised" }]);
+    l.apply(
+      "is",
+      { word: "back", reason: "a cl raised", findings: [f("plan")] },
+      "orchestrator",
+    );
     expect(l.item("is").state).toBe("open");
     expect(l.events("is").at(-1)).toMatchObject({
       n: 2,
+      by: "orchestrator",
       from_state: "planned",
-      word: null,
+      word: "back",
       to_state: "open",
     });
     l.begin("is");
@@ -228,40 +234,36 @@ describe("ledger", () => {
       reason: "r",
       findings: [f(about)],
     });
-    l.end("is-a", l.begin("is-a"), back("code"), "red");
-    l.end(
+    l.apply("is-a", back("code"), { attempt: l.begin("is-a") });
+    l.apply(
       "is-a",
-      l.begin("is-a"),
       { word: "pass", reason: "r", findings: [] },
-      "green",
+      { attempt: l.begin("is-a") },
     );
-    l.end("is-a", l.begin("is-a"), back("tests"), "ready");
-    l.end("is-a", l.begin("is-a"), back("cl"), "raised");
+    l.apply("is-a", back("tests"), { attempt: l.begin("is-a") });
+    l.apply("is-a", back("cl"), { attempt: l.begin("is-a") });
     expect(l.rounds("is-a")).toBe(2);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "r", findings: [] },
-      "planned",
+      { attempt: l.begin("is") },
     );
-    l.end("is", l.begin("is"), back("plan"), "open");
+    l.apply("is", back("plan"), { attempt: l.begin("is") });
     expect(l.rounds("is")).toBe(1);
   });
 
   it("keeps each message's findings and notes on its event", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "r", findings: [], notes: "n" },
-      "planned",
+      { attempt: l.begin("is") },
     );
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "back", reason: "r", findings: [f("plan")] },
-      "open",
+      { attempt: l.begin("is") },
     );
     expect(l.events("is").slice(-2)).toMatchObject([
       { word: "pass", findings: [], notes: "n" },
@@ -273,47 +275,101 @@ describe("ledger", () => {
     const l = open(file);
     l.addIssue(issue);
     expect(l.inbox("is", "open")).toEqual([]);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "pass", reason: "planned", findings: [] },
-      "planned",
+      { attempt: l.begin("is") },
     );
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "back", reason: "back", findings: [f("plan")] },
-      "open",
+      { attempt: l.begin("is") },
     );
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "retry", reason: "no lint", findings: [] },
-      "open",
+      { attempt: l.begin("is") },
     );
     expect(l.inbox("is", "open").map((e) => e.reason)).toEqual([
       "back",
       "no lint",
     ]);
-    l.move([{ name: "is", to: "planned", reason: "relayed", back: [f("cl")] }]);
+    l.apply(
+      "is",
+      { word: "pass", reason: "Matt planned it", findings: [] },
+      "matt",
+    );
     expect(l.inbox("is", "planned")).toMatchObject([
-      { word: "back", reason: "relayed", findings: [f("cl")] },
+      { by: "matt", word: "pass", reason: "Matt planned it" },
     ]);
   });
 
   it("keeps everything after it is opened again", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.end(
+    l.apply(
       "is",
-      l.begin("is"),
       { word: "retry", reason: "r", findings: [] },
-      "open",
+      { attempt: l.begin("is") },
     );
     l.begin("is");
     const again = open(file);
     expect(again.item("is").state).toBe("open");
     expect(again.open()).toEqual([{ name: "is", n: 2, step: "open" }]);
     expect(again.attempts("is", "open")).toBe(2);
+  });
+
+  it("applies a message by the table: the orchestrator's moves have rows, and a word with no row throws for them", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    l.addCl(cl("is-a", 1), "waiting");
+    const say = (word: "pass" | "drop" | "escalate" | "replan") => ({
+      word,
+      reason: "r",
+      findings: [],
+    });
+    expect(l.apply("is-a", say("pass"), "orchestrator")).toBe("ready");
+    expect(() => l.apply("is-a", say("replan"), "orchestrator")).toThrow(
+      /no transition/,
+    );
+    expect(l.apply("is-a", say("drop"), "orchestrator")).toBe("dropped");
+    expect(l.apply("is", say("escalate"), "orchestrator")).toBe("escalated");
+    expect(l.apply("is", say("replan"), "matt")).toBe("open");
+  });
+
+  it("escalates an attempt whose word the table has no row for, with why, and ends the attempt", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    const n = l.begin("is");
+    expect(
+      l.apply(
+        "is",
+        { word: "back", reason: "r", findings: [f("code")] },
+        { attempt: n },
+      ),
+    ).toBe("escalated");
+    expect(l.open()).toEqual([]);
+    expect(l.events("is").at(-1)?.reason).toMatch(/no owner of code for issue/);
+  });
+
+  it("keeps an issue's spec with who made it, and lets it go", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    expect(l.spec("is")).toBeUndefined();
+    l.keepSpec("is", { cls: [] }, "matt");
+    expect(l.spec("is")).toEqual({ spec: { cls: [] }, by: "matt" });
+    l.dropSpec("is");
+    expect(l.spec("is")).toBeUndefined();
+  });
+
+  it("keeps a cl's phase, and a lone cl's is 1", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    l.addCl({ ...cl("is-a", 1), phase: 2 }, "waiting");
+    l.addCl(cl("is-b", 2), "ready");
+    expect(l.cls("is").map((c) => [c.name, c.phase])).toEqual([
+      ["is-a", 2],
+      ["is-b", 1],
+    ]);
   });
 });

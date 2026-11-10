@@ -31,9 +31,11 @@ export type State =
 
 /**
  * A message's word. pass moves the item on, and retry runs its step again. back sends it up the V, to the owner of the
- * artifact its findings are about: a review's send-back and an agent's raise are both one.
+ * artifact its findings are about: a review's send-back and an agent's raise are both one. The rest are the
+ * orchestrator's and Matt's: drop takes a cl out of its plan, escalate gives an item to Matt, and replan sends an issue
+ * Matt holds back to be planned.
  */
-export type Word = "pass" | "retry" | "back";
+export type Word = "pass" | "retry" | "back" | "drop" | "escalate" | "replan";
 
 /** What a finding is about: a spec (the issue, the plan, a cl) or a product (a cl's tests, its code). */
 export type Artifact = "issue" | "plan" | "cl" | "tests" | "code";
@@ -44,23 +46,34 @@ export const levels: Artifact[] = ["issue", "plan", "cl", "tests", "code"];
 export const retryLimit = 3;
 export const reviewRounds = 2;
 
-/** Where pass and retry take an item from each state a step runs from. */
-export const table: Partial<Record<State, Record<"pass" | "retry", State>>> = {
+/**
+ * Where pass and retry take an item from each state. A step runs from open, planned, built, ready, red and green; the
+ * orchestrator passes the rest on: a waiting cl to ready, an approved one to merged, a building issue to built.
+ */
+export const table: Partial<
+  Record<State, Partial<Record<"pass" | "retry", State>>>
+> = {
   open: { pass: "planned", retry: "open" },
   planned: { pass: "building", retry: "planned" },
+  building: { pass: "built" },
   built: { pass: "accepted", retry: "built" },
+  waiting: { pass: "ready" },
   ready: { pass: "red", retry: "ready" },
   red: { pass: "green", retry: "red" },
   green: { pass: "approved", retry: "green" },
+  approved: { pass: "merged" },
 };
+
+/** The states an item can leave by drop, escalate or replan. */
+const ends: State[] = ["merged", "dropped", "accepted"];
 
 /**
  * Where back takes an item: the state of the artifact's owner. A cl's tests are da-nail's (ready), its code
  * da-hammer's (red). The rest is above the cl: raised, and the orchestrator takes it to its issue (advance.ts). An
- * issue's plan is the planner's (open), and the issue itself is Matt's (raised).
+ * issue's plan and its cls are the planner's (open), and the issue itself is Matt's (raised).
  */
 export const owner: Record<"issue" | "cl", Partial<Record<Artifact, State>>> = {
-  issue: { plan: "open", issue: "raised" },
+  issue: { plan: "open", cl: "open", issue: "raised" },
   cl: {
     tests: "ready",
     code: "red",
@@ -88,13 +101,28 @@ export function next(
   about: Artifact[],
   c: Counts,
 ): State {
+  if (word === "escalate") {
+    if (ends.includes(state))
+      throw new Error(`no transition from ${state} on escalate`);
+    return "escalated";
+  }
+  if (word === "drop") {
+    if (kind !== "cl" || ends.includes(state))
+      throw new Error(`no transition from ${state} on drop`);
+    return "dropped";
+  }
+  if (word === "replan") {
+    if (kind !== "issue" || (state !== "raised" && state !== "escalated"))
+      throw new Error(`no transition from ${state} on replan`);
+    return "open";
+  }
   if (word === "back") {
     const to = owner[kind][top(about)];
     if (!to) throw new Error(`no owner of ${top(about)} for ${kind}`);
     if (to !== "raised" && c.rounds > reviewRounds) return "escalated";
     return to;
   }
-  const to = table[state]?.[word];
+  const to = table[state]?.[word as "pass" | "retry"];
   if (!to) throw new Error(`no transition from ${state} on ${word}`);
   if (word === "retry" && c.attempts >= retryLimit) return "escalated";
   return to;

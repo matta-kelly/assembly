@@ -47,7 +47,7 @@ import {
   type View,
   type Worktree,
 } from "../process/step.ts";
-import { next, type State, top, type Word } from "../process/table.ts";
+import { type State, top } from "../process/table.ts";
 import { advance } from "./advance.ts";
 import type { Event, Ledger, Usage } from "./ledger.ts";
 
@@ -178,19 +178,16 @@ export async function loop({
   let closing = false;
   // Closing stops the checks running now, and never the runs: que-pasa keeps those for the next process.
   const closed = new AbortController();
-  // The limits' counts, with the attempt about to end in them: it is open, so attempts counts it, and a back is not in
-  // the events until it ends.
-  const counts = (name: string, state: State, word: Word) => ({
-    attempts: ledger.attempts(name, state),
-    rounds: ledger.rounds(name) + (word === "back" ? 1 : 0),
-  });
-  // Who a message is from: the agent of the step it ended, or the orchestrator, for its own moves.
+  // Who a message is from: the agent of the step it ended, or the orchestrator or Matt, for their own moves.
   const fromOf = (e: Event) =>
-    (e.n !== null && stepAt(e.from_state as State)?.agent) ||
-    "the orchestrator";
+    e.by === "matt"
+      ? "Matt"
+      : (e.by === "attempt" && stepAt(e.from_state as State)?.agent) ||
+        "the orchestrator";
+  // An attempt ends through the ledger's one door, which routes its message by the table.
   const end = (
     r: Run,
-    state: State,
+    _state: State,
     v: Message,
     o: {
       usage?: Usage | undefined;
@@ -198,23 +195,7 @@ export async function loop({
       ran?: CheckRun | undefined;
     } = {},
   ) => {
-    // A word the table has no move for is the factory's fault, not the item's: it is escalated, with why, and never
-    // left open to run again.
-    let to: State;
-    let message = v;
-    try {
-      to = next(
-        state,
-        r.kind,
-        v.word,
-        v.findings.map((f) => f.about),
-        counts(r.name, state, v.word),
-      );
-    } catch (e) {
-      to = "escalated";
-      message = { ...v, reason: `${(e as Error).message}: ${v.reason}` };
-    }
-    ledger.end(r.name, r.n, message, to, o);
+    ledger.apply(r.name, v, { attempt: r.n, ...o });
   };
 
   /**
