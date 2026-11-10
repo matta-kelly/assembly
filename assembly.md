@@ -84,6 +84,7 @@ Across a stop:
 
 ## Not built
 
+- the planner's role as written: its result is still the cut of the old cl (files, grounds copied in, Check items by number), which `process/plan.ts` validates, and its envelope does not inline the [[plan]] and [[cl]] type notes its Bar points to
 - the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut in its ledger, or from the cl's Files section, and fences the agent with que-pasa's view. kinetic's cl holds `scope`, `shape` and `test` in its frontmatter, and the agent works in a sparse checkout of its scope
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
 - the command line's `retry`, `replan` and `ask`
