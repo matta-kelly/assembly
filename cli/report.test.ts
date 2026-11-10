@@ -29,7 +29,7 @@ describe("the factory's reports", () => {
     ledger.end(
       "is",
       ledger.begin("is"),
-      { word: "retry", reason: "r" },
+      { word: "retry", reason: "r", findings: [] },
       "open",
       { usage: { cost: 0.5 } },
     );
@@ -61,26 +61,41 @@ describe("the factory's reports", () => {
     ledger.end(
       "is",
       ledger.begin("is"),
-      { word: "raise", cause: "missing_context", reason: "no intent" },
+      {
+        word: "back",
+        reason: "back, about the issue",
+        findings: [{ about: "issue", what: "no intent", where: "Intent" }],
+      },
       "raised",
     );
-    expect(blocked(ledger)).toEqual([
-      "is  raised [missing_context]: no intent",
-    ]);
+    expect(blocked(ledger)).toEqual(["is  raised: back, about the issue"]);
   });
 
-  it("explain: an item's moves, and each attempt with where its trace is", () => {
+  it("explain: an item's messages with their findings, and each attempt with where its trace is", () => {
     const f = compose({ home });
     f.ledger.addIssue(issue);
     f.ledger.end(
       "is",
       f.ledger.begin("is"),
-      { word: "pass", reason: "the plan lints" },
+      { word: "pass", reason: "the plan lints", findings: [] },
       "planned",
       { usage: { cost: 0.01 } },
     );
+    f.ledger.end(
+      "is",
+      f.ledger.begin("is"),
+      {
+        word: "back",
+        reason: "back, about the plan",
+        findings: [
+          { about: "plan", what: "cut two needs cut one", where: "cut two" },
+        ],
+      },
+      "open",
+    );
     const lines = explain(f.ledger, f.runs, "is");
-    expect(lines[0]).toBe("is (issue)  planned");
+    expect(lines[0]).toBe("is (issue)  open");
+    expect(lines).toContainEqual("     plan: cut two needs cut one (cut two)");
     expect(lines).toContainEqual(
       expect.stringMatching(/open -pass-> planned: the plan lints/),
     );

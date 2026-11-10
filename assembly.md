@@ -17,7 +17,8 @@ The software factory: a deployment of [[que-pasa]] that moves an issue through i
 ---
 ## The model
 
-Four kinds of thing. Each has its rules in the process, its store behind an effect, and its moves in the engine.
+*The four things the factory works on, each with its rules in the process, its store behind an effect, and its moves in the engine.*
+
 - spec: the notes that say what must be true (the issue, the plan and its cls, in kinetic)
 	- the process holds their shapes, and `effects/notes.ts` reads them by path
 	- the engine writes only the factory's own plan and cl notes, and each item's `status`. A finding is never written into a note
@@ -27,27 +28,32 @@ Four kinds of thing. Each has its rules in the process, its store behind an effe
 - role: the instructions one agent works from (`agents/*.md`)
 	- a step names its agent and its bin, and `effects/runner.ts` runs it
 - message: the record a step ends with, which says what it concluded and who acts next
-	- it holds who it is from, the artifact it is about (the issue, the plan, a cl, the tests or the code), its word, and for a finding, what fails and the evidence
-	- pass moves the item on. A finding goes up the V to the owner of the artifact it is about: the tests to da-nail, the code to da-hammer, a cl or the plan to the planner, the issue to Matt. Any step can send one
-	- a raise is a finding about a spec (a cl, the plan or the issue), and an escalation is a message about the issue
-	- `process/table.ts` routes it, as data. The ledger's events hold it, one per message, appended and never edited, and an item's state is read from them
-	- each agent's input is its spec, its product, and the messages about its artifacts
+	- it holds its word (pass, retry or back), why in one line, a failure's cause, its findings, and the agent's notes for the next step. Who it is from is the attempt it ends (`process/step.ts`'s `Message`)
+		- a finding: a fault in one artifact (the issue, the plan, a cl, its tests or its code), with what fails, its evidence, and where
+	- pass moves the item on, and retry runs its step again
+	- back goes up the V to the owner of the artifact its findings are about: the tests to da-nail, the code to da-hammer, a cl or the plan to the planner, the issue to Matt. Findings about several go to the highest one's owner
+		- any step can send one: an agent hands back findings in place of its done result, about the artifacts its step names, and a check can too (a red suite at acceptance)
+		- a raise is a back about a spec (a cl, the plan or the issue). A cl's goes to its issue, which the orchestrator relays it to (`advance.ts`)
+		- an escalation sends the item to Matt: its third retry at one state, its third round back, or a move the table has no row for
+	- `process/table.ts` routes it, as data. The ledger's events hold it, one per message, appended and never edited, and an item's state is their projection, moved in the same transaction
+	- each agent's input is its spec, then its messages: the one that brought the item to its state, and each since (`ledger.inbox`). Its product it reads in the worktree
 
 ## The machine
 
 Four layers, and `main.ts` puts them together. The engine runs the process and calls the effects. The process reaches the effects in two places only, its notes and the tools each agent names. A check asks the engine for what it needs, and the runner is the engine's `Runner`.
+
 - process, what the work is: `process/` and `agents/`. It decides, and touches only its own notes
-	- the path: an issue and its cls move from state to state on words (pass, retry, raise, to-tests, to-code, to-plan). `process/table.ts` holds it as data
+	- the path: an issue and its cls move from state to state on messages ([[#The model]]). `process/table.ts` holds it as data
 		- an issue: open → planned (the planner cuts it into cls) → building (plan-review approves) → built (each cl merged into the issue's branch, in plan order) → accepted (issue-review, and the full suite green). A review can send it back to the planner, and so can a cl that raises
 		- a cl: waiting (for the cl before it) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → merged. A review can send it back to its tests or its code
 		- an item is escalated, for Matt, on its third failed attempt at one state, on its third send-back, or when a move of the orchestrator's own fails
 	- a step, one per state: its agent, its result's shape, its check (`process/*.ts`, listed in `process/index.ts`)
 		- plan (the plan lints), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
-		- a check reads the result and the attempt's worktree, which it asks through a port (`Worktree`: a test run, the changed files, the files there), and gives the word
-		- nail and hammer work inside their cut: the planner explored, so they do not. A step's view is its cut's files (`process/plan.ts`'s `viewOf`): its tools read those, write only the ones it changes, and to them nothing else exists. A file the cut did not give is a raise. Code its tests run can still write elsewhere, so an attempt whose worktree changed any other file is a retry (`scope_exceeds_change`), and only the change files are committed. Hammer changes no test file: none its Tests section names, and none its test command runs The cut's test command runs its new test files and the existing ones that test the code it changes
+		- a check reads the result and the attempt's worktree, which it asks through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
+		- nail and hammer work inside their cut: the planner explored, so they do not. A step's view is its cut's files (`process/plan.ts`'s `viewOf`): its tools read those, write only the ones it changes, and to them nothing else exists. A file the cut did not give is a raise. Code its tests run can still write elsewhere, so an attempt whose worktree changed any other file is a retry (`scope_exceeds_change`), and only the change files are committed. Hammer changes no test file: none da-nail wrote, and none its test command runs. The cut's test command runs its new test files and the existing ones that test the code it changes
 	- the agents (`agents/`): each one's instructions are its role note beside it (it's type role), and each names a bin (plan, implement, review), never a model
 - engine, what moves it: `orchestrator/`
-	- the state: `ledger.ts`, SQLite, the only state the orchestrator holds: where each item stands, and every move, with its cause
+	- the state: `ledger.ts`, SQLite, the only state the orchestrator holds: where each item stands, and every message
 	- the tick: `loop.ts`. It starts attempts, up to `concurrent` at once, the open ones first. It answers each check's worktree, and records its test run
 	- the orchestrator's own moves: `advance.ts` (an approved plan's cls, each cl in turn, the merges)
 - effects, how it touches the world: `effects/`, each behind a small seam
@@ -67,8 +73,8 @@ One step on one item: its run, its sandbox and its worktree are its own, and it 
 - sandbox: a container with no network, the worktree mounted (read-only for a review). The agent's loop runs in the orchestrator and holds the key; its tools work in the sandbox (LangChain's "sandbox as tool"), which comes up on their first call
 - run: que-pasa's, with the attempt's id, under the attempt's span, on the bin's model
 - check: the step's, on the worktree; its test run in a container of its own
-- write and commit: a pass or a send-back writes its section of the note, and a step that edits commits, which moves the item's branch
-- end: the attempt span is written, then the ledger moves the item, in one transaction with one event
+- commit: a pass of a step that edits commits, as `<agent>(<item>)`, which moves the item's branch. No note is written
+- end: the attempt span is written, then the ledger moves the item, in one transaction with one event: its message
 
 Across a stop:
 - a stopped orchestrator ends nothing: each attempt stays open, and its container, which outlives the orchestrator, stays up
@@ -86,7 +92,7 @@ Across a stop:
 
 ## Records
 
-- the ledger (`ledger.db`): items; attempts (state, word, reason, cause, duration, tokens in, out and cached, cost, the result, trace ids, times taken up); events, one per move, with their cause; each cl's planned and actual paths; check runs (command, image, tree, input hash, exit code, duration)
+- the ledger (`ledger.db`): items; attempts (state, word, reason, cause, duration, tokens in, out and cached, cost, the result, trace ids, times taken up); events, one per message (its word, reason, cause, findings and notes, and the move it made); each cl's planned and actual paths; check runs (command, image, tree, input hash, exit code, duration)
 - pi's store (`pi.db`, beside the ledger): que-pasa's runs, so a run goes on after a stop
 - run folders, by issue: `runs/<issue>/issue/<n>/` and `runs/<issue>/cl/<cut>/<n>/`, each with the attempt's worktree, its log (the orchestrator's own lines, such as a take-up), and its trace, which holds each tool call
 - the trace (`trace.jsonl`): each attempt as one OpenTelemetry trace, OTLP JSON, semconv 1.43.0
@@ -97,7 +103,7 @@ Across a stop:
 ## Built
 
 - the whole machine, an issue from open to accepted, proven end to end on scripted models, and an attempt taken up after a stop (`just e2e`)
-- the factory's command line, `just factory`: `add` a note, by its kinetic type: an issue enters at open, for the factory's planner; a plan made outside the factory (a kinetic plan and its cl notes, each with its test command in its Files), or the lone cl of an issue that takes one (its `belongsTo` the issue), enters with its cls ready and waiting, so only the inner loop and acceptance run them, writing into those notes. Those notes are checked as the factory's own plan is (the cut schema, plan lint), and a raise or a send-back on them goes to Matt, escalated, never to the factory's planner; `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
+- the factory's command line, `just factory`: `add` a note, by its kinetic type: an issue enters at open, for the factory's planner; a plan made outside the factory (a kinetic plan and its cl notes, each with its test command in its Files), or the lone cl of an issue that takes one (its `belongsTo` the issue), enters with its cls ready and waiting, so only the inner loop and acceptance run them, writing only their status. Those notes are checked as the factory's own plan is (the cut schema, plan lint), and a raise or a send-back on them goes to Matt, escalated, never to the factory's planner; `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its messages with their findings, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
 - the repo's dependencies in each attempt: an offline install from its dev image's cache ([[repo#Dev image]]), once per worktree, proven on a que-pasa worktree with `que-pasa-dev:main` (setup in 11 s, then its tests pass, no network)
 - the gate: `just check` lints every note against its type, then checks the code: types, eslint, prettier, and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
 
@@ -106,7 +112,6 @@ Across a stop:
 - the cl's shape in the nail step: its check wants every new test red at an assertion, so a structure cl, whose tests pass now, can't pass it; and da-nail's tools still fence by the cut's file list, not a sparse checkout of its scope
 - the planner's role as written: its result is still the cut of the old cl (files, grounds copied in, Check items by number), which `process/plan.ts` validates, and its envelope does not inline the [[plan]] and [[cl]] type notes its Bar points to
 - the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut in its ledger, or from the cl's Files section, and fences the agent with que-pasa's view. kinetic's cl holds `scope`, `shape` and `test` in its frontmatter, and the agent works in a sparse checkout of its scope
-- the message as [[#The model]] defines it: a step's message is only its word, and its findings are written into the notes' sections (Plan review, Review, Acceptance). The routing is per step (to-tests, to-code, to-plan), not by the artifact's owner, and an agent's input is not built from the messages
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
 - the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default

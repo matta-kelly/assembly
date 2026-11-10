@@ -119,10 +119,14 @@ const cut = (
 const plannerScript = (input: string, done: number) => {
   if (input.includes("RAISE"))
     return submit({
-      word: "raise",
-      from: "planner, plan",
-      missing: "the issue's intent",
-      evidence: "RAISE",
+      word: "back",
+      findings: [
+        {
+          about: "issue",
+          what: "the issue's intent is not there",
+          where: "RAISE",
+        },
+      ],
     });
   if (done === 0) return fauxToolCall("ls", {});
   return submit({
@@ -155,11 +159,10 @@ const planReviewScript = (_input: string, done: number, last: string) => {
   if (done === 0) return tryWrite;
   if (!refused(last))
     return submit({
-      word: "done",
-      decision: "plan",
-      findings: [{ what: "writable", where: "/work" }],
+      word: "back",
+      findings: [{ about: "plan", what: "writable", where: "/work" }],
     });
-  return submit({ word: "done", decision: "approve", findings: [] });
+  return submit({ word: "done" });
 };
 
 const testOf = (name: string, imports: string, assertion: string) =>
@@ -255,11 +258,10 @@ const clReviewScript = (_input: string, done: number, last: string) => {
   if (done === 0) return tryWrite;
   if (!refused(last))
     return submit({
-      word: "done",
-      decision: "code",
-      findings: [{ what: "writable", where: "/work" }],
+      word: "back",
+      findings: [{ about: "code", what: "writable", where: "/work" }],
     });
-  return submit({ word: "done", decision: "approve", findings: [] });
+  return submit({ word: "done" });
 };
 
 /** issue-review runs the issue's Check, the whole suite, then accepts. */
@@ -267,12 +269,11 @@ const issueReviewScript = (_input: string, done: number, last: string) => {
   if (done === 0) return tryWrite;
   if (done === 1 && !refused(last))
     return submit({
-      word: "done",
-      decision: "plan",
-      findings: [{ what: "writable", where: "/work" }],
+      word: "back",
+      findings: [{ about: "plan", what: "writable", where: "/work" }],
     });
   if (done === 1) return fauxToolCall("execute", { command: suite });
-  return submit({ word: "done", decision: "accept", findings: [] });
+  return submit({ word: "done" });
 };
 
 const git = (repo: string, ...args: string[]) =>
@@ -482,24 +483,19 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           ]);
         expect(ledger.item("gap").state).toBe("raised");
 
-        // The orchestrator wrote the plan and its cl notes from the plan, and each step's section from its result.
+        // The orchestrator wrote the plan and its cl notes from the plan, and each status: never a finding.
         const note = (name: string) =>
           readFileSync(join(notes, `${name}.md`), "utf8");
         expect(note("is")).toMatch(/^status: done$/m);
-        expect(note("is")).toContain("## Plan review\n\n- decision: approve");
-        expect(note("is")).toContain("## Acceptance\n\n- decision: accept");
+        for (const n of ["is", "is-value", "is-double", "gap"])
+          expect(note(n)).not.toMatch(
+            /^## (Plan review|Acceptance|Tests|Code|Review|Raise)$/m,
+          );
         expect(note("is-plan")).toMatch(/^status: done$/m);
         expect(note("is-plan")).toContain(
           "- src/double.mjs exports double(), which returns value times 2: [[is-double]]",
         );
         expect(note("is-value")).toMatch(/^status: done$/m);
-        expect(note("is-double")).toContain(
-          "## Tests\n\n- behavior 1: `test/double.test.mjs`, double\n",
-        );
-        expect(note("is-double")).toContain(
-          "## Review\n\n- decision: approve\n",
-        );
-        expect(note("gap")).toContain("## Raise\n\n- from: planner, plan");
 
         // The issue's branch holds both cls, in order: each one's test, then its code.
         expect(git(repo, "show", "assembly/is/head:src/double.mjs")).toContain(
@@ -510,10 +506,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .trim()
             .split("\n"),
         ).toEqual([
-          "da-hammer(is-double): code",
-          "da-nail(is-double): tests",
-          "da-hammer(is-value): code",
-          "da-nail(is-value): tests",
+          "da-hammer(is-double)",
+          "da-nail(is-double)",
+          "da-hammer(is-value)",
+          "da-nail(is-value)",
         ]);
 
         // Every trial is under its issue: the issue's own attempts, and each cl's.
@@ -531,12 +527,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
         ).toContainEqual(expect.stringMatching(/node --test/));
 
-        // The planner's raise is counted as the issue's missing context, and each cl's planned and merged files are
-        // the context hit rate's two sides.
+        // The planner's raise is a message about the issue, to Matt, and each cl's planned and merged files are the
+        // context hit rate's two sides.
         expect(
-          ledger.events("gap").find((e) => e["word"] === "raise"),
+          ledger.events("gap").find((e) => e.word === "back"),
         ).toMatchObject({
-          cause: "missing_context",
+          to_state: "raised",
+          findings: [{ about: "issue", where: "RAISE" }],
         });
         const db = new DatabaseSync(join(dir, "ledger.db"));
         expect(

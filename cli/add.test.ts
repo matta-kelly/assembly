@@ -157,13 +157,19 @@ describe("add, a plan", () => {
     ledger.end(
       "fx-one",
       ledger.begin("fx-one"),
-      { word: "raise", cause: "plan_gap", reason: "no seam" },
+      {
+        word: "back",
+        reason: "back, about the plan",
+        findings: [{ about: "plan", what: "no seam", where: "Seam" }],
+      },
       "raised",
     );
     await advance(ledger);
     expect(ledger.item("fx").state).toBe("escalated");
     expect(ledger.item("fx-one").state).toBe("raised");
-    expect(readFileSync(join(notes, "fx.md"), "utf8")).toMatch(/## Raise/);
+    expect(ledger.events("fx").at(-1)).toMatchObject({
+      findings: [{ about: "plan", what: "no seam" }],
+    });
     expect(readFileSync(join(notes, "fx-plan.md"), "utf8")).toBe(
       plan(["fx-one"]),
     );

@@ -11,7 +11,10 @@ import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { field, items, itemsIn, read, sectionIn } from "../effects/notes.ts";
-import type { Run, Step, Verdict, View, Worktree } from "./step.ts";
+import type { Message, Run, Step, View, Worktree } from "./step.ts";
+
+/** A lint's word, and why: a plan lints, or its attempt is a retry with the cause. */
+type Lint = Omit<Message, "findings">;
 
 /** A name the factory can use in its branches and its containers: kebab-case. */
 export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
@@ -376,7 +379,7 @@ const inside = (f: string) => {
 export function lintCuts(
   p: Pick<Plan, "cuts">,
   o: { exists: Worktree["exists"]; taken: (cut: string) => boolean },
-): Verdict {
+): Lint {
   return cutsLint(p, o);
 }
 
@@ -388,7 +391,7 @@ export function lint(
     exists: Worktree["exists"];
     taken: (cut: string) => boolean;
   },
-): Verdict {
+): Lint {
   const cuts = cutsLint(p, o);
   if (cuts.word !== "pass") return cuts;
   for (const c of p.cuts) {
@@ -406,7 +409,7 @@ export function lint(
 function cutsLint(
   p: Pick<Plan, "cuts">,
   o: { exists: Worktree["exists"]; taken: (cut: string) => boolean },
-): Verdict {
+): Lint {
   const names = p.cuts.map((c) => c.name);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
   if (twice.length)
@@ -456,7 +459,7 @@ function cutsLint(
 }
 
 /** Each of the issue's Check items is carried by a cut. */
-function traceLint(p: Plan, checks: number): Verdict {
+function traceLint(p: Plan, checks: number): Lint {
   const o = { checks };
   if (o.checks === 0)
     return {
@@ -521,16 +524,15 @@ export const plan: Step<Plan> = {
   agent: "planner",
   worktree: "ro",
   done,
-  section: "Plan",
-  render: planText,
+  about: ["issue"],
   input,
   // The plan is the attempt's result, in the ledger. Its notes are written once the plan review approves it.
-  write: () => {},
   async check(r, d, at) {
-    return lint(d, {
+    const v = lint(d, {
       checks: items(r.path, "Check").length,
       exists: (f) => at.exists(f),
       taken: (c) => existsSync(clPath(r.path, r.issue, c)),
     });
+    return { ...v, findings: [], ...(d.notes ? { notes: d.notes } : {}) };
   },
 };

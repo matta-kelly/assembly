@@ -1,24 +1,22 @@
 /**
- * A step: one transition of an item, such as a cl from ready to red, or an issue from open to planned. It names the agent that does the work, the shape of the result
- * the agent hands back, the cl section it fills, and the check that reads the result and the worktree and picks the
- * word. The orchestrator runs every step the same way and knows nothing about any one of them. A check never touches
- * the worktree itself: it asks the one it is given (Worktree), and the loop answers from the effects. Its own notes it
- * reads and writes through effects/notes.ts.
+ * A step: one transition of an item, such as a cl from ready to red, or an issue from open to planned. It names the
+ * agent that does the work, the shape of the result the agent hands back, what the agent may send back about, and the
+ * check that reads the result and the worktree and gives the message. The orchestrator runs every step the same way
+ * and knows nothing about any one of them. A check never touches the worktree itself: it asks the one it is given
+ * (Worktree), and the loop answers from the effects. It reads notes through effects/notes.ts, and writes none.
  */
 
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import type { State, Word } from "./table.ts";
+import type { Artifact, State, Word } from "./table.ts";
 
 /**
  * Why an attempt failed, from a fixed list, so failures can be counted by cause: the master plan's reason list. A
- * reviewer's send-back has none: its word says it.
+ * back is not a failure, and has none unless a check made it (a red suite at acceptance).
  * - contract_invalid: the item does not hold its contract (a plan that does not lint, a cl with no test file)
- * - invalid_output: the agent's result is not a valid result (the wrong shape, no submit, a decision its findings deny)
+ * - invalid_output: the agent's result is not a valid result (the wrong shape, no submit)
  * - check_failed: the result is valid, and the check run on the worktree fails it (not red, not green)
  * - scope_exceeds_change: the agent changed what its step may not (a test, in the hammer step)
- * - plan_gap: a cl raised: the plan did not give it what it needs
- * - missing_context: the planner raised: the issue does not hold what a plan needs
  * - budget_exceeded: the run went past its time limit
  * - missing_dependency: the attempt's setup could not install the repo's dependencies (an image older than the
  *   lockfile), so no agent ran
@@ -30,8 +28,6 @@ export const causes = [
   "untestable_as_specified",
   "missing_dependency",
   "scope_exceeds_change",
-  "plan_gap",
-  "missing_context",
   "invalid_output",
   "check_failed",
   "flaky_check",
@@ -76,23 +72,42 @@ export interface Worktree {
   exists(files: string[]): string[];
 }
 
-/** A check's word, and why: the reason in words, and a failure's cause from the list. */
-export interface Verdict {
+/** A fault in one artifact: what fails, with its evidence, and where (the file and line, the promise, the Done item). */
+export const finding = z.object({
+  about: z.enum(["issue", "plan", "cl", "tests", "code"]),
+  what: z.string().min(1).describe("what fails, and the evidence"),
+  where: z
+    .string()
+    .min(1)
+    .describe("the file and line, the promise, or the Done item"),
+});
+export type Finding = { about: Artifact; what: string; where: string };
+
+/**
+ * The record a step ends with: its word, why in one line, a failure's cause, its findings, and the agent's notes for
+ * the next step. Who it is from is the attempt it ends. The ledger keeps it as the item's event, and the next agent
+ * reads it in its input.
+ */
+export interface Message {
   word: Word;
   reason: string;
   cause?: Cause;
+  findings: Finding[];
+  notes?: string;
 }
 
-/** The raise shape, the same for every step: the agent could not do its job from the cl ([[cl#Raise]]). */
-export const raise = z.object({
-  word: z.literal("raise"),
-  from: z.string().describe("which agent, and in which step"),
-  missing: z
-    .string()
-    .describe("what the cl does not hold, or what does not hold in it"),
-  evidence: z.string().describe("the failing test, or the file and line"),
-});
-export type Raise = z.infer<typeof raise>;
+/** The back shape: what an agent hands back in place of its done result, findings about the artifacts it may name. */
+export function back(about: Artifact[]) {
+  return z.object({
+    word: z.literal("back"),
+    findings: z
+      .array(
+        finding.extend({ about: z.enum(about as [Artifact, ...Artifact[]]) }),
+      )
+      .min(1),
+  });
+}
+export type Back = { word: "back"; findings: Finding[] };
 
 /** One attempt of one step on one item, and where its files are on the host. Plain JSON: it is a run's context. */
 export type Run = {
@@ -120,14 +135,14 @@ export interface Step<D extends { word: "done" }> {
   from: State;
   agent: string; // the agent's name, in agents/
   worktree?: "ro"; // the agent may read the worktree but not edit it, as a review
-  done: z.ZodType<D>; // the done shape. The result is this or the raise shape
-  section: string; // the note's section the orchestrator writes from a done result, and the step's name in a commit
-  render(d: D): string; // that section's text
-  check(run: Run, d: D, at: Worktree): Promise<Verdict>;
-  /** What the agent reads: the item's note when left out. A review reads more, as the issue with its plan. */
+  done: z.ZodType<D>; // the done shape. The result is this or the back shape
+  about: Artifact[]; // what its agent may send back about
+  check(run: Run, d: D, at: Worktree, ledger: Ledger): Promise<Message>;
+  /**
+   * What the agent reads, before its messages: the item's note when left out. A review reads more, as the issue with
+   * its plan.
+   */
   input?(run: Run, ledger: Ledger): string;
-  /** What a done result writes, once its check passes or sends it back: its section of the item's note when left out. */
-  write?(run: Run, d: D, v: Verdict): void;
   /**
    * What its agent can reach: its cut's files. Left out, the agent sees the whole worktree, as a step that explores
    * does (the planner) or judges (the reviews).
@@ -137,8 +152,14 @@ export interface Step<D extends { word: "done" }> {
   judges?(run: Run, ledger: Ledger): { name: string; step: State }[];
 }
 
-/** The result a step's agent may hand back: its done shape or the raise shape, told apart by `word`. The agent's
+/** The result a step's agent may hand back: its done shape or the back shape, told apart by `word`. The agent's
  * output wraps it, as `{ result }`, since an output is an object. */
 export function resultOf<D extends { word: "done" }>(step: Step<D>) {
-  return z.union([step.done, raise]);
+  return z.union([step.done, back(step.about)]);
 }
+
+/** A message with no findings. */
+export const say = (word: Word, reason: string, cause?: Cause): Message =>
+  cause
+    ? { word, reason, cause, findings: [] }
+    : { word, reason, findings: [] };

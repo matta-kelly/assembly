@@ -1,57 +1,84 @@
 import { describe, expect, it } from "vitest";
-import { next, retryLimit, reviewRounds } from "./table.ts";
+import { next, retryLimit, reviewRounds, top } from "./table.ts";
 
 const once = { attempts: 1, rounds: 0 };
 
 describe("next", () => {
   it("moves an issue along on pass: open to planned, planned to building, built to accepted", () => {
-    expect(next("open", "pass", once)).toBe("planned");
-    expect(next("planned", "pass", once)).toBe("building");
-    expect(next("built", "pass", once)).toBe("accepted");
+    expect(next("open", "issue", "pass", [], once)).toBe("planned");
+    expect(next("planned", "issue", "pass", [], once)).toBe("building");
+    expect(next("built", "issue", "pass", [], once)).toBe("accepted");
   });
 
   it("moves a cl along on pass: ready to red, red to green, green to approved", () => {
-    expect(next("ready", "pass", once)).toBe("red");
-    expect(next("red", "pass", once)).toBe("green");
-    expect(next("green", "pass", once)).toBe("approved");
-  });
-
-  it("moves a raise to raised, from every step", () => {
-    for (const s of [
-      "open",
-      "planned",
-      "built",
-      "ready",
-      "red",
-      "green",
-    ] as const)
-      expect(next(s, "raise", once)).toBe("raised");
+    expect(next("ready", "cl", "pass", [], once)).toBe("red");
+    expect(next("red", "cl", "pass", [], once)).toBe("green");
+    expect(next("green", "cl", "pass", [], once)).toBe("approved");
   });
 
   it("keeps an item in its state on retry, until the retry limit escalates it", () => {
-    expect(next("open", "retry", { attempts: retryLimit - 1, rounds: 0 })).toBe(
-      "open",
-    );
-    expect(next("red", "retry", { attempts: retryLimit, rounds: 0 })).toBe(
-      "escalated",
-    );
-  });
-
-  it("sends a reviewed item back, until the review rounds escalate it", () => {
-    expect(next("green", "to-tests", { attempts: 1, rounds: 1 })).toBe("ready");
     expect(
-      next("green", "to-code", { attempts: 1, rounds: reviewRounds }),
-    ).toBe("red");
-    expect(next("planned", "to-plan", { attempts: 1, rounds: 1 })).toBe("open");
-    expect(next("built", "to-plan", { attempts: 1, rounds: 1 })).toBe("open");
+      next("open", "issue", "retry", [], {
+        attempts: retryLimit - 1,
+        rounds: 0,
+      }),
+    ).toBe("open");
     expect(
-      next("built", "to-plan", { attempts: 1, rounds: reviewRounds + 1 }),
+      next("red", "cl", "retry", [], { attempts: retryLimit, rounds: 0 }),
     ).toBe("escalated");
   });
 
-  it("throws for a word its state has no row for", () => {
-    expect(() => next("ready", "to-code", once)).toThrow(/no transition/);
-    expect(() => next("open", "to-plan", once)).toThrow(/no transition/);
-    expect(() => next("merged", "pass", once)).toThrow(/no transition/);
+  it("sends a cl back to the owner of what its findings are about: the tests to ready, the code to red, the rest raised", () => {
+    expect(next("green", "cl", "back", ["tests"], once)).toBe("ready");
+    expect(next("green", "cl", "back", ["code"], once)).toBe("red");
+    expect(next("red", "cl", "back", ["tests"], once)).toBe("ready");
+    for (const a of ["cl", "plan", "issue"] as const)
+      expect(next("ready", "cl", "back", [a], once)).toBe("raised");
+  });
+
+  it("sends an issue back to the planner for its plan, and to Matt for itself", () => {
+    expect(next("planned", "issue", "back", ["plan"], once)).toBe("open");
+    expect(next("built", "issue", "back", ["plan"], once)).toBe("open");
+    expect(next("open", "issue", "back", ["issue"], once)).toBe("raised");
+    expect(next("built", "issue", "back", ["issue"], once)).toBe("raised");
+  });
+
+  it("sends findings about several artifacts to the highest one's owner", () => {
+    expect(top(["code", "tests"])).toBe("tests");
+    expect(top(["code", "plan", "tests"])).toBe("plan");
+    expect(next("green", "cl", "back", ["code", "tests"], once)).toBe("ready");
+    expect(next("built", "issue", "back", ["plan", "issue"], once)).toBe(
+      "raised",
+    );
+  });
+
+  it("escalates a round past the limit, and never a raise", () => {
+    expect(
+      next("green", "cl", "back", ["code"], {
+        attempts: 1,
+        rounds: reviewRounds,
+      }),
+    ).toBe("red");
+    expect(
+      next("built", "issue", "back", ["plan"], {
+        attempts: 1,
+        rounds: reviewRounds + 1,
+      }),
+    ).toBe("escalated");
+    expect(
+      next("green", "cl", "back", ["plan"], {
+        attempts: 1,
+        rounds: reviewRounds + 1,
+      }),
+    ).toBe("raised");
+  });
+
+  it("throws for a word its state has no row for, and an artifact its kind has no owner of", () => {
+    expect(() => next("merged", "cl", "pass", [], once)).toThrow(
+      /no transition/,
+    );
+    expect(() => next("built", "issue", "back", ["code"], once)).toThrow(
+      /no owner/,
+    );
   });
 });

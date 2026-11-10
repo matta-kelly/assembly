@@ -37,27 +37,20 @@ export function blocked(ledger: Ledger): string[] {
   });
 }
 
-/** An item's whole record: its moves, and each attempt with what it did, what it cost and where its trace is. */
+/** An item's whole record: its messages, each with its findings, and each attempt with what it did, what it cost and where its trace is. */
 export function explain(ledger: Ledger, runs: string, name: string): string[] {
   const item = ledger.item(name);
-  const moves = ledger.events(name) as {
-    n: number | null;
-    from_state: string;
-    word: string | null;
-    to_state: string;
-    at: string;
-    reason: string | null;
-    cause: string | null;
-  }[];
+  const moves = ledger.events(name);
   return [
     `${item.name} (${item.kind}${item.kind === "cl" ? ` of ${item.issue}` : ""})  ${item.state}`,
     `note: ${item.path}`,
     "",
-    "moves:",
-    ...moves.map(
-      (e) =>
-        `  ${e.at}  ${e.from_state} -${e.word ?? "add"}-> ${e.to_state}${e.cause ? ` [${e.cause}]` : ""}: ${e.reason ?? ""}`,
-    ),
+    "messages:",
+    ...moves.flatMap((e) => [
+      `  ${e.at}  ${e.from_state} -${e.word ?? "move"}-> ${e.to_state}${e.cause ? ` [${e.cause}]` : ""}: ${e.reason ?? ""}`,
+      ...e.findings.map((f) => `     ${f.about}: ${f.what} (${f.where})`),
+      ...(e.notes ? [`     notes: ${e.notes}`] : []),
+    ]),
     "",
     "attempts:",
     ...ledger

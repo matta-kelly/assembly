@@ -26,7 +26,7 @@ import { z } from "zod";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, normalize, posix } from "node:path";
 import { changed, commit, head, touched, worktree } from "../effects/git.ts";
-import { read, writeSection } from "../effects/notes.ts";
+import { read } from "../effects/notes.ts";
 import { log, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
 import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
@@ -39,18 +39,17 @@ import {
 } from "../effects/trace.ts";
 import {
   type CheckRun,
-  type Raise,
+  type Message,
   resultOf,
   type Run,
   type Step,
   type TestRun,
-  type Verdict,
   type View,
   type Worktree,
 } from "../process/step.ts";
-import { next, sendBack, type State, type Word } from "../process/table.ts";
+import { next, type State, top, type Word } from "../process/table.ts";
 import { advance } from "./advance.ts";
-import type { Ledger, Usage } from "./ledger.ts";
+import type { Event, Ledger, Usage } from "./ledger.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
 type AnyStep = Step<{ word: "done" }>;
@@ -98,8 +97,21 @@ export interface Loop {
   timeoutMs?: number; // the most one attempt may take
 }
 
-const raiseText = (r: Raise) =>
-  `- from: ${r.from}\n- missing: ${r.missing}\n- evidence: ${r.evidence}`;
+/** An attempt's messages, as its agent reads them after its spec: who each is from, its word, why, and its findings. */
+function messagesText(events: Event[], from: (e: Event) => string): string {
+  if (!events.length) return "";
+  return [
+    "",
+    "# Messages",
+    ...events.flatMap((e) => [
+      `- from ${from(e)}, ${e.word ?? "moved"}: ${e.reason ?? ""}`,
+      ...e.findings.map(
+        (f) => `\t- about the ${f.about}: ${f.what} (${f.where})`,
+      ),
+      ...(e.notes ? [`\t- notes: ${e.notes}`] : []),
+    ]),
+  ].join("\n");
+}
 
 /** The files the worktree changed that are not the view's change files. */
 async function outside(view: View, at: Worktree) {
@@ -166,16 +178,20 @@ export async function loop({
   let closing = false;
   // Closing stops the checks running now, and never the runs: que-pasa keeps those for the next process.
   const closed = new AbortController();
-  // The limits' counts, with the attempt about to end in them: it is open, so attempts counts it, and a send-back
-  // is not in the events until it ends.
+  // The limits' counts, with the attempt about to end in them: it is open, so attempts counts it, and a back is not in
+  // the events until it ends.
   const counts = (name: string, state: State, word: Word) => ({
     attempts: ledger.attempts(name, state),
-    rounds: ledger.rounds(name) + (sendBack(word) ? 1 : 0),
+    rounds: ledger.rounds(name) + (word === "back" ? 1 : 0),
   });
+  // Who a message is from: the agent of the step it ended, or the orchestrator, for its own moves.
+  const fromOf = (e: Event) =>
+    (e.n !== null && stepAt(e.from_state as State)?.agent) ||
+    "the orchestrator";
   const end = (
     r: Run,
     state: State,
-    v: Verdict,
+    v: Message,
     o: {
       usage?: Usage | undefined;
       result?: unknown;
@@ -185,14 +201,20 @@ export async function loop({
     // A word the table has no move for is the factory's fault, not the item's: it is escalated, with why, and never
     // left open to run again.
     let to: State;
-    let verdict = v;
+    let message = v;
     try {
-      to = next(state, v.word, counts(r.name, state, v.word));
+      to = next(
+        state,
+        r.kind,
+        v.word,
+        v.findings.map((f) => f.about),
+        counts(r.name, state, v.word),
+      );
     } catch (e) {
       to = "escalated";
-      verdict = { ...v, reason: `${(e as Error).message}: ${v.reason}` };
+      message = { ...v, reason: `${(e as Error).message}: ${v.reason}` };
     }
-    ledger.end(r.name, r.n, verdict, to, o);
+    ledger.end(r.name, r.n, message, to, o);
   };
 
   /**
@@ -203,7 +225,7 @@ export async function loop({
     r: Run,
     state: State,
     step: AnyStep,
-    o: { verdict: Verdict; usage?: Usage; error?: string },
+    o: { message: Message; usage?: Usage; error?: string },
   ) {
     try {
       const judged = (step.judges?.(r, ledger) ?? []).flatMap((j) => {
@@ -238,14 +260,17 @@ export async function loop({
     step: AnyStep,
     signal: AbortSignal,
   ) {
-    let v: Verdict;
+    let v: Message;
     let ran: CheckRun | undefined;
     let usage: Usage | undefined;
     let result: unknown;
     let error: string | undefined;
     const span = ledger.span(r.name, r.n);
     try {
-      const input = step.input ? step.input(r, ledger) : read(r.path);
+      // Its spec, then the messages it answers: the one that brought the item here, and each retry since.
+      const input =
+        (step.input ? step.input(r, ledger) : read(r.path)) +
+        messagesText(ledger.inbox(r.name, state), fromOf);
       const view = step.view?.(r, ledger);
       // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
       const out = await abortable(
@@ -267,16 +292,17 @@ export async function loop({
           word: "retry",
           cause: "invalid_output",
           reason: `not a ${state} result: ${parsed.error.message}`,
+          findings: [],
         };
-      else if (parsed.data.result.word === "raise") {
+      else if (parsed.data.result.word === "back") {
+        // The agent's findings, as it gave them: the table sends them to the owner of the highest artifact named.
+        const { findings } = parsed.data.result;
         result = parsed.data.result;
-        // A cl's raise is the plan's gap; the planner's is the issue's.
         v = {
-          word: "raise",
-          cause: r.kind === "cl" ? "plan_gap" : "missing_context",
-          reason: parsed.data.result.missing,
+          word: "back",
+          reason: `back, about the ${top(findings.map((f) => f.about))}`,
+          findings,
         };
-        writeSection(r.path, "Raise", raiseText(parsed.data.result));
       } else {
         const done = parsed.data.result;
         result = done;
@@ -291,25 +317,22 @@ export async function loop({
                 word: "retry",
                 cause: "scope_exceeds_change",
                 reason: `changed files its cut does not: ${stray.join(", ")}`,
+                findings: [],
               }
-            : await abortable(step.check(r, done, at), checking);
+            : await abortable(step.check(r, done, at, ledger), checking);
         } finally {
           // A test run is recorded whether its check gave a word or failed after it.
           ran = at.ran();
           if (ran) checkSpan(span, state, ran);
         }
-        // A pass, or a review's send-back, is the step's done work: it is written, and a step that edits the
-        // worktree has its attempt committed, which becomes the item's branch.
-        if (v.word !== "retry") {
-          if (step.write) step.write(r, done, v);
-          else writeSection(r.path, step.section, step.render(done));
-          if (step.worktree !== "ro")
-            await commit(
-              r,
-              `${step.agent}(${r.name}): ${step.section.toLowerCase()}`,
-              view?.change.map((f) => posix.normalize(f)),
-            );
-        }
+        // A pass of a step that edits the worktree is its product: the attempt is committed, and becomes the item's
+        // branch.
+        if (v.word === "pass" && step.worktree !== "ro")
+          await commit(
+            r,
+            `${step.agent}(${r.name})`,
+            view?.change.map((f) => posix.normalize(f)),
+          );
       }
     } catch (e) {
       if (closing) return;
@@ -327,10 +350,11 @@ export async function loop({
         word: "retry",
         ...(cause ? { cause } : {}),
         reason: `the attempt failed: ${error.slice(0, 400)}`,
+        findings: [],
       };
     }
     await traced(r, state, step, {
-      verdict: v,
+      message: v,
       ...(usage ? { usage } : {}),
       ...(error !== undefined ? { error } : {}),
     });
@@ -363,6 +387,7 @@ export async function loop({
       end(r, state, {
         word: "retry",
         reason: `the worktree was not made: ${(e as Error).message.slice(0, 400)}`,
+        findings: [],
       });
       return false;
     }
@@ -378,6 +403,7 @@ export async function loop({
           word: "retry",
           cause: "missing_dependency",
           reason: `the setup failed: ${(e as Error).message}`,
+          findings: [],
         });
         return false;
       }
@@ -396,6 +422,7 @@ export async function loop({
       end(r, state, {
         word: "retry",
         reason: `the sandbox did not open: ${(e as Error).message.slice(0, 400)}`,
+        findings: [],
       });
       return false;
     }
@@ -444,6 +471,7 @@ export async function loop({
         end(r, a.step, {
           word: "retry",
           reason: `no step runs from ${a.step} any more`,
+          findings: [],
         });
         continue;
       }

@@ -76,7 +76,11 @@ const outcome = {
   step: "ready" as const,
   agent: "da-nail",
   started: 1000,
-  verdict: { word: "pass" as const, reason: "red at an assertion" },
+  message: {
+    word: "pass" as const,
+    reason: "red at an assertion",
+    findings: [],
+  },
   judged: [],
 };
 
@@ -140,7 +144,11 @@ describe("the attempt's trace", () => {
       ...outcome,
       run,
       step: "green",
-      verdict: { word: "retry", reason: "the attempt failed: no submit" },
+      message: {
+        word: "retry",
+        reason: "the attempt failed: no submit",
+        findings: [],
+      },
       error: "no submit",
       judged: [judged],
     });

@@ -2,14 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  items,
-  removeSection,
-  section,
-  setStatus,
-  writeNote,
-  writeSection,
-} from "./notes.ts";
+import { items, section, setStatus, writeNote } from "./notes.ts";
 
 const note =
   "---\ntype: cl\nstatus: new\n---\nIntent.\n\n## Check\n\n- b1\n\t- not an item\n- b2\n\n## Tests\n\nold\n\n## Raise\n\n- r\n";
@@ -29,16 +22,6 @@ describe("notes", () => {
     expect(section(file, "Tests").trim()).toBe("old");
     expect(items(file, "Check")).toEqual(["- b1", "- b2"]);
     expect(section(file, "Seam")).toBe("");
-  });
-
-  it("replace a section, add a missing one, and take one out", () => {
-    writeSection(file, "Tests", "new");
-    expect(section(file, "Tests").trim()).toBe("new");
-    writeSection(file, "Code", "c");
-    expect(doc().endsWith("## Code\n\nc\n")).toBe(true);
-    removeSection(file, "Raise");
-    expect(doc()).not.toContain("## Raise");
-    expect(section(file, "Code").trim()).toBe("c");
   });
 
   it("set a note's status in its frontmatter only", () => {

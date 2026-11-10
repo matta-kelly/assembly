@@ -1,34 +1,20 @@
 /**
- * The review step: green to approved, or back. cl-review reads the cl and the worktree, read-only, and decides:
- * approve, or send the cl back to its tests or to its code, with findings. The check confirms the decision and its
- * findings agree, and that the tests are still green. A send-back puts the findings in the cl's Review section, where
- * da-nail or da-hammer reads them.
+ * The review step: green to approved, or back. cl-review reads the cl, da-nail's tests, da-hammer's files and the
+ * worktree, read-only, and approves, or hands back findings: about the tests (to da-nail), the code (to da-hammer), or
+ * the cl, its plan or its issue (raised). The check confirms the tests are still green.
  */
 
 import { z } from "zod";
-import { green } from "./hammer.ts";
+import { changedOf, green } from "./hammer.ts";
+import { testsOf } from "./nail.ts";
+import { read } from "../effects/notes.ts";
 import type { Step } from "./step.ts";
 
 const done = z.object({
   word: z.literal("done"),
-  decision: z
-    .enum(["approve", "tests", "code"])
-    .describe(
-      "approve, or send the cl back to its tests (da-nail) or to its code (da-hammer)",
-    ),
-  findings: z
-    .array(
-      z.object({
-        what: z.string().describe("what is wrong, and what done looks like"),
-        where: z.string().describe("the file and line, or the behavior"),
-      }),
-    )
-    .describe("none for approve, at least one for a send-back"),
   notes: z.string().optional(),
 });
 type Done = z.infer<typeof done>;
-
-const words = { approve: "pass", tests: "to-tests", code: "to-code" } as const;
 
 export const review: Step<Done> = {
   from: "green",
@@ -40,36 +26,24 @@ export const review: Step<Done> = {
     { name: r.name, step: "red" },
   ],
   done,
-  section: "Review",
-  render: (d) =>
+  about: ["tests", "code", "cl", "plan", "issue"],
+  input: (r, ledger) =>
     [
-      `- decision: ${d.decision}`,
-      ...d.findings.map((f) => `- finding: ${f.what} (${f.where})`),
-      ...(d.notes ? ["", d.notes] : []),
+      read(r.path),
+      "",
+      testsOf(ledger, r.name),
+      "",
+      changedOf(ledger, r.name),
     ].join("\n"),
   async check(_r, d, at) {
-    if (d.decision === "approve" && d.findings.length)
-      return {
-        word: "retry",
-        cause: "invalid_output",
-        reason: "an approve with findings: approve has none",
-      };
-    if (d.decision !== "approve" && !d.findings.length)
-      return {
-        word: "retry",
-        cause: "invalid_output",
-        reason: `a send-back to ${d.decision} with no findings`,
-      };
     const g = await green(at);
     if (g.word !== "pass")
-      return {
-        word: "retry",
-        cause: "check_failed",
-        reason: `not green at review: ${g.reason}`,
-      };
+      return { ...g, reason: `not green at review: ${g.reason}` };
     return {
-      word: words[d.decision],
-      reason: d.decision === "approve" ? "approved" : `back to ${d.decision}`,
+      word: "pass",
+      reason: "approved",
+      findings: [],
+      ...(d.notes ? { notes: d.notes } : {}),
     };
   },
 };

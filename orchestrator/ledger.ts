@@ -1,11 +1,17 @@
 /**
  * The ledger: where each item stands, its attempts, and an event for every move, in SQLite. It is the only state the
  * orchestrator holds, so a killed orchestrator starts again from it with nothing lost. An item is an issue, or one of
- * its cls. Each attempt keeps the agent's result, so every trial's record is here.
+ * its cls. Each attempt keeps the agent's result, and each event is a message: the word that moved the item, why, and its
+ * findings, so every trial's record is here.
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { causes, type CheckRun, type Verdict } from "../process/step.ts";
+import {
+  causes,
+  type CheckRun,
+  type Finding,
+  type Message,
+} from "../process/step.ts";
 import type { State } from "../process/table.ts";
 import { newSpan, type SpanRef } from "../effects/trace.ts";
 
@@ -52,6 +58,19 @@ export interface Attempt {
   cost: number | null;
 }
 
+/** An event: one message, and the move it made. word is null for the orchestrator's own moves. */
+export interface Event {
+  n: number | null;
+  from_state: string;
+  word: string | null;
+  to_state: string;
+  at: string;
+  reason: string | null;
+  cause: string | null;
+  findings: Finding[];
+  notes: string | null;
+}
+
 const cause = `CHECK (cause IS NULL OR cause IN (${causes.map((c) => `'${c}'`).join(", ")}))`;
 
 const tables = `
@@ -68,7 +87,8 @@ const tables = `
   );
   CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL REFERENCES items(name), n INTEGER,
-    from_state TEXT NOT NULL, word TEXT, to_state TEXT NOT NULL, at TEXT NOT NULL, reason TEXT, cause TEXT ${cause}
+    from_state TEXT NOT NULL, word TEXT, to_state TEXT NOT NULL, at TEXT NOT NULL, reason TEXT, cause TEXT ${cause},
+    findings TEXT NOT NULL DEFAULT '[]', notes TEXT
   );
   CREATE TABLE IF NOT EXISTS check_runs (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER NOT NULL, step TEXT NOT NULL,
@@ -123,6 +143,15 @@ export function open(file: string) {
         .get(name) as { n: number }
     ).n;
 
+  const eventsOf = (name: string): Event[] =>
+    (
+      db
+        .prepare(
+          "SELECT n, from_state, word, to_state, at, reason, cause, findings, notes FROM events WHERE name = ? ORDER BY id",
+        )
+        .all(name) as (Omit<Event, "findings"> & { findings: string })[]
+    ).map((e) => ({ ...e, findings: JSON.parse(e.findings) as Finding[] }));
+
   const event = (
     name: string,
     n: number | null,
@@ -131,12 +160,25 @@ export function open(file: string) {
     to: State,
     reason: string,
     cause: string | null = null,
+    findings: Finding[] = [],
+    notes: string | null = null,
   ) =>
     db
       .prepare(
-        "INSERT INTO events (name, n, from_state, word, to_state, at, reason, cause) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO events (name, n, from_state, word, to_state, at, reason, cause, findings, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(name, n, from, word, to, now(), reason, cause);
+      .run(
+        name,
+        n,
+        from,
+        word,
+        to,
+        now(),
+        reason,
+        cause,
+        JSON.stringify(findings),
+        notes,
+      );
 
   return {
     item,
@@ -281,24 +323,24 @@ export function open(file: string) {
       return c;
     },
 
-    /** The times a review has sent the item back. */
+    /** The times the item was sent back for another round: each back that did not raise it. */
     rounds(name: string): number {
       const { c } = db
         .prepare(
-          "SELECT COUNT(*) AS c FROM events WHERE name = ? AND word IN ('to-tests', 'to-code', 'to-plan')",
+          "SELECT COUNT(*) AS c FROM events WHERE name = ? AND word = 'back' AND to_state != 'raised'",
         )
         .get(name) as { c: number };
       return c;
     },
 
     /**
-     * Ends an attempt with its check's verdict, the test run the check made, what its model calls used and the agent's
-     * result, and moves the item to `to`, in one transaction with one event.
+     * Ends an attempt with its message, the test run the check made, what its model calls used and the agent's result,
+     * and moves the item to `to`, in one transaction with one event: the message.
      */
     end(
       name: string,
       n: number,
-      v: Verdict,
+      v: Message,
       to: State,
       {
         usage = {},
@@ -348,12 +390,32 @@ export function open(file: string) {
             ran.ms,
           );
         db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
-        event(name, n, state, v.word, to, v.reason, v.cause);
+        event(
+          name,
+          n,
+          state,
+          v.word,
+          to,
+          v.reason,
+          v.cause,
+          v.findings,
+          v.notes ?? null,
+        );
       });
     },
 
-    /** Moves items with no attempt: the orchestrator's own moves, as a cl made ready or an issue built. One transaction. */
-    move(moves: { name: string; to: State; reason: string }[]) {
+    /**
+     * Moves items with no attempt: the orchestrator's own moves, as a cl made ready or an issue built. One transaction.
+     * A move that sends an item back carries the message it relays.
+     */
+    move(
+      moves: {
+        name: string;
+        to: State;
+        reason: string;
+        back?: Finding[];
+      }[],
+    ) {
       tx(() => {
         for (const m of moves) {
           const { state } = item(m.name);
@@ -361,7 +423,16 @@ export function open(file: string) {
             m.to,
             m.name,
           );
-          event(m.name, lastN(m.name), state, null, m.to, m.reason);
+          event(
+            m.name,
+            lastN(m.name),
+            state,
+            m.back ? "back" : null,
+            m.to,
+            m.reason,
+            null,
+            m.back,
+          );
         }
       });
     },
@@ -396,12 +467,21 @@ export function open(file: string) {
       return row && { traceId: row.trace_id, spanId: row.span_id };
     },
 
-    events(name: string) {
-      return db
-        .prepare(
-          "SELECT n, from_state, word, to_state, at, reason, cause FROM events WHERE name = ? ORDER BY id",
-        )
-        .all(name);
+    /** The item's messages, in order: each event, its findings parsed. */
+    events: eventsOf,
+
+    /**
+     * The messages an attempt at `state` reads: the one that moved the item into it, and each since, as the retries
+     * there. None when the item was added in it.
+     */
+    inbox(name: string, state: State): Event[] {
+      const all = eventsOf(name);
+      const i = all.findLastIndex(
+        (e) => e.to_state === state && e.from_state !== state,
+      );
+      return i < 0
+        ? []
+        : all.slice(i).filter((e) => e.word !== null || e.findings.length);
     },
 
     /** What every attempt has cost, in dollars. */

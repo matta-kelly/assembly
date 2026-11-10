@@ -5,39 +5,22 @@
  */
 
 import { z } from "zod";
-import { read, writeSection } from "../effects/notes.ts";
+import { read } from "../effects/notes.ts";
 import { hasPlanNote, planPath } from "./plan.ts";
 import type { Step } from "./step.ts";
 
+// Accept: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to Matt (the
+// issue).
 const done = z.object({
   word: z.literal("done"),
-  decision: z
-    .enum(["accept", "plan"])
-    .describe("accept, or send the issue back to the planner"),
-  findings: z
-    .array(
-      z.object({
-        what: z
-          .string()
-          .min(1)
-          .describe("what is not met, and what done looks like"),
-        where: z
-          .string()
-          .min(1)
-          .describe("the issue's Check item, the cl, or the file and line"),
-      }),
-    )
-    .describe("none for accept, at least one for a send-back"),
-  notes: z.string().optional(),
+  notes: z
+    .string()
+    .optional()
+    .describe(
+      "the Done items only the running system can show, and what Matt should look at",
+    ),
 });
 type Done = z.infer<typeof done>;
-
-const render = (d: Done) =>
-  [
-    `- decision: ${d.decision}`,
-    ...d.findings.map((f) => `- finding: ${f.what} (${f.where})`),
-    ...(d.notes ? ["", d.notes] : []),
-  ].join("\n");
 
 export const accept: Step<Done> = {
   from: "built",
@@ -57,8 +40,7 @@ export const accept: Step<Done> = {
       ),
   ],
   done,
-  section: "Acceptance",
-  render,
+  about: ["plan", "issue"],
   input(r, ledger) {
     const cls = ledger.cls(r.name).filter((c) => c.state === "merged");
     // the lone cl of an issue that takes one has no plan note: its cl is its plan
@@ -72,37 +54,26 @@ export const accept: Step<Done> = {
       ...cls.map((c) => read(c.path)),
     ].join("\n");
   },
-  write(r, d) {
-    writeSection(r.path, "Acceptance", render(d));
-  },
-  async check(_r, d, at) {
-    if (d.decision === "accept" && d.findings.length)
-      return {
-        word: "retry",
-        cause: "invalid_output",
-        reason: "an accept with findings: accept has none",
-      };
-    if (d.decision === "plan" && !d.findings.length)
-      return {
-        word: "retry",
-        cause: "invalid_output",
-        reason: "a send-back with no findings",
-      };
+  async check(r, d, at) {
     const suite = await at.test();
     if (suite.code !== 0)
       return {
-        word: "to-plan",
+        word: "back",
         cause: "check_failed",
-        reason: `the full suite is red on the issue's branch: exit ${suite.code}: ${suite.out.slice(-400)}`,
+        reason: "the full suite is red on the issue's branch",
+        findings: [
+          {
+            about: "plan",
+            what: `the full suite is red: exit ${suite.code}: ${suite.out.slice(-400)}`,
+            where: r.test,
+          },
+        ],
       };
-    return d.decision === "accept"
-      ? {
-          word: "pass",
-          reason: "accepted: the full suite is green, and the issue is met",
-        }
-      : {
-          word: "to-plan",
-          reason: "back to the planner",
-        };
+    return {
+      word: "pass",
+      reason: "accepted: the full suite is green, and the issue is met",
+      findings: [],
+      ...(d.notes ? { notes: d.notes } : {}),
+    };
   },
 };

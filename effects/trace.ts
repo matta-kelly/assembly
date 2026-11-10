@@ -50,7 +50,7 @@ import {
   ATTR_CONTAINER_IMAGE_ID,
   ATTR_CONTAINER_IMAGE_NAME,
 } from "@opentelemetry/semantic-conventions/incubating";
-import type { CheckRun, Run, Verdict } from "../process/step.ts";
+import type { CheckRun, Message, Run } from "../process/step.ts";
 import type { Usage } from "../orchestrator/ledger.ts";
 import type { State } from "../process/table.ts";
 
@@ -186,7 +186,7 @@ export interface Outcome {
   step: State;
   agent: string;
   started: number; // ms since the epoch, when the attempt began
-  verdict: Verdict;
+  message: Message;
   usage?: Usage;
   error?: string;
   commit?: string; // the worktree's HEAD when the attempt ended
@@ -205,13 +205,13 @@ export function endAttempt(s: SpanRef, o: Outcome) {
     "assembly.attempt": r.n,
     "assembly.step": o.step,
     "assembly.agent": o.agent,
-    "assembly.word": o.verdict.word,
-    "assembly.reason": o.verdict.reason,
+    "assembly.word": o.message.word,
+    "assembly.reason": o.message.reason,
     // a span attribute, not the resource's: one process runs attempts of many repos, each on its own image
     [ATTR_CONTAINER_IMAGE_NAME]: r.image,
   };
   if (r.kind === "cl") attributes["assembly.cl.id"] = r.name;
-  if (o.verdict.cause) attributes["assembly.cause"] = o.verdict.cause;
+  if (o.message.cause) attributes["assembly.cause"] = o.message.cause;
   if (o.usage?.cost !== undefined) attributes["assembly.cost"] = o.usage.cost;
   if (o.commit) attributes["assembly.commit"] = o.commit;
   if (o.imageId) attributes[ATTR_CONTAINER_IMAGE_ID] = o.imageId;

@@ -5,9 +5,9 @@
  * - a cl waits until the cl before it is merged: the cls of an issue run one at a time, each from the last one's code
  * - an approved cl is merged into its issue's branch
  * - an issue whose cls are all merged is built, and its acceptance starts
- * - a cl that raised sends its issue back to the planner, with the raise in the issue's note; its cls not merged are
- *   dropped. A cl escalated escalates its issue. An issue whose plan was made outside the factory (admit) goes to
- *   Matt instead of the planner, on a raise or a send-back, escalated
+ * - a cl that raised relays its message to its issue: findings about the cl or the plan send it to the planner, and
+ *   about the issue to Matt; its cls not merged are dropped. A cl escalated escalates its issue. An issue whose plan was
+ *   made outside the factory (admit) goes to Matt instead of the planner, on a raise or a send-back, escalated
  * - an accepted issue's notes are done
  */
 
@@ -21,15 +21,8 @@ import {
   planPath,
 } from "../process/plan.ts";
 import type { Item, Ledger } from "./ledger.ts";
-import {
-  items,
-  read,
-  removeSection,
-  section,
-  setStatus,
-  writeNote,
-  writeSection,
-} from "../effects/notes.ts";
+import { items, read, setStatus, writeNote } from "../effects/notes.ts";
+import { top } from "../process/table.ts";
 import { merge } from "../effects/git.ts";
 
 const link = (name: string) => `[[${name}]]`;
@@ -63,12 +56,6 @@ function clNote(issue: Item, c: Cut, before: string | undefined) {
     "## Grounds",
     "",
     ...(c.grounds.length ? c.grounds.map((g) => `- ${g}`) : ["None."]),
-    "",
-    "## Tests",
-    "",
-    "## Code",
-    "",
-    "## Review",
   ].join("\n");
 }
 
@@ -140,8 +127,6 @@ function build(ledger: Ledger, issue: Item, p: Plan) {
     );
   });
   addCls(ledger, issue, p);
-  // The raise and the plan review it answered are closed: the plan that answers them is active.
-  removeSection(issue.path, "Raise");
   setStatus(issue.path, "in-progress");
 }
 
@@ -179,8 +164,8 @@ function addCls(ledger: Ledger, issue: Item, p: Plan) {
 
 /**
  * Admits a plan made and reviewed outside the factory, in one transaction: its issue, the plan as its open step's
- * passed result, moved to building, and its cls, at their own notes, which the factory then writes its steps'
- * sections into and never writes over.
+ * passed result, moved to building, and its cls, at their own notes, which the factory reads and never writes but
+ * their status.
  */
 export function admit(
   ledger: Ledger,
@@ -193,7 +178,7 @@ export function admit(
     ledger.end(
       issue.name,
       ledger.begin(issue.name),
-      { word: "pass", reason: "planned outside the factory" },
+      { word: "pass", reason: "planned outside the factory", findings: [] },
       "planned",
       { result: p },
     );
@@ -276,11 +261,8 @@ export async function advance(ledger: Ledger) {
   for (const cl of ledger.inState("raised")) {
     const issue = ledger.item(cl.issue);
     if (issue.state !== "building") continue;
-    writeSection(
-      issue.path,
-      "Raise",
-      `- from: ${cl.name}\n${section(cl.path, "Raise").trim()}`,
-    );
+    // The message that raised the cl, relayed to its issue as it is.
+    const back = ledger.events(cl.name).at(-1)?.findings ?? [];
     // A plan made outside the factory is Matt's to answer: the issue is escalated to him, with its cls as they are.
     if (madeOutside(ledger, issue.name)) {
       ledger.move([
@@ -288,6 +270,7 @@ export async function advance(ledger: Ledger) {
           name: issue.name,
           to: "escalated",
           reason: `${cl.name} raised, and its plan was made outside the factory: Matt answers it`,
+          back,
         },
       ]);
       continue;
@@ -297,6 +280,8 @@ export async function advance(ledger: Ledger) {
       .filter((c) => c.name !== cl.name && live(c) && c.state !== "merged");
     for (const c of rest) setStatus(c.path, "dropped");
     setStatus(cl.path, "dropped");
+    // The issue itself is Matt's; a cl or the plan is the planner's.
+    const matt = top(back.map((f) => f.about)) === "issue";
     // The raising cl is dropped with the rest: its raise is the issue's now, so it is handed over once.
     ledger.move([
       {
@@ -311,8 +296,9 @@ export async function advance(ledger: Ledger) {
       })),
       {
         name: issue.name,
-        to: "open",
-        reason: `${cl.name} raised: back to the planner`,
+        to: matt ? "raised" : "open",
+        reason: `${cl.name} raised: ${matt ? "the issue goes to Matt" : "back to the planner"}`,
+        back,
       },
     ]);
   }

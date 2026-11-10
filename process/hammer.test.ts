@@ -1,30 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hammer } from "./hammer.ts";
 import type { Run } from "./step.ts";
+import type { Ledger } from "../orchestrator/ledger.ts";
 import { fakeWorktree, ran } from "./fake-worktree.ts";
 
-vi.mock("./nail.ts", () => ({ testFiles: vi.fn(() => files) }));
+vi.mock("./nail.ts", () => ({
+  testFilesOf: vi.fn(() => files),
+  testsOf: vi.fn(() => ""),
+}));
 
 let files: string[];
 const r = { path: "/cl.md", test: "node --test a.test.ts old.test.ts" } as Run;
 const d = { word: "done" as const, changed: ["src/a.ts"] };
+const ledger = {} as Ledger;
 
 beforeEach(() => {
   files = ["a.test.ts"];
 });
 
 describe("the hammer step's check", () => {
-  it("retries when the cl's Tests section names no test file", async () => {
+  it("retries when da-nail wrote no test file", async () => {
     files = [];
-    expect(await hammer.check(r, d, fakeWorktree())).toMatchObject({
+    expect(await hammer.check(r, d, fakeWorktree(), ledger)).toMatchObject({
       word: "retry",
-      reason: /names no test file/,
+      reason: /wrote no test file/,
     });
   });
 
   it("retries when a test was changed, and does not run the tests", async () => {
     const at = fakeWorktree({ changed: ["a.test.ts"] });
-    expect(await hammer.check(r, d, at)).toMatchObject({
+    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
       word: "retry",
       reason: /a test was changed: a.test.ts/,
     });
@@ -33,7 +38,7 @@ describe("the hammer step's check", () => {
 
   it("retries when an existing test file the cl's command runs was changed", async () => {
     const at = fakeWorktree({ changed: ["old.test.ts"] });
-    expect(await hammer.check(r, d, at)).toMatchObject({
+    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
       word: "retry",
       cause: "scope_exceeds_change",
       reason: /a test was changed: old.test.ts/,
@@ -42,7 +47,7 @@ describe("the hammer step's check", () => {
 
   it("retries when the tests are still red", async () => {
     const at = fakeWorktree({ test: ran(1, "AssertionError") });
-    expect(await hammer.check(r, d, at)).toMatchObject({
+    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
       word: "retry",
       reason: /red: exit 1/,
     });
@@ -50,9 +55,10 @@ describe("the hammer step's check", () => {
 
   it("passes when no test changed and the tests are green", async () => {
     const at = fakeWorktree();
-    expect(await hammer.check(r, d, at)).toEqual({
+    expect(await hammer.check(r, d, at, ledger)).toEqual({
       word: "pass",
       reason: "green",
+      findings: [],
     });
     expect(at.asked).toEqual([["a.test.ts", "old.test.ts"]]);
     expect(at.runs).toBe(1);

@@ -59,14 +59,14 @@ beforeEach(() => {
   ledger.end(
     "is",
     ledger.begin("is"),
-    { word: "pass", reason: "lints" },
+    { word: "pass", reason: "lints", findings: [] },
     "planned",
     { result: plan },
   );
   ledger.end(
     "is",
     ledger.begin("is"),
-    { word: "pass", reason: "approved" },
+    { word: "pass", reason: "approved", findings: [] },
     "building",
   );
 });
@@ -99,7 +99,7 @@ describe("advance", () => {
     ledger.end(
       "is-value",
       ledger.begin("is-value"),
-      { word: "pass", reason: "approved" },
+      { word: "pass", reason: "approved", findings: [] },
       "approved",
     );
     await advance(ledger);
@@ -136,19 +136,42 @@ describe("advance", () => {
     expect(state("is")).toBe("built");
   });
 
-  it("sends the issue back to the planner on a cl's raise, with the raise, and drops the rest of its plan", async () => {
-    await advance(ledger);
-    writeFileSync(
-      join(dir, "is-value.md"),
-      `${read("is-value")}\n## Raise\n\n- missing: the seam\n`,
+  const raise = (cl: string, about: "cl" | "plan" | "issue") =>
+    ledger.end(
+      cl,
+      ledger.begin(cl),
+      {
+        word: "back",
+        reason: "back",
+        findings: [
+          { about, what: "the seam is not there", where: "src/value.mjs" },
+        ],
+      },
+      "raised",
     );
-    ledger.move([{ name: "is-value", to: "raised", reason: "test" }]);
+
+  it("relays a cl's raise to the planner, its findings with it, and drops the rest of its plan", async () => {
+    await advance(ledger);
+    raise("is-value", "plan");
     await advance(ledger);
     expect(state("is")).toBe("open");
     expect(state("is-double")).toBe("dropped");
-    expect(section(path, "Raise")).toContain("- from: is-value");
-    expect(section(path, "Raise")).toContain("- missing: the seam");
+    expect(ledger.inbox("is", "open")).toMatchObject([
+      {
+        word: "back",
+        reason: expect.stringMatching(/is-value raised/),
+        findings: [{ about: "plan", what: "the seam is not there" }],
+      },
+    ]);
+    expect(read("is")).not.toMatch(/## Raise/);
     expect(read("is-double")).toMatch(/status: dropped/);
+  });
+
+  it("relays a cl's raise about the issue to Matt", async () => {
+    await advance(ledger);
+    raise("is-value", "issue");
+    await advance(ledger);
+    expect(state("is")).toBe("raised");
   });
 
   it("sends the issue back to the planner when its last cl raises, not on as built", async () => {
@@ -156,28 +179,28 @@ describe("advance", () => {
     ledger.move([{ name: "is-value", to: "approved", reason: "test" }]);
     await advance(ledger);
     await advance(ledger);
-    ledger.move([{ name: "is-double", to: "raised", reason: "test" }]);
+    raise("is-double", "plan");
     await advance(ledger);
     expect(state("is")).toBe("open");
   });
 
   it("hands a cl's raise over once: the raising cl is dropped, so the next plan builds", async () => {
     await advance(ledger);
-    ledger.move([{ name: "is-value", to: "raised", reason: "test" }]);
+    raise("is-value", "plan");
     await advance(ledger);
     expect(state("is-value")).toBe("dropped");
     // The planner answers with a plan of a new cut, and it is approved.
     ledger.end(
       "is",
       ledger.begin("is"),
-      { word: "pass", reason: "lints" },
+      { word: "pass", reason: "lints", findings: [] },
       "planned",
       { result: { ...plan, cuts: [cut("seam", [1, 2])] } },
     );
     ledger.end(
       "is",
       ledger.begin("is"),
-      { word: "pass", reason: "approved" },
+      { word: "pass", reason: "approved", findings: [] },
       "building",
     );
     await advance(ledger);

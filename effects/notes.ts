@@ -1,39 +1,9 @@
 /**
- * The notes the orchestrator writes: a section of a note, a note's status, and a new note. Agents never write a note;
- * the orchestrator writes each one from an agent's checked result.
+ * The notes: read by path, and written only as the orchestrator's own (a new plan or cl note, and a note's status).
+ * Agents never write a note, and no finding is written into one: findings are messages, in the ledger.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-
-/** Puts `text` under the note's `## <heading>`, in place of what was there, or at the end when it has none. */
-export function writeSection(path: string, heading: string, text: string) {
-  const doc = readFileSync(path, "utf8");
-  const at = doc.search(new RegExp(`^## ${heading}\\n`, "m"));
-  if (at < 0) {
-    writeFileSync(path, `${doc.trimEnd()}\n\n## ${heading}\n\n${text}\n`);
-    return;
-  }
-  const body = at + `## ${heading}\n`.length;
-  const rest = doc.slice(body).search(/^## /m);
-  const end = rest < 0 ? doc.length : body + rest;
-  writeFileSync(
-    path,
-    `${doc.slice(0, body)}\n${text}\n${rest < 0 ? "" : `\n${doc.slice(end)}`}`,
-  );
-}
-
-/** Takes the note's `## <heading>` section out, when it has one: a raise, once it is answered. */
-export function removeSection(path: string, heading: string) {
-  const doc = readFileSync(path, "utf8");
-  const at = doc.search(new RegExp(`^## ${heading}\\n`, "m"));
-  if (at < 0) return;
-  const body = at + `## ${heading}\n`.length;
-  const rest = doc.slice(body).search(/^## /m);
-  writeFileSync(
-    path,
-    `${doc.slice(0, at).trimEnd()}\n${rest < 0 ? "" : `\n${doc.slice(body + rest)}`}`,
-  );
-}
 
 /** The text of a note's `## <heading>` section, or "" when it has none. */
 export const section = (path: string, heading: string): string =>

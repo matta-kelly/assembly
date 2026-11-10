@@ -3,10 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Run } from "./step.ts";
-import { behaviors, judge, nail as tests, testFiles } from "./nail.ts";
+import type { Ledger } from "../orchestrator/ledger.ts";
+import {
+  behaviors,
+  judge,
+  nail as tests,
+  testFilesOf,
+  testsOf,
+} from "./nail.ts";
 import { fakeWorktree } from "./fake-worktree.ts";
 
 const at = fakeWorktree({ files: ["a.test.ts"] });
+const none = {} as Ledger;
 
 const cl = `---
 type: cl
@@ -61,23 +69,29 @@ describe("behaviors", () => {
   });
 });
 
-describe("testFiles", () => {
-  it("are the files the Tests section names, as the nail step renders them, once each", () => {
-    writeFileSync(
-      r.path,
-      `${cl}\n## Tests\n\n${tests.render({ word: "done", tests: [t(1), t(2), t(3, "b.test.ts")] })}\n\n## Code\n`,
-    );
-    expect(testFiles(r.path)).toEqual(["a.test.ts", "b.test.ts"]);
+describe("da-nail's tests, as the steps after it read them", () => {
+  it("are its last passed result's: the files once each, and each test by behavior", () => {
+    const ledger = {
+      passed: () => ({ word: "done", tests: [t(1), t(2), t(3, "b.test.ts")] }),
+    } as unknown as Ledger;
+    expect(testFilesOf(ledger, "x")).toEqual(["a.test.ts", "b.test.ts"]);
+    expect(testsOf(ledger, "x")).toContain("- behavior 3: `b.test.ts`, b3");
+  });
+
+  it("are none before da-nail passed", () => {
+    const ledger = { passed: () => undefined } as unknown as Ledger;
+    expect(testFilesOf(ledger, "x")).toEqual([]);
   });
 });
 
 describe("the nail step's check, before red", () => {
   it("retries when a behavior has no test", async () => {
-    const v = await tests.check(r, { word: "done", tests: [t(1)] }, at);
+    const v = await tests.check(r, { word: "done", tests: [t(1)] }, at, none);
     expect(v).toEqual({
       word: "retry",
       cause: "invalid_output",
       reason: "behavior 2 has no test",
+      findings: [],
     });
   });
 
@@ -86,6 +100,7 @@ describe("the nail step's check, before red", () => {
       r,
       { word: "done", tests: [t(1), t(2), t(3)] },
       at,
+      none,
     );
     expect(v.word).toBe("retry");
     expect(v.reason).toMatch(/behaviors the cl does not have: 3/);
@@ -99,6 +114,7 @@ describe("the nail step's check, before red", () => {
         tests: [t(1), t(2, "gone.test.ts")],
       },
       at,
+      none,
     );
     expect(v.word).toBe("retry");
     expect(v.reason).toMatch(/not in the worktree: gone.test.ts/);

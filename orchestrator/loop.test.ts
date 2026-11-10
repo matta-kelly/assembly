@@ -4,10 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { Step, Verdict } from "../process/step.ts";
+import type { Message, Step } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
-import { writeSection } from "../effects/notes.ts";
 import { commit, touched, worktree } from "../effects/git.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
@@ -39,14 +38,13 @@ const cl = "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
 
 let dir: string;
 let ledger: Ledger;
-let verdict: Verdict;
+let message: Message;
 const step: Step<{ word: "done"; text: string }> = {
   from: "ready",
   agent: "fake",
   done: z.object({ word: z.literal("done"), text: z.string() }),
-  section: "Tests",
-  render: (d) => d.text,
-  check: async () => verdict,
+  about: ["tests", "code", "cl", "plan", "issue"],
+  check: async () => message,
 };
 
 /** One agent run, as the runner does it. */
@@ -105,7 +103,7 @@ beforeEach(() => {
     },
     "ready",
   );
-  verdict = { word: "pass", reason: "red at an assertion" };
+  message = { word: "pass", reason: "red at an assertion", findings: [] };
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -141,11 +139,12 @@ describe("an attempt", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("moves a passed done result on, writes its section, commits, and records its usage", async () => {
+  it("moves a passed done result on, commits it as the agent's, writes no note, and records its usage", async () => {
     await once(make(gives(done("- b1: a.test.ts"))));
     expect(ledger.item("c").state).toBe("red");
     expect(commit).toHaveBeenCalledOnce();
-    expect(doc()).toContain("## Tests\n\n- b1: a.test.ts\n\n## Code\n\nkeep\n");
+    expect(vi.mocked(commit).mock.calls[0]?.[1]).toBe("fake(c)");
+    expect(doc()).toBe(cl);
     expect(ledger.attempt("c", 1)).toMatchObject({
       word: "pass",
       tokens: 120,
@@ -156,7 +155,7 @@ describe("an attempt", () => {
   it("retries a bound step whose worktree changed a file outside its change files, before its check", async () => {
     const view = { read: ["README"], change: ["src/a.ts"] };
     vi.mocked(touched).mockResolvedValue(["src/a.ts", "src/stray.ts"]);
-    const check = vi.fn(async () => verdict);
+    const check = vi.fn(async () => message);
     await once(
       make(gives(done("x")), { steps: [{ ...step, view: () => view, check }] }),
     );
@@ -225,7 +224,7 @@ describe("an attempt", () => {
       check: async (_r, _d, at) => {
         await at.test();
         const t = await at.test();
-        return { word: "retry", reason: `exit ${t.code}` };
+        return { word: "retry", reason: `exit ${t.code}`, findings: [] };
       },
     };
     await once(make(gives(done("x")), { steps: [asks] }));
@@ -256,7 +255,7 @@ describe("an attempt", () => {
   });
 
   it("keeps the cl in its state when the check retries, and writes nothing", async () => {
-    verdict = { word: "retry", reason: "behavior 1 has no test" };
+    message = { word: "retry", reason: "behavior 1 has no test", findings: [] };
     await once(make(gives(done("x"))));
     expect(ledger.item("c").state).toBe("ready");
     expect(last().reason).toBe("behavior 1 has no test");
@@ -264,18 +263,29 @@ describe("an attempt", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
-  it("moves a raise to raised, and writes the Raise section", async () => {
-    const raise = {
-      word: "raise",
-      from: "da-nail, tests",
-      missing: "the seam",
-      evidence: "Seam is empty",
+  it("takes an agent's findings back as its message, to the owner of what they are about, and writes no note", async () => {
+    const back = {
+      word: "back",
+      findings: [{ about: "cl", what: "the seam is not there", where: "Seam" }],
     };
-    await once(make(gives({ result: raise })));
+    await once(make(gives({ result: back })));
     expect(ledger.item("c").state).toBe("raised");
-    expect(last().cause).toBe("plan_gap");
-    expect(doc()).toContain(
-      "## Raise\n\n- from: da-nail, tests\n- missing: the seam\n- evidence: Seam is empty\n",
+    expect(last()).toMatchObject({
+      word: "back",
+      cause: null,
+      findings: back.findings,
+    });
+    expect(doc()).toBe(cl);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("gives the next attempt the messages it answers: a retry's reason", async () => {
+    message = { word: "retry", reason: "behavior 1 has no test", findings: [] };
+    await once(make(gives(done("x"))));
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner));
+    expect(runner.mock.calls[0]?.[1]).toBe(
+      `${cl}\n# Messages\n- from fake, retry: behavior 1 has no test`,
     );
   });
 
@@ -454,7 +464,7 @@ describe("an attempt's setup", () => {
 
 describe("a retry", () => {
   it("tells the runner a state's first attempt from its retries, so a retry runs on the bin's fallback", async () => {
-    verdict = { word: "retry", reason: "behavior 1 has no test" };
+    message = { word: "retry", reason: "behavior 1 has no test", findings: [] };
     const runner = vi.fn<Run1>(gives(done("x")));
     const l = await make(runner);
     await once(l);
@@ -528,7 +538,7 @@ describe("the tick", () => {
       ...step,
       check: () => {
         checking();
-        return new Promise<Verdict>(() => undefined);
+        return new Promise<Message>(() => undefined);
       },
     };
     const l = await make(gives(done("x")), { steps: [hangs] });
@@ -548,7 +558,7 @@ describe("the tick", () => {
       ...step,
       check: async (_r, _d, at) => {
         seen = at.exists(["../log", "/etc/passwd", "cl.md"]);
-        return verdict;
+        return message;
       },
     };
     await once(make(gives(done("x")), { steps: [asks] }));
@@ -614,25 +624,39 @@ describe("the tick", () => {
   });
 });
 
-describe("a word with no move", () => {
+describe("a message with no move", () => {
   it("escalates the item, with why, and leaves no attempt open to run again", async () => {
-    verdict = { word: "to-plan", reason: "back to the planner" };
-    await once(make(gives(done("x"))));
-    expect(ledger.item("c").state).toBe("escalated");
+    ledger.addIssue({
+      name: "j",
+      path: join(dir, "cl.md"),
+      repo: "/repo",
+      image: "img",
+      test: "suite",
+    });
+    message = {
+      word: "back",
+      reason: "r",
+      findings: [{ about: "code", what: "w", where: "x" }],
+    };
+    await once(make(gives(done("x")), { steps: [{ ...step, from: "open" }] }));
+    expect(ledger.item("j").state).toBe("escalated");
     expect(ledger.open()).toEqual([]);
-    expect(ledger.events("c").at(-1)).toMatchObject({
-      reason: expect.stringMatching(/no transition from ready on to-plan/),
+    expect(ledger.events("j").at(-1)).toMatchObject({
+      reason: expect.stringMatching(/no owner of code for issue/),
     });
   });
 });
 
 describe("a review's send-back", () => {
-  it("writes the Review section, commits, and moves the cl back", async () => {
-    const sendBack: Step<{ word: "done"; text: string }> = {
+  it("moves the cl back to its code, commits nothing, and gives da-hammer's next attempt the findings", async () => {
+    const review: Step<{ word: "done"; text: string }> = {
       ...step,
       from: "green",
-      section: "Review",
-      check: async () => ({ word: "to-code", reason: "back to code" }),
+      worktree: "ro",
+    };
+    const coder: Step<{ word: "done"; text: string }> = {
+      ...step,
+      from: "red",
     };
     ledger.addCl(
       {
@@ -646,33 +670,21 @@ describe("a review's send-back", () => {
       },
       "green",
     );
-    await once(make(gives(done("- finding: b1 edge")), { steps: [sendBack] }));
+    const back = {
+      word: "back",
+      findings: [
+        { about: "code", what: "b1 fails at its edge", where: "a.ts:3" },
+      ],
+    };
+    await once(make(gives({ result: back }), { steps: [review] }));
     expect(ledger.item("g").state).toBe("red");
     expect(ledger.rounds("g")).toBe(1);
-    expect(commit).toHaveBeenCalledOnce();
-    expect(doc()).toContain("## Review\n\n- finding: b1 edge\n");
-  });
-});
-
-describe("writeSection", () => {
-  const file = () => join(dir, "cl.md");
-
-  it("replaces one section and leaves the others", () => {
-    writeSection(file(), "Tests", "new");
-    expect(doc()).toBe(
-      "## Check\n\n- b1\n\n## Tests\n\nnew\n\n## Code\n\nkeep\n",
+    expect(commit).not.toHaveBeenCalled();
+    expect(doc()).toBe(cl);
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner, { steps: [coder, review] }));
+    expect(runner.mock.calls[0]?.[1]).toContain(
+      "- from fake, back: back, about the code\n\t- about the code: b1 fails at its edge (a.ts:3)",
     );
-  });
-
-  it("replaces the last section", () => {
-    writeSection(file(), "Code", "changed");
-    expect(doc()).toBe(
-      "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nchanged\n",
-    );
-  });
-
-  it("adds a section the cl does not have, at the end", () => {
-    writeSection(file(), "Raise", "r");
-    expect(doc()).toBe(`${cl}\n## Raise\n\nr\n`);
   });
 });
