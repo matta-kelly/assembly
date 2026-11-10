@@ -4,6 +4,7 @@ description: "Root of assembly, the software factory: a deployment of que-pasa t
 status: active
 ---
 The software factory: a deployment of [[que-pasa]] that moves an issue through its plan and its cls, one cl at a time, to accepted. It is the inner loop of [[kinetic]], as code.
+- [[#The model]] what it works on: spec, product, role and message
 - [[#The machine]] what moves, and the part that moves it
 - [[#An attempt]] one step's life, across a stop
 - [[#Seams]] where it meets other systems, and what crosses each
@@ -14,6 +15,14 @@ The software factory: a deployment of [[que-pasa]] that moves an issue through i
 - [[software-factory-v2-design]]: the design it follows
 
 ---
+## The model
+
+Four kinds of thing. Each has its rules in the process, its store behind an effect, and its moves in the engine.
+- spec: what must be true. The issue, plan and cl notes, in kinetic. The process holds their shapes, `effects/notes.ts` reads them by path, and the engine writes the factory's own plan and cl notes and copies each item's `status` into its note
+- product: what was made. The tests and the code, in git. The process's checks judge it (red at an assertion, no test changed, green), `effects/git.ts` holds it, and the engine commits and merges it
+- role: who does a step, and how. `agents/*.md`, one agent's instructions each. A step names its agent and its bin, and `effects/runner.ts` runs it
+- message: what a step concludes, and who acts next. Its word (pass, retry, raise, to-tests, to-code, to-plan). `process/table.ts` routes it to the owner of the artifact it is about, and the ledger's events hold it, one per move
+
 ## The machine
 
 Four layers, and `main.ts` puts them together. The engine runs the process and calls the effects. The process reaches the effects in two places only, its notes and the tools each agent names. A check asks the engine for what it needs, and the runner is the engine's `Runner`.
@@ -87,6 +96,7 @@ Across a stop:
 - the cl's shape in the nail step: its check wants every new test red at an assertion, so a structure cl, whose tests pass now, can't pass it; and da-nail's tools still fence by the cut's file list, not a sparse checkout of its scope
 - the planner's role as written: its result is still the cut of the old cl (files, grounds copied in, Check items by number), which `process/plan.ts` validates, and its envelope does not inline the [[plan]] and [[cl]] type notes its Bar points to
 - the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut in its ledger, or from the cl's Files section, and fences the agent with que-pasa's view. kinetic's cl holds `scope`, `shape` and `test` in its frontmatter, and the agent works in a sparse checkout of its scope
+- the message's body: one type (from, about, what, evidence) that carries a step's findings. The findings are still written into the notes' sections (Plan review, Review, Acceptance), which mixes status into the spec. With the body built, each agent's input is its spec, its product and the messages about its artifacts, and a raise and an escalation are one move: a message about the issue, to Matt
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
 - the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default
