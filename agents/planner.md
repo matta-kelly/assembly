@@ -34,7 +34,7 @@ The issue is the top contract: its Done is what it ensures, its Non-goals what i
 	- requires, its phase: what has landed before it
 	- modifies, its scope: the paths its ensures needs to change, and their tests. Too small and the builder can't meet ensures, and must raise; too big and the frame constrains nothing. Read until you can write it, and no further
 	- invariant, its Seam: what it must not change, and what crosses
-	- its Grounds: where to read and why, so its builders never search
+	- its Grounds: where to read and why, so its builders never search, and one exemplar: the existing code they should write like
 - prove the chain
 	- the cls' ensures, together, imply the issue's Done: the Trace, both ways
 	- the invariants hold across the seams: each seam's contract test, in the Checks
