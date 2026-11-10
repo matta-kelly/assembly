@@ -1,6 +1,5 @@
 /**
- * An agent's instructions, from its instructions note (assembly's type), beside the agent's config, which names its
- * path. The model gets the note's one line and its sections, without the frontmatter or the links that lead the note.
+ * An agent's instructions, from its role note (it's type role), beside the agent's config, which names its path. The model gets the note's one line and its sections, without the frontmatter or the links that lead the note.
  */
 
 import { readFileSync } from "node:fs";

@@ -26,7 +26,7 @@ Four layers, and `main.ts` puts them together. The engine runs the process and c
 		- plan (the plan lints), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check reads the result and the attempt's worktree, which it asks through a port (`Worktree`: a test run, the changed files, the files there), and gives the word
 		- nail and hammer work inside their cut: the planner explored, so they do not. A step's view is its cut's files (`process/plan.ts`'s `viewOf`): its tools read those, write only the ones it changes, and to them nothing else exists. A file the cut did not give is a raise. Code its tests run can still write elsewhere, so an attempt whose worktree changed any other file is a retry (`scope_exceeds_change`), and only the change files are committed. Hammer changes no test file: none its Tests section names, and none its test command runs The cut's test command runs its new test files and the existing ones that test the code it changes
-	- the agents (`agents/`): each one's instructions are a note beside it, of assembly's type instructions, and each names a bin (plan, implement, review), never a model
+	- the agents (`agents/`): each one's instructions are its role note beside it (it's type role), and each names a bin (plan, implement, review), never a model
 - engine, what moves it: `orchestrator/`
 	- the state: `ledger.ts`, SQLite, the only state the orchestrator holds: where each item stands, and every move, with its cause
 	- the tick: `loop.ts`. It starts attempts, up to `concurrent` at once, the open ones first. It answers each check's worktree, and records its test run
