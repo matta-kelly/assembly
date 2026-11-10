@@ -18,10 +18,13 @@ The software factory: a deployment of [[que-pasa]] that moves an issue through i
 ## The model
 
 Four kinds of thing. Each has its rules in the process, its store behind an effect, and its moves in the engine.
-- spec: what must be true. The issue, plan and cl notes, in kinetic. The process holds their shapes, `effects/notes.ts` reads them by path, and the engine writes the factory's own plan and cl notes and copies each item's `status` into its note
+- spec: what must be true. The issue, plan and cl notes, in kinetic. The process holds their shapes, `effects/notes.ts` reads them by path, and the engine writes only the factory's own plan and cl notes and each item's `status`. A finding is never written into a note
 - product: what was made. The tests and the code, in git. The process's checks judge it (red at an assertion, no test changed, green), `effects/git.ts` holds it, and the engine commits and merges it
 - role: who does a step, and how. `agents/*.md`, one agent's instructions each. A step names its agent and its bin, and `effects/runner.ts` runs it
-- message: what a step concludes, and who acts next. Its word (pass, retry, raise, to-tests, to-code, to-plan). `process/table.ts` routes it to the owner of the artifact it is about, and the ledger's events hold it, one per move
+- message: what a step concludes, and who acts next. Every step ends with one: who it is from, the artifact it is about (the issue, the plan, a cl, the tests or the code), its word, and for a finding, what fails and the evidence
+	- pass moves the item on. A finding goes up the V to the owner of the artifact it is about: the tests to da-nail, the code to da-hammer, a cl or the plan to the planner, the issue to Matt. Any step can send one, and a raise or an escalation is a message about the issue
+	- `process/table.ts` routes it, as data. The ledger's events hold it, one per message, appended and never edited, and an item's state is read from them
+	- each agent's input is its spec, its product, and the messages about its artifacts
 
 ## The machine
 
@@ -96,7 +99,7 @@ Across a stop:
 - the cl's shape in the nail step: its check wants every new test red at an assertion, so a structure cl, whose tests pass now, can't pass it; and da-nail's tools still fence by the cut's file list, not a sparse checkout of its scope
 - the planner's role as written: its result is still the cut of the old cl (files, grounds copied in, Check items by number), which `process/plan.ts` validates, and its envelope does not inline the [[plan]] and [[cl]] type notes its Bar points to
 - the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut in its ledger, or from the cl's Files section, and fences the agent with que-pasa's view. kinetic's cl holds `scope`, `shape` and `test` in its frontmatter, and the agent works in a sparse checkout of its scope
-- the message's body: one type (from, about, what, evidence) that carries a step's findings. The findings are still written into the notes' sections (Plan review, Review, Acceptance), which mixes status into the spec. With the body built, each agent's input is its spec, its product and the messages about its artifacts, and a raise and an escalation are one move: a message about the issue, to Matt
+- the message as [[#The model]] defines it: a step's message is only its word, and its findings are written into the notes' sections (Plan review, Review, Acceptance). The routing is per step (to-tests, to-code, to-plan), not by the artifact's owner, and an agent's input is not built from the messages
 - a run on a real model: the model path is proven (`just smoke-model`), but nothing starts a run on a real issue yet
 - the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default
