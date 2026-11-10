@@ -79,7 +79,7 @@ Across a stop:
 
 - the whole machine, an issue from open to accepted, proven end to end on scripted models, and an attempt taken up after a stop (`just e2e`)
 - the factory's command line, `just factory`: `add` a note, by its kinetic type: an issue enters at open, for the factory's planner; a plan made outside the factory (a kinetic plan and its cl notes, each with its test command in its Files), or the lone cl of an issue that takes one (its `belongsTo` the issue), enters with its cls ready and waiting, so only the inner loop and acceptance run them, writing into those notes. Those notes are checked as the factory's own plan is (the cut schema, plan lint), and a raise or a send-back on them goes to Matt, escalated, never to the factory's planner; `run` the loop until a signal stops it (its attempts stay open), `status`, `blocked` (the raised and escalated items, with why) and `explain` an item (its moves, its attempts, their cost and their traces). Its home is `$XDG_STATE_HOME/assembly`
-- the repo's dependencies in each attempt: an offline install from its dev image's cache ([[warm-image]]), once per worktree, proven on a que-pasa worktree with `que-pasa-dev:main` (setup in 11 s, then its tests pass, no network)
+- the repo's dependencies in each attempt: an offline install from its dev image's cache ([[repo#Dev image]]), once per worktree, proven on a que-pasa worktree with `que-pasa-dev:main` (setup in 11 s, then its tests pass, no network)
 - the gate: `just check` lints every note against its type, then checks the code: types, eslint, prettier, and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
 
 ## Not built
