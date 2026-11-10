@@ -35,7 +35,7 @@ The issue is the top contract: its Done is what it ensures, its Non-goals what i
 	- requires, its phase: what has landed before it
 	- modifies, its scope: the paths its ensures needs to change, and their tests. Too small and the builder can't meet ensures, and must raise; too big and the frame constrains nothing. Read until you can write it, and no further
 	- invariant, its Seam: what it must not change, and what crosses
-	- its Grounds: where to read and why, so its builders never search, and one exemplar: the existing code they should write like
+	- its checkout: every path its builders need on disk, the scope and what they must read, each described in its Checkout section with why it is there, and one exemplar: the existing code they should write like. They see nothing else, so read until the checkout holds all they need, and no further
 - prove the chain
 	- the cls' ensures, together, imply the issue's Done: every Done item met by a cl, and every cl meeting one
 	- the invariants hold across the seams: each seam's contract test, a promise in the Check of the cl that writes it
@@ -46,7 +46,7 @@ The issue is the top contract: its Done is what it ensures, its Non-goals what i
 
 - which assumptions: those whose failure would change a contract, a seam that isn't there, a frame that can't hold the change. The rest can wait
 - the riskiest first: the one you are least sure of is the one that uproots the plan later
-- reading first: the code, its callers, its tests. A probe when reading can't settle it: one named question, a fixed budget, thrown away after (a spike: Beck, *Extreme Programming Explained*). Its result goes in the contract's grounds
+- reading first: the code, its callers, its tests. A probe when reading can't settle it: one named question, a fixed budget, thrown away after (a spike: Beck, *Extreme Programming Explained*). Its result goes in the cl's Checkout section, with its source
 - when a probe can't settle it either: the cl that tests the assumption goes in phase 1, so the build checks it first
 
 ## Not yours

@@ -159,9 +159,9 @@ What it keeps.
 
 ## Not built
 
-- the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass. Its tools fence by the cut's file list, not a sparse checkout of its scope
+- the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass. Its tools fence by the cut's file list, not a sparse checkout of its checkout
 - the planner's role as written: its result is still the old cut (files, grounds copied in, Check items by number), and its envelope does not inline the [[plan]] and [[cl]] type notes
-- the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut or the cl's Files. kinetic's cl holds `scope`, `shape` and `test` in its frontmatter, for a sparse checkout
+- the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut or the cl's Files. kinetic's cl holds `checkout`, `scope`, `shape` and `test` in its frontmatter, for a sparse checkout of its checkout
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry`, `replan` and `ask`
 - a thinking level per bin: each model runs at its provider's default
