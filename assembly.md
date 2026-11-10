@@ -18,16 +18,18 @@ The software factory: a deployment of [[que-pasa]] that moves an issue through i
 ## The model
 
 Four kinds of thing. Each has its rules in the process, its store behind an effect, and its moves in the engine.
-- spec: what must be true. 
-	- The issue, plan and cl notes, in kinetic. 
-	- The process holds their shapes, `effects/notes.ts` reads them by path, and the engine writes only the factory's own plan and cl notes and each item's `status`. 
-	- A finding is never written into a note
-- product: what was made. 
-	- The tests and the code, in git. 
-	- The process's checks judge it (red at an assertion, no test changed, green), `effects/git.ts` holds it, and the engine commits and merges it
-- role: who does a step, and how. `agents/*.md`, one agent's instructions each. A step names its agent and its bin, and `effects/runner.ts` runs it
-- message: what a step concludes, and who acts next. Every step ends with one: who it is from, the artifact it is about (the issue, the plan, a cl, the tests or the code), its word, and for a finding, what fails and the evidence
-	- pass moves the item on. A finding goes up the V to the owner of the artifact it is about: the tests to da-nail, the code to da-hammer, a cl or the plan to the planner, the issue to Matt. Any step can send one. A raise is a finding about a spec (a cl, the plan or the issue), and an escalation is a message about the issue
+- spec: the notes that say what must be true (the issue, the plan and its cls, in kinetic)
+	- the process holds their shapes, and `effects/notes.ts` reads them by path
+	- the engine writes only the factory's own plan and cl notes, and each item's `status`. A finding is never written into a note
+- product: the files a cl's builders make (its tests and its code, in git)
+	- the process's checks judge it: red at an assertion, no test changed, green
+	- `effects/git.ts` holds it, and the engine commits and merges it
+- role: the instructions one agent works from (`agents/*.md`)
+	- a step names its agent and its bin, and `effects/runner.ts` runs it
+- message: the record a step ends with, which says what it concluded and who acts next
+	- it holds who it is from, the artifact it is about (the issue, the plan, a cl, the tests or the code), its word, and for a finding, what fails and the evidence
+	- pass moves the item on. A finding goes up the V to the owner of the artifact it is about: the tests to da-nail, the code to da-hammer, a cl or the plan to the planner, the issue to Matt. Any step can send one
+	- a raise is a finding about a spec (a cl, the plan or the issue), and an escalation is a message about the issue
 	- `process/table.ts` routes it, as data. The ledger's events hold it, one per message, appended and never edited, and an item's state is read from them
 	- each agent's input is its spec, its product, and the messages about its artifacts
 
