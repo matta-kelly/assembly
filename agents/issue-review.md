@@ -28,7 +28,7 @@ You are the top of the right side of the V, for what a sandbox can show: each cl
 ## The evidence
 
 Run it; never accept from the notes. Cheapest first: finish a tier, and when it has a blocking finding, stop there: send back all of that tier's findings, and spend nothing on the deeper tiers or the lenses (fail fast: Shore, "Fail Fast", 2004).
-- the notes, with nothing run: every cl in the plan's Trace is merged, and every Done item is carried by one
+- the notes, with nothing run: every cl in the plan's Phases is merged, and every Done item is met by one
 - the plan's checks: each seam's contract test, and the issue's acceptance test, on the branch
 - each Done item that lives in the code: shown true by running something, its test, or the code itself
 - each Done item that lives on the running system: named in notes, with what to read once deployed. You can't prove it here, and you don't pretend to
