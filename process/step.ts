@@ -123,13 +123,9 @@ export type Run = {
   setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
   work: string; // the worktree, mounted at /work in the attempt's sandbox
+  checkout?: string[]; // a bound step's: the cl's checkout, the only paths on disk in its worktree, a sparse checkout
+  scope?: string[]; // a bound step's: the part of its checkout a pass commits, and its test runs see
 };
-
-/**
- * What a bound step's agent can reach in the worktree: its cut's files, from the repo's root. It reads `read` and
- * `change`, and writes `change`; to it, nothing else in the worktree exists. Plain JSON: it is part of a run's context.
- */
-export type View = { read: string[]; change: string[] };
 
 export interface Step<D extends { word: "done" }> {
   from: State;
@@ -144,10 +140,10 @@ export interface Step<D extends { word: "done" }> {
    */
   input?(run: Run, ledger: Ledger): string;
   /**
-   * What its agent can reach: its cut's files. Left out, the agent sees the whole worktree, as a step that explores
-   * does (the planner) or judges (the reviews).
+   * A bound step (nail, hammer) works in a sparse checkout of its cl's checkout, and a pass commits only its scope.
+   * Left out, the agent's worktree is the whole repo, as for a step that explores (the planner) or judges (the reviews).
    */
-  view?(run: Run, ledger: Ledger): View;
+  bound?: true;
   /** The runs this step judges, as the item and the step each passed: its trace links to them. A review has them. */
   judges?(run: Run, ledger: Ledger): { name: string; step: State }[];
 }

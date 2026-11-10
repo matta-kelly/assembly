@@ -8,7 +8,6 @@
 import { z } from "zod";
 import { items } from "../effects/notes.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import { viewOf } from "./plan.ts";
 import { type Message, say, type Step } from "./step.ts";
 
 const done = z.object({
@@ -88,8 +87,8 @@ export function judge(code: number, out: string): Message {
 export const nail: Step<Done> = {
   from: "ready",
   agent: "da-nail",
-  // its cut's files, and nothing else
-  view: (r, ledger) => viewOf(ledger, r),
+  // a sparse checkout of its cl's checkout, committing only its scope
+  bound: true,
   done,
   about: ["cl", "plan", "issue"],
   async check(r, d, at) {

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compose } from "../main.ts";
 import { advance } from "../orchestrator/advance.ts";
-import { viewOf } from "../process/plan.ts";
+import { clOf } from "../process/plan.ts";
 import { add, approve, replan, submit } from "./add.ts";
 
 let home: string;
@@ -149,10 +149,11 @@ describe("submit", () => {
       ["fx-a", 1, "ready"],
       ["fx-c", 2, "waiting"],
     ]);
-    expect(viewOf(ledger, { name: "fx-a", issue: "fx" })).toEqual({
-      read: ["src/a.ts", "test/a.test.ts", "src/b.ts"],
-      change: ["src/a.ts", "test/a.test.ts"],
-    });
+    const a = clOf(ledger, { name: "fx-a", issue: "fx" });
+    expect([a.checkout, a.scope]).toEqual([
+      ["src/a.ts", "test/a.test.ts", "src/b.ts"],
+      ["src/a.ts", "test/a.test.ts"],
+    ]);
     expect(readFileSync(join(notes, "fx-plan.md"), "utf8")).toBe(before);
   });
 

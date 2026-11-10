@@ -221,8 +221,8 @@ const plain = (last: string) => {
 };
 
 /**
- * What value's da-hammer saw when it reached past its cut, before it coded: a file in no cut, the root, and a write
- * outside its change files.
+ * What value's da-hammer saw when it reached past its cl, before it coded: a file outside its checkout, the root, and a
+ * write outside its scope.
  */
 const probed: string[] = [];
 const probes = [
@@ -424,40 +424,45 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
         await l.tick();
 
-        // Each of is's attempts was set up once, before its agent, from its own worktree: value's test imports what
-        // setup installed, and the folder, ignored, crossed no cut's scope check.
+        // Each of is's own attempts, and each review, was set up once, before its agent, in its own worktree. A bound
+        // attempt (nail, hammer) holds only its cl's checkout, so its cl's full worktree, where its tests run, was set
+        // up once instead: value's test imports what setup installed there.
         const attemptsOf = (under: string) =>
-          readdirSync(under).map((n) => join(under, n));
-        const isAttempts = [
-          ...attemptsOf(join(runs, "is", "issue")),
-          ...["value", "double"].flatMap((c) =>
-            attemptsOf(join(runs, "is", "cl", c)),
-          ),
-        ];
-        for (const a of isAttempts) {
+          readdirSync(under)
+            .filter((n) => /^\d+$/.test(n))
+            .map((n) => join(under, n));
+        for (const a of attemptsOf(join(runs, "is", "issue")))
           expect(existsSync(join(a, "setup.done"))).toBe(true);
-          expect(readFileSync(join(a, "log"), "utf8")).toMatch(
-            /^set up in \d+ s$/m,
-          );
+        for (const c of ["value", "double"]) {
+          expect(
+            existsSync(join(runs, "is", "cl", c, "full.setup", "setup.done")),
+          ).toBe(true);
+          const logs = attemptsOf(join(runs, "is", "cl", c))
+            .map((a) =>
+              existsSync(join(a, "log"))
+                ? readFileSync(join(a, "log"), "utf8")
+                : "",
+            )
+            .join("\n");
+          expect(logs.match(/^set up in \d+ s$/gm)).not.toBeNull();
         }
 
-        // value's da-hammer reached only its cut: NOTES, which is in its worktree, answered as missing; the root held
-        // only the cut's files; the write outside its change files left nothing.
-        expect(probed).toEqual([
-          "Error: File 'NOTES' not found",
-          "README\nsrc/\ntest/",
-          expect.stringMatching(
-            /^Error: permission denied for write on src\/stray.mjs/,
-          ),
-        ]);
+        // value's da-hammer held only its cl's checkout: NOTES, in the repo but not in the checkout, is not on disk;
+        // the root holds only the checkout's paths; a write outside its scope is in no commit.
+        expect(probed[0]).toMatch(/NOTES/);
+        // (the worktree's .git file points at the repo, which is not mounted)
+        expect(probed[1]).toBe(".git\nREADME\nsrc/\ntest/");
         const valueRuns = join(runs, "is", "cl", "value");
-        const works = readdirSync(valueRuns).map((n) =>
-          join(valueRuns, n, "work"),
-        );
-        expect(works.some((w) => existsSync(join(w, "NOTES")))).toBe(true);
+        // its nail and hammer attempts are bound; its review keeps the whole tree, read-only
+        const bound = ledger
+          .attemptsOf("is-value")
+          .filter((x) => x.step === "ready" || x.step === "red")
+          .map((x) => join(valueRuns, String(x.n), "work"));
+        expect(bound.length).toBeGreaterThan(1);
+        expect(bound.filter((w) => existsSync(join(w, "NOTES")))).toEqual([]);
         expect(
-          works.filter((w) => existsSync(join(w, "src", "stray.mjs"))),
-        ).toEqual([]);
+          git(repo, "log", "--all", "--format=%h", "--", "src/stray.mjs"),
+        ).toBe("");
 
         // The issue went through each of its steps once, in order, and each cl through its own.
         const moves = (name: string) =>

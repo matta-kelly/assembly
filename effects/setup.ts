@@ -10,9 +10,9 @@
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Run } from "../process/step.ts";
-import { touched } from "./git.ts";
+import { full, fullOf, touched } from "./git.ts";
 import { offline } from "./sandbox.ts";
 import { sh } from "./sh.ts";
 
@@ -83,4 +83,28 @@ export async function runSetup(r: Run, signal?: AbortSignal) {
     );
   mkdirSync(r.dir, { recursive: true });
   writeFileSync(done(r), "");
+}
+
+/** The item's full worktree as a run of its own: its setup's folder and container are the item's, not an attempt's. */
+const fullRunOf = (r: Run): Run => ({
+  ...r,
+  n: 0,
+  dir: join(dirname(r.dir), "full.setup"),
+  work: fullOf(r),
+});
+
+/**
+ * Readies the item's full worktree, where a bound attempt's tests run: made once, and set up once, as an attempt's
+ * worktree is. A worktree made again forgets its setup. Throws, with why, when the setup fails. Gives back whether a
+ * setup ran.
+ */
+export async function prepareFull(
+  r: Run,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const f = fullRunOf(r);
+  if (await full(r)) forgetSetup(f);
+  if (!needsSetup(f)) return false;
+  await runSetup(f, signal);
+  return true;
 }

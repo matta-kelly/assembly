@@ -12,8 +12,9 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
+import { within } from "../effects/git.ts";
 import { items, itemsIn, read, sectionIn } from "../effects/notes.ts";
-import type { Message, Run, Step, View, Worktree } from "./step.ts";
+import type { Message, Run, Step, Worktree } from "./step.ts";
 
 /** A lint's word, and why: a spec lints, or its attempt is a retry with the cause. */
 type Lint = Omit<Message, "findings">;
@@ -21,11 +22,17 @@ type Lint = Omit<Message, "findings">;
 /** A name the factory can use in its branches and its containers: kebab-case. */
 export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
-/** A path of a cl, from its repo's root: a file. A folder is not taken until the sparse checkout. */
+/**
+ * A path of a cl, from its repo's root: a file, or a folder for all under it, as git's sparse checkout takes it. A
+ * plain path, no glob or negation: assembly matches it as git does, by the path or a folder over it.
+ */
 const path = z
   .string()
   .min(1)
-  .refine((p) => !p.endsWith("/"), "a file, not a folder");
+  .refine((p) => !/[*?[\]!#\\]/.test(p), "a path, not a pattern");
+
+/** Whether two entries overlap: one is the other, or a folder over it. */
+const overlap = (a: string, b: string) => within([a], b) || within([b], a);
 
 /** One cl, as kinetic's cl type holds it: its frontmatter fields and the prose of its body. */
 export const clSpec = z.object({
@@ -162,15 +169,6 @@ export function clOf(ledger: Ledger, r: Pick<Run, "name" | "issue">): ClSpec {
   return c;
 }
 
-/** What a cl's step can reach: it reads its checkout, and changes its scope. */
-export const viewOf = (
-  ledger: Ledger,
-  r: Pick<Run, "name" | "issue">,
-): View => {
-  const c = clOf(ledger, r);
-  return { read: c.checkout, change: c.scope };
-};
-
 /** The spec as text, for a review to read. */
 export function specText(s: Spec): string {
   return [
@@ -271,22 +269,22 @@ export function specLint(
       return no(
         `cl ${c.name}: files outside the repo, or its root: ${outside.join(", ")}`,
       );
-    const loose = c.scope.filter((f) => !c.checkout.includes(f));
+    const loose = c.scope.filter((f) => !within(c.checkout, f));
     if (loose.length)
       return no(
         `cl ${c.name}: its scope is not in its checkout: ${loose.join(", ")}`,
       );
-    const unnamed = pathsIn(c.test).filter((f) => !c.checkout.includes(f));
+    const unnamed = pathsIn(c.test).filter((f) => !within(c.checkout, f));
     if (unnamed.length)
       return no(
         `cl ${c.name}: its test command runs files not in its checkout: ${unnamed.join(", ")}`,
       );
-    const made = new Set(
-      s.cls.filter((x) => phase(x) < phase(c)).flatMap((x) => x.scope),
-    );
-    const read = c.checkout.filter((f) => !c.scope.includes(f));
+    const made = s.cls
+      .filter((x) => phase(x) < phase(c))
+      .flatMap((x) => x.scope);
+    const read = c.checkout.filter((f) => !within(c.scope, f));
     const there = new Set(o.exists(read));
-    const missing = read.filter((f) => !there.has(f) && !made.has(f));
+    const missing = read.filter((f) => !there.has(f) && !within(made, f));
     if (missing.length)
       return no(
         `cl ${c.name}: files of its checkout are not in the repo: ${missing.join(", ")}`,
@@ -295,7 +293,7 @@ export function specLint(
       .filter((x) => x.name !== c.name && phase(x) === phase(c))
       .flatMap((x) =>
         x.scope
-          .filter((f) => c.scope.includes(f))
+          .filter((f) => c.scope.some((g) => overlap(f, g)))
           .map((f) => `${f} (${x.name})`),
       );
     if (shared.length)

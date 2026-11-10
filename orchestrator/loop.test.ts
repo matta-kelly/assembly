@@ -7,10 +7,15 @@ import { z } from "zod";
 import type { Message, Step } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
-import { commit, touched, worktree } from "../effects/git.ts";
+import { commit, worktree } from "../effects/git.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
-import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
+import {
+  forgetSetup,
+  needsSetup,
+  prepareFull,
+  runSetup,
+} from "../effects/setup.ts";
 import { ran } from "../process/fake-worktree.ts";
 
 // Podman and git are faked: git, the sandbox and the test runs are the loop's only ways out. runOf is the real one.
@@ -32,6 +37,7 @@ vi.mock("../effects/setup.ts", () => ({
   needsSetup: vi.fn(),
   runSetup: vi.fn(),
   forgetSetup: vi.fn(),
+  prepareFull: vi.fn(),
 }));
 
 const cl = "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
@@ -152,39 +158,30 @@ describe("an attempt", () => {
     });
   });
 
-  it("retries a bound step whose worktree changed a file outside its change files, before its check", async () => {
-    const view = { read: ["README"], change: ["src/a.ts"] };
-    vi.mocked(touched).mockResolvedValue(["src/a.ts", "src/stray.ts"]);
-    const check = vi.fn(async () => message);
-    await once(
-      make(gives(done("x")), { steps: [{ ...step, view: () => view, check }] }),
+  it("gives a bound step's run its cl's checkout and scope, sets up the full worktree, not its own, and commits the run", async () => {
+    ledger.keepSpec(
+      "i",
+      {
+        cls: [
+          {
+            name: "c",
+            intent: "c",
+            shape: { change: "behavior", checked: "repo" },
+            checkout: ["src/", "test/a.test.ts"],
+            scope: ["src/a.ts"],
+            test: "t",
+            check: ["b1"],
+            seam: "s",
+            checkoutNotes: "n",
+          },
+        ],
+      },
+      "matt",
     );
-    expect(last()).toMatchObject({
-      word: "retry",
-      cause: "scope_exceeds_change",
-      reason: "changed files its cut does not: src/stray.ts",
-    });
-    expect(check).not.toHaveBeenCalled();
-    expect(commit).not.toHaveBeenCalled();
-  });
-
-  it("commits only a bound step's change files, and everything for a step with no view", async () => {
-    vi.mocked(touched).mockResolvedValue(["src/a.ts"]);
-    const view = { read: [], change: ["./src/a.ts"] };
-    await once(
-      make(gives(done("x")), { steps: [{ ...step, view: () => view }] }),
-    );
-    expect(vi.mocked(commit).mock.calls[0]?.[2]).toEqual(["src/a.ts"]);
-  });
-
-  it("gives the runner the step's view, and none for a step that has none", async () => {
-    const view = { read: ["README"], change: ["src/a.ts"] };
-    const runner = vi.fn<Run1>(gives(done("x")));
-    await once(make(runner, { steps: [{ ...step, view: () => view }] }));
-    expect(runner.mock.calls[0]?.[2]).toMatchObject({ view });
+    // the cl named for its issue and its cut, as the spec names it
     ledger.addCl(
       {
-        name: "d",
+        name: "i-c",
         issue: "i",
         seq: 2,
         path: join(dir, "cl.md"),
@@ -194,9 +191,34 @@ describe("an attempt", () => {
       },
       "ready",
     );
-    const free = vi.fn<Run1>(gives(done("x")));
-    await once(make(free));
-    expect(free.mock.calls[0]?.[2]).not.toHaveProperty("view");
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner, { steps: [{ ...step, bound: true }] }));
+    const ran = runner.mock.calls.map((c) => c[2].run);
+    expect(ran.find((x) => x.name === "i-c")).toMatchObject({
+      checkout: ["src/", "test/a.test.ts"],
+      scope: ["src/a.ts"],
+    });
+    expect(prepareFull).toHaveBeenCalledOnce();
+    expect(runSetup).not.toHaveBeenCalled();
+    expect(vi.mocked(commit).mock.calls[0]?.[0]).toMatchObject({
+      name: "i-c",
+      scope: ["src/a.ts"],
+    });
+  });
+
+  it("gives a step that is not bound the whole worktree: no checkout or scope", async () => {
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner));
+    expect(runner.mock.calls[0]?.[2].run).not.toHaveProperty("scope");
+  });
+
+  it("retries a bound step whose cl is not in its issue's spec, before any worktree", async () => {
+    await once(make(gives(done("x")), { steps: [{ ...step, bound: true }] }));
+    expect(last()).toMatchObject({
+      word: "retry",
+      reason: expect.stringMatching(/its spec could not be read/),
+    });
+    expect(worktree).not.toHaveBeenCalled();
   });
 
   it("tells the runner a step that must not edit is read-only, as its sandbox is", async () => {

@@ -24,12 +24,17 @@
 
 import { z } from "zod";
 import { existsSync } from "node:fs";
-import { isAbsolute, join, normalize, posix } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import { changed, commit, head, touched, worktree } from "../effects/git.ts";
 import { read } from "../effects/notes.ts";
 import { log, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
-import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
+import {
+  forgetSetup,
+  needsSetup,
+  prepareFull,
+  runSetup,
+} from "../effects/setup.ts";
 import { runTests } from "../effects/tests.ts";
 import {
   checkSpan,
@@ -44,9 +49,9 @@ import {
   type Run,
   type Step,
   type TestRun,
-  type View,
   type Worktree,
 } from "../process/step.ts";
+import { clOf } from "../process/plan.ts";
 import { type State, top } from "../process/table.ts";
 import { advance } from "./advance.ts";
 import type { Event, Ledger, Usage } from "./ledger.ts";
@@ -59,8 +64,8 @@ type AnyStep = Step<{ word: "done" }>;
  * - run: one step's agent, by its name, on its input, for one attempt, gives back its output and what its model calls
  *   used. The attempt is the run: run again for an attempt it has, it goes on with that run. `retry` says the attempt
  *   is not the state's first, so a bin's fallback model takes it. It stops when `signal` aborts. A run that failed on
- *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called. `view`,
- *   a bound step's, is what its tools reach; none is the whole worktree. `readOnly`: its worktree is mounted read-only.
+ *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called.
+ *   `readOnly`: its worktree is mounted read-only.
  * - close: stops it, and keeps the runs still going, for the next runner on the same storage.
  */
 export interface Runner {
@@ -71,7 +76,6 @@ export interface Runner {
       run: Run;
       retry: boolean;
       signal: AbortSignal;
-      view?: View;
       readOnly: boolean;
     },
   ): Promise<{ value: unknown; usage?: Usage }>;
@@ -111,12 +115,6 @@ function messagesText(events: Event[], from: (e: Event) => string): string {
       ...(e.notes ? [`\t- notes: ${e.notes}`] : []),
     ]),
   ].join("\n");
-}
-
-/** The files the worktree changed that are not the view's change files. */
-async function outside(view: View, at: Worktree) {
-  const change = new Set(view.change.map((f) => posix.normalize(f)));
-  return (await at.touched()).filter((f) => !change.has(f));
 }
 
 /**
@@ -252,7 +250,6 @@ export async function loop({
       const input =
         (step.input ? step.input(r, ledger) : read(r.path)) +
         messagesText(ledger.inbox(r.name, state), fromOf);
-      const view = step.view?.(r, ledger);
       // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
       const out = await abortable(
         within(span, () =>
@@ -261,7 +258,6 @@ export async function loop({
             retry: ledger.attempts(r.name, state) > 1,
             signal,
             readOnly: step.worktree === "ro",
-            ...(view ? { view } : {}),
           }),
         ),
         signal,
@@ -291,29 +287,16 @@ export async function loop({
         const checking = AbortSignal.any([signal, closed.signal]);
         const at = worktreeOf(r, checking);
         try {
-          // A bound step changes only its cut's change files, whatever made the change: its tools, or code its tests ran.
-          const stray = view ? await outside(view, at) : [];
-          v = stray.length
-            ? {
-                word: "retry",
-                cause: "scope_exceeds_change",
-                reason: `changed files its cut does not: ${stray.join(", ")}`,
-                findings: [],
-              }
-            : await abortable(step.check(r, done, at, ledger), checking);
+          v = await abortable(step.check(r, done, at, ledger), checking);
         } finally {
           // A test run is recorded whether its check gave a word or failed after it.
           ran = at.ran();
           if (ran) checkSpan(span, state, ran);
         }
         // A pass of a step that edits the worktree is its product: the attempt is committed, and becomes the item's
-        // branch.
+        // branch. A bound attempt's commit holds only its scope.
         if (v.word === "pass" && step.worktree !== "ro")
-          await commit(
-            r,
-            `${step.agent}(${r.name})`,
-            view?.change.map((f) => posix.normalize(f)),
-          );
+          await commit(r, `${step.agent}(${r.name})`);
       }
     } catch (e) {
       if (closing) return;
@@ -372,10 +355,13 @@ export async function loop({
       });
       return false;
     }
-    if (needsSetup(r)) {
+    // A bound attempt's sparse worktree holds no install: its tests run on the item's full worktree, set up once.
+    if (r.scope || needsSetup(r)) {
       const at = Date.now();
+      let ran = true;
       try {
-        await runSetup(r, closed.signal);
+        if (r.scope) ran = await prepareFull(r, closed.signal);
+        else await runSetup(r, closed.signal);
       } catch (e) {
         // a setup the loop's closing stopped is not a failure: the attempt is set up when it is taken up
         if (closed.signal.aborted) return false;
@@ -388,7 +374,7 @@ export async function loop({
         });
         return false;
       }
-      log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
+      if (ran) log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
     }
     if (closed.signal.aborted) return false;
     try {
@@ -443,11 +429,33 @@ export async function loop({
   const left = () =>
     ledger.open().filter((a) => !running.has(`${a.name}/${a.n}`));
 
+  /** The attempt's run, with its cl's checkout and scope when its step is bound. */
+  const runFor = (
+    i: Parameters<typeof runOf>[0],
+    n: number,
+    step?: AnyStep,
+  ): Run => {
+    const r = runOf(i, n, runs);
+    if (!step?.bound || i.kind !== "cl") return r;
+    const c = clOf(ledger, i);
+    return { ...r, checkout: c.checkout, scope: c.scope };
+  };
+
   async function start() {
     for (const a of left()) {
       if (running.size >= concurrent) return;
-      const r = runOf(ledger.item(a.name), a.n, runs);
       const step = stepAt(a.step);
+      let r: Run;
+      try {
+        r = runFor(ledger.item(a.name), a.n, step);
+      } catch (e) {
+        end(runOf(ledger.item(a.name), a.n, runs), a.step, {
+          word: "retry",
+          reason: `its spec could not be read: ${(e as Error).message}`,
+          findings: [],
+        });
+        continue;
+      }
       if (!step) {
         end(r, a.step, {
           word: "retry",
@@ -463,7 +471,19 @@ export async function loop({
     for (const i of ledger.waiting(steps.map((s) => s.from))) {
       if (running.size >= concurrent) return;
       const n = ledger.begin(i.name);
-      launch(runOf(i, n, runs), i.state, stepAt(i.state) as AnyStep);
+      const step = stepAt(i.state) as AnyStep;
+      let r: Run;
+      try {
+        r = runFor(i, n, step);
+      } catch (e) {
+        end(runOf(i, n, runs), i.state, {
+          word: "retry",
+          reason: `its spec could not be read: ${(e as Error).message}`,
+          findings: [],
+        });
+        continue;
+      }
+      launch(r, i.state, step);
     }
   }
 
@@ -472,7 +492,7 @@ export async function loop({
   for (const a of left()) {
     if (!stepAt(a.step)) continue;
     try {
-      const r = runOf(ledger.item(a.name), a.n, runs);
+      const r = runFor(ledger.item(a.name), a.n, stepAt(a.step));
       if (await worktree(r)) forgetSetup(r);
     } catch {
       // taken up, and ended, at the first tick

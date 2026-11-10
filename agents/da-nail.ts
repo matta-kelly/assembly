@@ -16,7 +16,7 @@ export const daNail = (model: string) =>
     name: "da-nail",
     model,
     instructions: instructions("./da-nail.md", import.meta.url),
-    // its cut's files only, and its tests: no shell, which would reach any file
+    // its cl's checkout, on disk, and its tests: no shell, so a builder runs only its tests, and on the whole repo
     tools: [...fileTools, test],
     output: z.object({ result: resultOf(nail) }),
   });

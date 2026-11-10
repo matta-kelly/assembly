@@ -14,7 +14,6 @@ import {
   type Spec,
   specLint,
   specText,
-  viewOf,
 } from "./plan.ts";
 import { fakeWorktree } from "./fake-worktree.ts";
 
@@ -156,13 +155,14 @@ describe("a cl's spec", () => {
       passed: () => undefined,
     }) as unknown as Parameters<typeof clOf>[0];
 
-  it("is found in its issue's spec by the cl's name, and its view reads its checkout and changes its scope", () => {
+  it("is found in its issue's spec by the cl's name, with its checkout and its scope", () => {
     const s = plan(cl("one", 1), cl("two", 2));
     expect(clOf(ledger(s), { name: "is-two", issue: "is" }).name).toBe("two");
-    expect(viewOf(ledger(s), { name: "is-one", issue: "is" })).toEqual({
-      read: ["src/one.ts", "src/one.test.ts", "src/a.ts"],
-      change: ["src/one.ts", "src/one.test.ts"],
-    });
+    const one = clOf(ledger(s), { name: "is-one", issue: "is" });
+    expect([one.checkout, one.scope]).toEqual([
+      ["src/one.ts", "src/one.test.ts", "src/a.ts"],
+      ["src/one.ts", "src/one.test.ts"],
+    ]);
   });
 
   it("is an error for a cl its issue's spec does not have", () => {

@@ -9,7 +9,7 @@ import { z } from "zod";
 import { read } from "../effects/notes.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { testFilesOf, testsOf } from "./nail.ts";
-import { pathsIn, viewOf } from "./plan.ts";
+import { pathsIn } from "./plan.ts";
 import { type Message, say, type Step, type Worktree } from "./step.ts";
 
 const done = z.object({
@@ -44,8 +44,8 @@ export const changedOf = (ledger: Ledger, cl: string): string =>
 export const hammer: Step<Done> = {
   from: "red",
   agent: "da-hammer",
-  // its cut's files, and nothing else
-  view: (r, ledger) => viewOf(ledger, r),
+  // a sparse checkout of its cl's checkout, committing only its scope
+  bound: true,
   done,
   about: ["tests", "cl", "plan", "issue"],
   input: (r, ledger) => [read(r.path), "", testsOf(ledger, r.name)].join("\n"),
