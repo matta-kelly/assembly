@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { items, section, setStatus, writeNote } from "./notes.ts";
 
 const note =
-  "---\ntype: cl\nstatus: new\n---\nIntent.\n\n## Check\n\n- b1\n\t- not an item\n- b2\n\n## Tests\n\nold\n\n## Raise\n\n- r\n";
+  "---\ntype: cl\nstatus: new\n---\nIntent.\n\n## Check\n\n- b1\n\t- not an item\n- b2\n\n## Tests\n\nold\n";
 
 let dir: string;
 let file: string;
