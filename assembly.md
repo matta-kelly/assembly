@@ -3,15 +3,32 @@ type: moc
 description: "Root of assembly, the software factory: a deployment of que-pasa that moves an issue through its plan and its cls to accepted. Read for how the factory works as a system, where it meets other systems, what it records, and what is built."
 status: active
 ---
-assembly: the software factory, a deployment of [[que-pasa]] that moves an issue through its plan and its cls, one cl at a time, to accepted. The inner loop of [[kinetic]], as code.
+assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through [[kinetic]]'s process, its plan and its cls, one cl at a time, to accepted, then to main. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
 - [[software-factory-v2-design]]: the design it follows
 
 ---
-## The model
+## The product line
 
-The four things the factory works on, each with its rules in the process, its store behind an effect, and its moves in the engine.
+[[repo]]: what the factory builds in, one repo and the environment it defines once.
+
+- dev image: the toolchain and the package cache, which every bench starts from
+- services: what runs beside the work, from `pod.yaml`. Not built ([[workspace-services]])
+- check: `check.sh`, the one inspection, the same at every bench and at the dock
+
+## The bench
+
+[[workspace]]: where one job is done, a branch, a worktree and a running copy of the repo's environment, made for the job and removed after. The same bench for Matt and for an attempt.
+
+- worktree: its own checkout
+- container: the dev image with the worktree mounted, rootless and capped
+- network: its own. An attempt's has no way out
+- setup: an offline install from the image's cache, once per worktree ([[#One job]])
+
+## The paperwork
+
+The model: the four things that travel with a job, each with its rules in the process, its store behind an effect, and its moves in the engine.
 
 - spec: the notes that say what must be true: the issue, the plan and its cls, in kinetic
 	- shapes: held by the process. `effects/notes.ts` reads them by path
@@ -35,9 +52,9 @@ The four things the factory works on, each with its rules in the process, its st
 	- the record: the ledger's events, one per message, appended and never edited. An item's state is their projection, moved in the same transaction
 	- an agent's input: its spec, then its messages, the one that brought the item to its state and each since (`ledger.inbox`). Its product it reads in the worktree
 
-## The machine
+## The plant
 
-Four layers, put together by `main.ts`. The engine runs the process and calls the effects; the process reaches the effects only through its notes and the tools each agent names.
+The machine: what moves jobs from station to station, in four layers put together by `main.ts`. The engine runs the process and calls the effects; the process reaches the effects only through its notes and the tools each agent names.
 
 - process: what the work is (`process/`, `agents/`). It decides, and touches only its own notes
 	- the path: the states an item moves through on messages, held as data in `process/table.ts`
@@ -73,9 +90,9 @@ Four layers, put together by `main.ts`. The engine runs the process and calls th
 - wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
 - the command line: `cli/`, one module per command, on what `compose` builds (`just factory`)
 
-## An attempt
+## One job
 
-One step on one item: its run, its sandbox and its worktree are its own, and it lives until it ends.
+An attempt: one step on one item, at one bench. Its run, its sandbox and its worktree are its own, and it lives until it ends.
 
 - begin: the ledger opens it, with its trace's ids
 - setup: the issue's `--setup` installs the repo's dependencies into the new worktree from the [[repo#Dev image|dev image]]'s cache, with no network, in a container of its own, inside the attempt's task, so a tick never waits on it
@@ -92,6 +109,14 @@ One step on one item: its run, its sandbox and its worktree are its own, and it 
 	- the next one: takes each open attempt up. Its sandbox again (kept, started again, or run again on the same worktree), and its run goes on from where it stopped, with no model call redone
 	- a cut-off tool call: runs again only if twice is the same as once (`ls`, `read_file`, `write_file`, `glob`, `grep`). For `edit_file`, `execute` and `test`, the model gets `interrupted`
 	- the time limit: per process
+
+## The dock
+
+[[ci]]: final inspection into the warehouse, main.
+
+- the gate: the check passes on the exact commit, then main moves by fast-forward
+- landing: Matt lands an accepted issue's branch. Not built in the factory ([[landing-flow]])
+- after the dock: [[cd]] ships main onto a node, outside the plant
 
 ## Seams
 
@@ -142,5 +167,5 @@ What it keeps.
 - a thinking level per bin: each model runs at its provider's default
 - the dev image's tag per lockfile: `--image` names one tag for every attempt, so a newer lockfile fails setup. The exact tag (`dev-image.sh local`) needs skopeo or a build in the orchestrator's image
 - parallel cls, or a plan across repos: one cl at a time, in one repo
-- landing: Matt lands an accepted issue's branch
+- landing: Matt lands an accepted issue's branch ([[#The dock]])
 - check reuse: runs are recorded with their input hash, and never skipped on it
