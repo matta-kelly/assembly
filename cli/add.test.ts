@@ -356,6 +356,34 @@ describe("submit", () => {
     }
   });
 
+  it("refuses an issue name that is not kebab-case, naming it, and leaves the ledger as it was", () => {
+    // each bad name has its note at the commit, so only the name check stops it
+    for (const name of ["My Issue", "Fx", "fx_a"]) {
+      note(name, issue);
+      note(`${name}-a`, cl("a", undefined, name));
+    }
+    publish("the spec");
+    for (const name of ["My Issue", "Fx", "fx_a", "a/../b", ""]) {
+      const done = submit(factory, name, runK());
+      expect(done.code).toBe(1);
+      expect(done.lines.join("\n")).toContain(name);
+      expect(factory().ledger.items()).toEqual([]);
+    }
+  });
+
+  it("refuses a submit given no repo named kinetic, naming the kinetic repo, and leaves the ledger as it was", () => {
+    specNotes();
+    publish("the spec");
+    const other = join(home, "other");
+    onCrate(other);
+    for (const repos of [[repo], [repo, other]]) {
+      const done = submit(factory, "fx", { repos, read });
+      expect(done.code).toBe(1);
+      expect(done.lines.join("\n")).toContain("kinetic");
+      expect(factory().ledger.items()).toEqual([]);
+    }
+  });
+
   it("takes the lone cl of an issue that takes one, with no plan", async () => {
     note("fx", issue);
     note("fx-a", cl("a", undefined, "fx"));
