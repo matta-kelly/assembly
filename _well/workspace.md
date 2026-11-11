@@ -43,9 +43,9 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 - the name: `<repo>-<folder>`, a DNS label. It names the network, the pod, its volumes and the URL. A folder that is not one is refused
 - the network: the workspace's own, `--opt isolate=strict`, so no workspace reaches another. Podman 5.4 isolates none by default
 - the pod: the repo's `pod.yaml`, played on the network. The app reaches its database by the alias `postgres`, the same in every workspace, and the database runs the branch's migrations at start
-- the router: one Caddy container per machine, `workspace-router`, started on demand at `127.0.0.1:8080`. It joins each workspace's network and routes `<name>.localhost:8080` to `<name>-app`, the dev container's alias. A container cannot reach a port published on the host's loopback, so it proxies by name
+- the router: one Caddy container per machine, `workspace-router`, started on demand at `127.0.0.1:80`. It joins each workspace's network and routes `<name>.localhost` to `<name>-app`, the dev container's alias. A container cannot reach a port published on the host's loopback, so it proxies by name
 - an attempt: `up --attempt`. Its network is `--internal`, so its services are reachable and the outside is not, and it gets no route, so it cannot reach another workspace through the router
-- Not built: no repo's `devcontainer.json` calls it yet ([[workspace-services]])
+- in use: basis, que-pasa and landl call it, for their network. Not built: a repo with a `pod.yaml` or a route, and publicpersona, whose check still runs on the host's network ([[workspace-services]])
 
 ## Machine
 
@@ -53,6 +53,7 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 2. podman writes its events to a file, not journald: `events_logger = "file"` in `~/.config/containers/containers.conf`, from deeotee. On a cold journal the dev container CLI misses its container's start event and waits forever ([devcontainers/cli#1236](https://github.com/devcontainers/cli/issues/1236))
 3. log in to ghcr once, since each repo's dev image is pulled from there: `gh auth refresh -h github.com -s read:packages`, then `gh auth token | podman login ghcr.io -u matta-kelly --password-stdin`
 4. VS Code (the Microsoft build) with the **Dev Containers** extension, and `dev.containers.dockerPath` set to `podman`
+5. let a rootless podman bind port 80, for the router: `echo net.ipv4.ip_unprivileged_port_start=80 | sudo tee /etc/sysctl.d/90-workspace-router.conf && sudo sysctl --system`
 
 ## Run
 
