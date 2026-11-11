@@ -1,9 +1,9 @@
 /**
  * The end to end test of the whole loop, an issue from open to accepted, with only the model faked: a real repo, a
- * real sandbox per attempt, que-pasa's run with the real agents and tools, the real checks, git commits and merges,
- * and the notes the orchestrator writes. The planner cuts the issue into two cls; plan-review approves; each cl goes
- * through nail, hammer and review, and is merged into the issue's branch before the next starts; acceptance runs the
- * full suite and accepts. A second issue's planner raises.
+ * real sandbox per attempt, que-pasa's run with the real agents and tools, the real checks, git commits and the real
+ * `git land`, onto a bare repo as the land target, and the notes the orchestrator writes. The planner cuts the issue
+ * into two cls; plan-review approves; each cl goes through nail, hammer and review, and lands on main before the next
+ * phase starts; acceptance runs the full suite on main and accepts. A second issue's planner raises.
  *
  * Each agent's model is scripted (pi-ai's faux provider): it reads the conversation so far and makes its next tool
  * call, so the tools run for real in the sandbox. The reviews try to write the worktree first, and only go on if the
@@ -39,6 +39,7 @@ import { daNail } from "../agents/da-nail.ts";
 import { issueReviewer } from "../agents/issue-review.ts";
 import { planReviewer } from "../agents/plan-review.ts";
 import { planner } from "../agents/planner.ts";
+import { landTarget } from "../effects/land-target.fixture.ts";
 import { compose } from "../main.ts";
 import { advance } from "./advance.ts";
 import { nail } from "../process/nail.ts";
@@ -132,7 +133,7 @@ const plannerScript = (input: string, done: number) => {
     word: "done",
     plan: {
       approach: "value first, then double, which imports it",
-      phases: ["value, which double imports", "double, once value is merged"],
+      phases: ["value, which double imports", "double, once value has landed"],
     },
     cls: [
       cl(
@@ -317,6 +318,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
   () => {
     let dir: string;
     let repo: string;
+    let bare: string;
 
     beforeAll(() => {
       mkdirSync(".e2e", { recursive: true });
@@ -331,6 +333,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       writeFileSync(join(repo, ".gitignore"), "deps/\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "init");
+      bare = landTarget(repo, dir);
       mkdirSync(join(dir, "work"));
       writeFileSync(join(dir, "work", "is.md"), issueNote(false));
       writeFileSync(join(dir, "work", "gap.md"), issueNote(true));
@@ -481,7 +484,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             "ready>red",
             "red>green",
             "green>approved",
-            "approved>merged",
+            "approved>landed",
           ]);
         expect(ledger.item("gap").state).toBe("raised");
 
@@ -495,27 +498,25 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           );
         expect(note("is-plan")).toMatch(/^status: done$/m);
         expect(note("is-plan")).toContain(
-          "- Phase 2: double, once value is merged\n\t- [[is-double]]",
+          "- Phase 2: double, once value has landed\n\t- [[is-double]]",
         );
         expect(note("is-double")).toContain(
           'checkout: ["src/double.mjs","test/double.test.mjs","README","src/value.mjs"]',
         );
         expect(note("is-value")).toMatch(/^status: done$/m);
 
-        // The issue's branch holds both cls, in order: each one's test, then its code.
-        expect(git(repo, "show", "assembly/is/head:src/double.mjs")).toContain(
-          "value * 2",
-        );
+        // Main, on the land target, holds both cls, in order: each one's test, then its code. No issue branch is made.
+        expect(git(bare, "show", "main:src/double.mjs")).toContain("value * 2");
         expect(
-          git(repo, "log", "--format=%s", "main..assembly/is/head")
-            .trim()
-            .split("\n"),
+          git(bare, "log", "--format=%s", "main").trim().split("\n"),
         ).toEqual([
           "da-hammer(is-double)",
           "da-nail(is-double)",
           "da-hammer(is-value)",
           "da-nail(is-value)",
+          "init",
         ]);
+        expect(git(repo, "branch", "--list", "assembly/is/head")).toBe("");
 
         // Every trial is under its issue: the issue's own attempts, and each cl's.
         for (const n of [1, 2, 3])
@@ -532,8 +533,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
         ).toContainEqual(expect.stringMatching(/node --test/));
 
-        // The planner's raise is a message about the issue, to Matt, and each cl's planned and merged files are the
-        // context hit rate's two sides.
+        // The planner's raise is a message about the issue, to Matt, and each cl's landed files are kept.
         expect(
           ledger.events("gap").find((e) => e.word === "back"),
         ).toMatchObject({

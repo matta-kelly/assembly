@@ -1,5 +1,5 @@
 /**
- * issue-review: the agent of the accept step, an issue from built to accepted. It judges whether the merged cls meet the issue. Its instructions are its note, issue-review.md. It reads the repo, read-only: no tool of its can write.
+ * issue-review: the agent of the accept step, an issue from built to accepted. It judges whether the cls landed on main meet the issue. Its instructions are its note, issue-review.md. It reads the repo, read-only: no tool of its can write.
  */
 
 import { defineAgent } from "@mku1tra/que-pasa/define";

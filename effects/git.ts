@@ -1,8 +1,9 @@
 /**
- * Git: each item's branches, each attempt's worktree, its commits, and the merges.
+ * Git: each item's branches, each attempt's worktree, its commits, and main, where each cl lands (land.ts).
  *
- * Each item has a branch, assembly/<name>/head, that holds its passed work. An attempt's worktree is a branch of its
- * own, assembly/<name>/<n>, made from the item's branch, else its issue's (the cls merged so far), else main. Both live
+ * Main is the land target's: the remote `git land` lands on, `local` when the repo has it, else `origin`. Each item
+ * has a branch, assembly/<name>/head, that holds its passed work. An attempt's worktree is a branch of its own,
+ * assembly/<name>/<n>, made from a cl's own branch, else from main, fetched as it is made. Both live
  * under assembly/<name>/, since git cannot hold a branch that is also another branch's folder. A pass commits the
  * attempt and moves the item's branch to it, so the next step starts from it. A failed attempt's branch is kept, as its
  * record.
@@ -49,11 +50,27 @@ export const within = (entries: string[], path: string) => {
 const patterns = (checkout: string[]) =>
   checkout.map((e) => `/${normalize(e).replace(/^\/+|\/+$/g, "")}`);
 
-/** Where an attempt's worktree starts: the item's own passed work, then its issue's, then main. */
+/** The remote a cl lands on, as `git land` picks it: `local`, a bare repo on this machine, when the repo has it. */
+export async function targetOf(repo: string): Promise<string> {
+  const local = await sh("git", ["-C", repo, "remote", "get-url", "local"]);
+  return local.code === 0 ? "local" : "origin";
+}
+
+/** Main as the land target has it now: fetched, and named as its remote-tracking branch. */
+export async function mainOf(repo: string): Promise<string> {
+  const remote = await targetOf(repo);
+  await must("git", ["-C", repo, "fetch", "-q", remote, "main"]);
+  return `${remote}/main`;
+}
+
+/**
+ * Where an attempt's worktree starts: a cl's own passed work, else main. An issue's steps only read, so an issue
+ * always starts from main, where its cls have landed.
+ */
 async function baseOf(r: Run): Promise<string> {
-  for (const name of [r.name, r.issue])
-    if (await has(r.repo, branchOf(name))) return branchOf(name);
-  return "main";
+  if (r.kind === "cl" && (await has(r.repo, branchOf(r.name))))
+    return branchOf(r.name);
+  return mainOf(r.repo);
 }
 
 /**
@@ -176,50 +193,6 @@ export async function stage(r: Run): Promise<string> {
   const tree = await changedTree(r);
   await must("git", ["-C", fullOf(r), "read-tree", "-u", "--reset", tree]);
   return tree;
-}
-
-/**
- * Adds an approved cl to its issue's branch. A cl starts from its issue's branch and the cls run one at a time, so the
- * issue's branch is always behind the cl's, and it moves forward to it. An issue's branch that is not behind it is an
- * error: two cls ran at once. Gives back the files the cl changed, for the ledger's actual paths.
- */
-export async function merge(
-  repo: string,
-  cl: string,
-  issue: string,
-): Promise<string[]> {
-  const head = (
-    await must("git", ["-C", repo, "rev-parse", branchOf(cl)])
-  ).trim();
-  const onto = (await has(repo, branchOf(issue))) ? branchOf(issue) : "main";
-  // The files the cl changed: its branch against where it merges.
-  const files = (
-    await must("git", ["-C", repo, "diff", "--name-only", onto, head])
-  )
-    .split("\n")
-    .filter(Boolean);
-  if (await has(repo, branchOf(issue))) {
-    const behind = await sh("git", [
-      "-C",
-      repo,
-      "merge-base",
-      "--is-ancestor",
-      branchOf(issue),
-      head,
-    ]);
-    if (behind.code !== 0)
-      throw new Error(
-        `${branchOf(issue)} is not behind ${branchOf(cl)}: it can't move forward to it`,
-      );
-  }
-  await must("git", [
-    "-C",
-    repo,
-    "update-ref",
-    `refs/heads/${branchOf(issue)}`,
-    head,
-  ]);
-  return files;
 }
 
 /**

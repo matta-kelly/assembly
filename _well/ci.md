@@ -46,7 +46,7 @@ The rest of this section is the path through the gate, as dazoo runs it.
 	- `git push origin HEAD:refs/heads/<branch>`
 	- `gh run list -R <owner>/<repo> --commit <sha> --workflow checks.yml` gives the run, and `gh run watch <id> --exit-status` waits for it
 	- `git push origin <sha>:main`, then `git push origin --delete <branch>`
-- an agent lands the same way, with `git land`. [[assembly]] does not land: Matt lands an accepted issue's branch
+- an agent lands the same way, with `git land`, and so does [[assembly#The dock|assembly]]: each approved cl, as Matt
 
 ## The gate
 

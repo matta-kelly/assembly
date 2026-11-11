@@ -269,17 +269,17 @@ export function specLint(
 /** The issue as the planner reads it: its note, and the spec before, if the issue came back to be planned again. */
 function input(r: Run, ledger: Ledger): string {
   const before = specOf(ledger, r.name)?.spec;
-  const merged = ledger.cls(r.name).filter((c) => c.state === "merged");
+  const landed = ledger.cls(r.name).filter((c) => c.state === "landed");
   return [
     read(r.path),
     ...(before
       ? ["", "# The spec before, which came back", specText(before)]
       : []),
-    ...(merged.length
+    ...(landed.length
       ? [
           "",
-          "# The cls already merged, which a new plan builds on",
-          ...merged.map((c) => `- ${c.name}`),
+          "# The cls already landed on main, which a new plan builds on",
+          ...landed.map((c) => `- ${c.name}`),
         ]
       : []),
   ].join("\n");

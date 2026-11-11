@@ -1,7 +1,7 @@
 /**
  * The accept step: an issue from built to accepted, or back to the planner. The final check, in two parts: code runs
- * the repo's full suite on the issue's branch, which every cl was merged into; then issue-review, read-only, judges the
- * result against the issue's intent and Check. An accepted issue's branch waits for Matt to land it.
+ * the repo's full suite on main, where every cl has landed; then issue-review, read-only, judges the result against the
+ * issue's intent and Done. It closes the issue and never gates the code: the code is on main already.
  */
 
 import { z } from "zod";
@@ -26,12 +26,12 @@ export const accept: Step<Done> = {
   from: "built",
   agent: "issue-review",
   worktree: "ro",
-  // the plan, and each merged cl's tests, code and review
+  // the plan, and each landed cl's tests, code and review
   judges: (r, ledger) => [
     { name: r.name, step: "open" },
     ...ledger
       .cls(r.name)
-      .filter((c) => c.state === "merged")
+      .filter((c) => c.state === "landed")
       .flatMap((c) =>
         (["ready", "red", "green"] as const).map((step) => ({
           name: c.name,
@@ -42,7 +42,7 @@ export const accept: Step<Done> = {
   done,
   about: ["plan", "issue"],
   input(r, ledger) {
-    const cls = ledger.cls(r.name).filter((c) => c.state === "merged");
+    const cls = ledger.cls(r.name).filter((c) => c.state === "landed");
     // the lone cl of an issue that takes one has no plan note: its cl is its plan
     return [
       read(r.path),
@@ -50,7 +50,7 @@ export const accept: Step<Done> = {
       ...(specOf(ledger, r.name)?.spec.plan
         ? ["# The plan", read(planPath(r.path, r.name)), ""]
         : []),
-      "# Its cls, each merged into the issue's branch",
+      "# Its cls, each landed on main",
       ...cls.map((c) => read(c.path)),
     ].join("\n");
   },
@@ -60,7 +60,7 @@ export const accept: Step<Done> = {
       return {
         word: "back",
         cause: "check_failed",
-        reason: "the full suite is red on the issue's branch",
+        reason: "the full suite is red on main",
         findings: [
           {
             about: "plan",

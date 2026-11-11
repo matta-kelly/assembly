@@ -8,6 +8,7 @@ import type { Message, Step } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
 import { commit, worktree } from "../effects/git.ts";
+import { land } from "../effects/land.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
 import {
@@ -18,11 +19,11 @@ import {
 } from "../effects/setup.ts";
 import { ran } from "../process/fake-worktree.ts";
 
-// Podman and git are faked: git, the sandbox and the test runs are the loop's only ways out. runOf is the real one.
+// Podman and git are faked: git, the sandbox, the test runs and the land are the loop's only ways out. runOf is the
+// real one.
 vi.mock("../effects/git.ts", () => ({
   worktree: vi.fn(),
   commit: vi.fn(),
-  merge: vi.fn(),
   head: vi.fn(),
   changed: vi.fn(),
   touched: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("../effects/sandbox.ts", () => ({
   imageOf: vi.fn(),
 }));
 vi.mock("../effects/tests.ts", () => ({ runTests: vi.fn() }));
+vi.mock("../effects/land.ts", () => ({ land: vi.fn() }));
 vi.mock("../effects/setup.ts", () => ({
   needsSetup: vi.fn(),
   runSetup: vi.fn(),
@@ -706,5 +708,119 @@ describe("a review's send-back", () => {
     expect(runner.mock.calls[0]?.[1]).toContain(
       "- from fake, back: back, about the code\n\t- about the code: b1 fails at its edge (a.ts:3)",
     );
+  });
+});
+
+describe("a land", () => {
+  /** An approved cl of the issue, in `repo`, with a note of its own. */
+  const approved = (name: string, repo = "/repo") => {
+    const path = join(dir, `${name}.md`);
+    writeFileSync(path, "---\ntype: cl\nstatus: in-progress\n---\nIt.\n");
+    ledger.addCl(
+      { name, issue: "i", seq: 2, path, repo, image: "img", test: "t" },
+      "approved",
+    );
+    return path;
+  };
+  const landed = (files: string[] = []) =>
+    vi.mocked(land).mockResolvedValue({
+      message: { word: "pass", reason: "landed on local/main", findings: [] },
+      files,
+    });
+
+  it("lands an approved cl with no agent: it is landed, its note done, and the files it changed kept", async () => {
+    const path = approved("e");
+    landed(["src/e.ts"]);
+    const run = vi.fn<Run1>(gives(done("x")));
+    await once(make(run));
+    expect(land).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "e", n: 1 }),
+      expect.anything(),
+    );
+    expect(run).not.toHaveBeenCalledWith(
+      "fake",
+      expect.anything(),
+      expect.objectContaining({ run: expect.objectContaining({ name: "e" }) }),
+    );
+    expect(ledger.item("e").state).toBe("landed");
+    expect(ledger.attempt("e", 1)).toMatchObject({
+      step: "approved",
+      word: "pass",
+    });
+    expect(readFileSync(path, "utf8")).toMatch(/^status: done$/m);
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    expect(db.prepare("SELECT path FROM paths WHERE name = 'e'").all()).toEqual(
+      [{ path: "src/e.ts" }],
+    );
+    db.close();
+  });
+
+  it("sends a red on main back to the code, and leaves the note as it is", async () => {
+    const path = approved("e");
+    vi.mocked(land).mockResolvedValue({
+      message: {
+        word: "back",
+        cause: "check_failed",
+        reason: "red on main",
+        findings: [{ about: "code", what: "red", where: "t" }],
+      },
+      files: [],
+    });
+    await once(make(gives(done("x"))));
+    expect(ledger.item("e").state).toBe("red");
+    expect(readFileSync(path, "utf8")).toMatch(/^status: in-progress$/m);
+  });
+
+  it("retries a land that throws, with why", async () => {
+    approved("e");
+    vi.mocked(land).mockRejectedValue(new Error("fetch failed"));
+    await once(make(gives(done("x"))));
+    expect(ledger.item("e").state).toBe("approved");
+    expect(ledger.events("e").at(-1)).toMatchObject({
+      word: "retry",
+      reason: "the land failed: fetch failed",
+    });
+  });
+
+  it("lands one cl of a repo at a time, and another repo's beside it", async () => {
+    approved("e");
+    approved("f");
+    approved("g", "/other");
+    const order: string[] = [];
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.mocked(land).mockImplementation(async (r) => {
+      order.push(`start ${r.name}`);
+      if (r.name === "e") await gate;
+      order.push(`end ${r.name}`);
+      return {
+        message: { word: "pass", reason: "landed", findings: [] },
+        files: [],
+      };
+    });
+    const l = await make(gives(done("x")), { steps: [] });
+    await l.tick();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(order).toEqual(["start e", "start g", "end g"]);
+    release();
+    await l.settled();
+    expect(order).toEqual([
+      "start e",
+      "start g",
+      "end g",
+      "end e",
+      "start f",
+      "end f",
+    ]);
+  });
+
+  it("takes up a land a stopped orchestrator left open, and lands it", async () => {
+    approved("e");
+    const n = ledger.begin("e");
+    landed();
+    await once(make(gives(done("x")), { steps: [] }));
+    expect(land).toHaveBeenCalledOnce();
+    expect(ledger.attempt("e", n)).toMatchObject({ resumed: 1, word: "pass" });
+    expect(ledger.item("e").state).toBe("landed");
   });
 });

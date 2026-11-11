@@ -3,11 +3,10 @@
  * the ledger's one door (apply), as the orchestrator.
  * - an issue just building: its cls go into the ledger, from its spec, each with its phase. A spec the factory's
  *   planner made is written as notes first, the plan note and a cl note per cut; one Matt made is his notes already
- * - a phase starts once every cl of the phases before it is merged, and all its cls start together
- * - an approved cl is merged into its issue's branch
- * - an issue whose cls are all merged is built, and its acceptance starts
+ * - a phase starts once every cl of the phases before it has landed on main, and all its cls start together
+ * - an issue whose cls have all landed is built, and its acceptance starts
  * - a cl that raised relays its message to its issue: findings about the cl or the plan send it to the planner, and
- *   about the issue to Matt; its cls not merged are dropped. A cl escalated escalates its issue. An issue whose spec
+ *   about the issue to Matt; its cls not landed are dropped. A cl escalated escalates its issue. An issue whose spec
  *   Matt made goes to Matt instead of the planner, on a raise or a send-back, escalated
  * - an accepted issue's notes are done
  */
@@ -26,7 +25,6 @@ import type { Message } from "../process/step.ts";
 import type { Item, Ledger } from "./ledger.ts";
 import { read, setStatus, writeNote } from "../effects/notes.ts";
 import { top } from "../process/table.ts";
-import { merge } from "../effects/git.ts";
 
 const link = (name: string) => `[[${name}]]`;
 
@@ -105,7 +103,7 @@ function build(ledger: Ledger, issue: Item, s: Spec, by: string) {
 const live = (c: Item) => c.state !== "dropped" && c.state !== "raised";
 
 /**
- * Makes one item's move. A move that fails (a merge git refuses, a spec the ledger lacks) escalates the item, with
+ * Makes one item's move. A move that fails (a spec the ledger lacks) escalates the item, with
  * why: the factory cannot fix it, and the other items go on.
  */
 async function guarded(ledger: Ledger, item: Item, move: () => unknown) {
@@ -134,43 +132,29 @@ export async function advance(ledger: Ledger) {
         cls.some((i) => i.name === `${issue.name}-${c.name}`),
       );
       if (!added) build(ledger, issue, made.spec, made.by);
-      // Built once every cl is merged or dropped: a raised one is still the plan's, until its raise is handled.
-      else if (!cls.some((c) => c.state !== "merged" && c.state !== "dropped"))
+      // Built once every cl has landed or is dropped: a raised one is still the plan's, until its raise is handled.
+      else if (!cls.some((c) => c.state !== "landed" && c.state !== "dropped"))
         ledger.apply(
           issue.name,
-          say("pass", "its cls are all merged"),
+          say("pass", "its cls have all landed"),
           "orchestrator",
         );
     });
 
-  for (const cl of ledger.inState("approved"))
-    await guarded(ledger, cl, async () => {
-      ledger.paths(cl.name, "actual", await merge(cl.repo, cl.name, cl.issue));
-      setStatus(cl.path, "done");
-      ledger.apply(
-        cl.name,
-        say(
-          "pass",
-          `merged into the issue's branch, assembly/${cl.issue}/head`,
-        ),
-        "orchestrator",
-      );
-    });
-
-  // A phase starts once every live cl of the phases before it is merged.
+  // A phase starts once every live cl of the phases before it has landed.
   for (const cl of ledger.inState("waiting")) {
     const before = ledger
       .cls(cl.issue)
       .filter(
         (c) =>
-          live(c) && (c.phase ?? 1) < (cl.phase ?? 1) && c.state !== "merged",
+          live(c) && (c.phase ?? 1) < (cl.phase ?? 1) && c.state !== "landed",
       );
     if (!before.length)
       ledger.apply(
         cl.name,
         say(
           "pass",
-          `phase ${cl.phase ?? 1} starts: the phases before it are merged`,
+          `phase ${cl.phase ?? 1} starts: the phases before it have landed`,
         ),
         "orchestrator",
       );
@@ -196,7 +180,7 @@ export async function advance(ledger: Ledger) {
     }
     const rest = ledger
       .cls(issue.name)
-      .filter((c) => c.name !== cl.name && live(c) && c.state !== "merged");
+      .filter((c) => c.name !== cl.name && live(c) && c.state !== "landed");
     // The raising cl is dropped with the rest: its raise is the issue's now, so it is handed over once. The issue itself
     // is Matt's; a cl or the plan is the planner's, by the table.
     ledger.transaction(() => {

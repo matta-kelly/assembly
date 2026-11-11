@@ -1,10 +1,10 @@
 /**
  * The transition table: from an item's state and a check's word, its next state. Data, so the whole process reads in
  * one place. Two kinds of item move through it, each with states of its own:
- * - an issue: open (the planner's step), planned (plan review's), building (its cls run, one at a time), built
- *   (acceptance's), accepted
- * - a cl: waiting (for the cl before it), ready (da-nail's step), red (da-hammer's), green (cl-review's), approved,
- *   merged into its issue's branch. A cl of a plan that went back to the planner is dropped
+ * - an issue: open (the planner's step), planned (plan review's), building (its cls run, phase by phase), built
+ *   (acceptance's, on main), accepted
+ * - a cl: waiting (for the phases before its own), ready (da-nail's step), red (da-hammer's), green (cl-review's),
+ *   approved (the land's), landed on main. A cl of a plan that went back to the planner is dropped
  * A retry stays in its state: the third failed attempt at one state is escalated to Matt, and so is the third
  * send-back for another round.
  */
@@ -23,7 +23,7 @@ export type State =
   | "red"
   | "green"
   | "approved"
-  | "merged"
+  | "landed"
   | "dropped"
   // either's
   | "raised"
@@ -47,8 +47,8 @@ export const retryLimit = 3;
 export const reviewRounds = 2;
 
 /**
- * Where pass and retry take an item from each state. A step runs from open, planned, built, ready, red and green; the
- * orchestrator passes the rest on: a waiting cl to ready, an approved one to merged, a building issue to built.
+ * Where pass and retry take an item from each state. A step runs from open, planned, built, ready, red and green, and
+ * the land from approved; the orchestrator passes the rest on: a waiting cl to ready, a building issue to built.
  */
 export const table: Partial<
   Record<State, Partial<Record<"pass" | "retry", State>>>
@@ -61,11 +61,11 @@ export const table: Partial<
   ready: { pass: "red", retry: "ready" },
   red: { pass: "green", retry: "red" },
   green: { pass: "approved", retry: "green" },
-  approved: { pass: "merged" },
+  approved: { pass: "landed", retry: "approved" },
 };
 
 /** The states an item can leave by drop, escalate or replan. */
-const ends: State[] = ["merged", "dropped", "accepted"];
+const ends: State[] = ["landed", "dropped", "accepted"];
 
 /**
  * Where back takes an item: the state of the artifact's owner. A cl's tests are da-nail's (ready), its code

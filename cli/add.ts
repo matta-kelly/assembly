@@ -4,7 +4,7 @@
  * - submit <issue.md>: an issue with the spec Matt made, its cls and its plan beside it, enters at building: his pass
  *   at open and at plan review, so only the inner loop and acceptance run it
  * - approve <issue>: his pass at plan review, for a plan the factory's planner made
- * - replan <issue>: an issue he holds, raised or escalated, back to open, its cls not merged dropped
+ * - replan <issue>: an issue he holds, raised or escalated, back to open, its cls not landed dropped
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
@@ -145,7 +145,7 @@ export function approve(f: () => Built, name: string): Done {
   return { code: 0, lines: [`approved ${name}, building`] };
 }
 
-/** replan <issue>: an issue Matt holds, back to open, its live cls not merged dropped, and its spec let go. */
+/** replan <issue>: an issue Matt holds, back to open, its live cls not landed dropped, and its spec let go. */
 export function replan(f: () => Built, name: string): Done {
   const { ledger } = f();
   const i = ledger.items().find((x) => x.name === name);
@@ -158,7 +158,7 @@ export function replan(f: () => Built, name: string): Done {
     return refused(`${name} has an attempt open`);
   const rest = ledger
     .cls(name)
-    .filter((c) => !["merged", "dropped"].includes(c.state));
+    .filter((c) => !["landed", "dropped"].includes(c.state));
   ledger.transaction(() => {
     for (const c of rest) {
       ledger.apply(c.name, said("drop", "Matt replans its issue"), "matt");

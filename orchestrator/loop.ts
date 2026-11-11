@@ -10,12 +10,14 @@
  * Opening the loop makes the worktrees of the open attempts first, then opens the runner: que-pasa's runtime goes on
  * with their runs at once, and their sandboxes, which come up on a tool's first call, mount those worktrees. Each tick
  * then does two things:
- * - it makes the orchestrator's own moves (advance.ts): an approved plan's cls, each cl in turn, the merges.
+ * - it makes the orchestrator's own moves (advance.ts): a building issue's cls, phase by phase, and their issue built.
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
  *   then a new one for each item waiting in a state that has a step. It does not wait for one: the run goes on as a
  *   task, under a time limit, and settles the attempt when it ends. Its result is checked against the step's shape,
  *   the step's check picks the word from the result and the attempt's worktree, which the loop answers for it
  *   (a test run, the changed files), the note is written, and the ledger moves the item.
+ * An approved cl's attempt is its land (effects/land.ts): code, with no agent, that takes it to main. Lands of one
+ * repo run one at a time, each after the one before it.
  * Closing the loop closes the runner and ends nothing: its attempts stay open for the next process.
  *
  * Each attempt is one trace (effects/trace.ts): its span's ids are made when it begins, its run starts under that span, and
@@ -26,7 +28,8 @@ import { z } from "zod";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { changed, commit, head, touched, worktree } from "../effects/git.ts";
-import { read } from "../effects/notes.ts";
+import { land } from "../effects/land.ts";
+import { read, setStatus } from "../effects/notes.ts";
 import { log, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
 import {
@@ -58,6 +61,10 @@ import type { Event, Ledger, Usage } from "./ledger.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
 type AnyStep = Step<{ word: "done" }>;
+
+/** The land's state, and its name in a trace: an approved cl's attempt is code, with no agent (effects/land.ts). */
+const landing: State = "approved";
+const lander = { agent: "git-land" };
 
 /**
  * Runs the agents. effects/runner.ts is the real one: que-pasa's durable runtime, with the agents and models set.
@@ -203,7 +210,7 @@ export async function loop({
   async function traced(
     r: Run,
     state: State,
-    step: AnyStep,
+    step: Pick<AnyStep, "agent" | "judges">,
     o: { message: Message; usage?: Usage; error?: string },
   ) {
     try {
@@ -326,6 +333,69 @@ export async function loop({
     await close(r);
   }
 
+  /**
+   * One land, from its push to its move in the ledger. It never throws: a failure is a retry, with its reason. A land
+   * the loop's closing stopped is left open, and taken up by the next process: a land is safe to run again.
+   */
+  async function landed(r: Run, signal: AbortSignal) {
+    let v: Message;
+    let ran: CheckRun | undefined;
+    let error: string | undefined;
+    const span = ledger.span(r.name, r.n);
+    try {
+      const out = await land(r, AbortSignal.any([signal, closed.signal]));
+      v = out.message;
+      ran = out.ran?.check;
+      if (ran) checkSpan(span, landing, ran);
+      if (v.word === "pass") {
+        ledger.paths(r.name, "actual", out.files);
+        setStatus(r.path, "done");
+      }
+    } catch (e) {
+      if (closing) return;
+      error = (e as Error).message;
+      v = {
+        word: "retry",
+        ...(signal.aborted ? { cause: "budget_exceeded" as const } : {}),
+        reason: `the land failed: ${error.slice(0, 400)}`,
+        findings: [],
+      };
+    }
+    await traced(r, landing, lander, {
+      message: v,
+      ...(error !== undefined ? { error } : {}),
+    });
+    end(r, landing, v, { ran });
+  }
+
+  // The lands of each repo: each one waits for the one before it.
+  const repos = new Map<string, Promise<void>>();
+
+  /** Runs a land as a task, after the repo's land before it, under the time limit, counted from its turn. */
+  function launchLand(r: Run) {
+    const key = `${r.name}/${r.n}`;
+    const task = (repos.get(r.repo) ?? Promise.resolve()).then(async () => {
+      if (closing) return;
+      const limit = new AbortController();
+      const timer = setTimeout(
+        () => limit.abort(new Error(`timed out after ${timeoutMs} ms`)),
+        timeoutMs,
+      );
+      timers.add(timer);
+      try {
+        await landed(r, limit.signal);
+      } finally {
+        clearTimeout(timer);
+        timers.delete(timer);
+      }
+    });
+    const settled = task
+      .catch((e: unknown) => console.error(`land ${key} failed:`, e))
+      .finally(() => running.delete(key));
+    repos.set(r.repo, settled);
+    running.set(key, settled);
+  }
+
   // One tick at a time: a second one would start an attempt a first one is still opening.
   let ticking = false;
   async function tick() {
@@ -444,6 +514,13 @@ export async function loop({
   async function start() {
     for (const a of left()) {
       if (running.size >= concurrent) return;
+      if (a.step === landing) {
+        const r = runOf(ledger.item(a.name), a.n, runs);
+        ledger.resume(a.name, a.n);
+        log(r, `taken up by a new orchestrator`);
+        launchLand(r);
+        continue;
+      }
       const step = stepAt(a.step);
       let r: Run;
       try {
@@ -468,9 +545,13 @@ export async function loop({
       log(r, `taken up by a new orchestrator`);
       launch(r, a.step, step);
     }
-    for (const i of ledger.waiting(steps.map((s) => s.from))) {
+    for (const i of ledger.waiting([...steps.map((s) => s.from), landing])) {
       if (running.size >= concurrent) return;
       const n = ledger.begin(i.name);
+      if (i.state === landing) {
+        launchLand(runOf(i, n, runs));
+        continue;
+      }
       const step = stepAt(i.state) as AnyStep;
       let r: Run;
       try {

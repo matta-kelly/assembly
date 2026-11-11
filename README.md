@@ -1,6 +1,6 @@
 # assembly
 
-The software factory: a deployment of que-pasa (`@mku1tra/que-pasa`) that moves an issue through its plan and its cls, one cl at a time, to accepted. How it works as a system, and what is built: `assembly.md`.
+The software factory: a deployment of que-pasa (`@mku1tra/que-pasa`) that moves an issue through its plan and its cls, each cl onto main, to accepted. How it works as a system, and what is built: `assembly.md`.
 
 ## Parts
 

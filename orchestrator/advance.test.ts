@@ -13,13 +13,6 @@ import type { ClSpec, Planned } from "../process/plan.ts";
 import { advance } from "./advance.ts";
 import { type Ledger, open } from "./ledger.ts";
 import { section } from "../effects/notes.ts";
-import { merge } from "../effects/git.ts";
-
-vi.mock("../effects/git.ts", () => ({
-  merge: vi.fn((_repo: string, cl: string) =>
-    Promise.resolve([`src/${cl.replace("is-", "")}.mjs`, "test/x.test.mjs"]),
-  ),
-}));
 
 const issueNote =
   "---\ntype: issue\nstatus: new\n---\nOne value.\n\n---\n## Done\n\n- value is 2\n- double is 4\n";
@@ -103,7 +96,7 @@ describe("advance", () => {
     expect(read("is")).toMatch(/status: in-progress/);
   });
 
-  it("starts every cl of a phase together, and the next phase once all of them merge", async () => {
+  it("starts every cl of a phase together, and the next phase once all of them land", async () => {
     ledger.apply(
       "is",
       {
@@ -132,41 +125,31 @@ describe("advance", () => {
       "ready",
       "waiting",
     ]);
-    force("is-a", "merged");
+    force("is-a", "landed");
     await advance(ledger);
     expect(state("is-c")).toBe("waiting");
-    force("is-b", "merged");
+    force("is-b", "landed");
     await advance(ledger);
     expect(state("is-c")).toBe("ready");
   });
 
-  it("merges an approved cl into its issue's branch, then starts the next", async () => {
+  it("leaves an approved cl to its land, and starts the next phase once it has landed", async () => {
     await advance(ledger);
     force("is-value", "approved");
     await advance(ledger);
-    expect(merge).toHaveBeenCalledWith("/repo", "is-value", "is");
     expect([state("is-value"), state("is-double")]).toEqual([
-      "merged",
-      "ready",
+      "approved",
+      "waiting",
     ]);
-    expect(read("is-value")).toMatch(/status: done/);
-    // The files it changed, once merged.
-    const db = new DatabaseSync(join(dir, "ledger.db"));
-    expect(
-      db
-        .prepare(
-          "SELECT path, kind FROM paths WHERE name = 'is-value' ORDER BY kind, path",
-        )
-        .all()
-        .map((p) => `${p["kind"] as string} ${p["path"] as string}`),
-    ).toEqual(["actual src/value.mjs", "actual test/x.test.mjs"]);
-    db.close();
+    force("is-value", "landed");
+    await advance(ledger);
+    expect(state("is-double")).toBe("ready");
   });
 
-  it("marks the issue built once its cls are all merged", async () => {
+  it("marks the issue built once its cls have all landed", async () => {
     await advance(ledger);
     for (const c of ["is-value", "is-double"]) {
-      force(c, "approved");
+      force(c, "landed");
       await advance(ledger);
     }
     await advance(ledger);
@@ -244,21 +227,25 @@ describe("advance", () => {
     expect(state("is-seam")).toBe("ready");
   });
 
-  it("escalates a cl whose merge fails, and goes on with the rest", async () => {
+  it("escalates an item whose move fails, with why, and goes on with the rest", async () => {
+    // An issue building with no spec: its move can't be made.
+    writeFileSync(join(dir, "other.md"), issueNote);
+    ledger.addIssue({
+      name: "other",
+      path: join(dir, "other.md"),
+      repo: "/repo",
+      image: "img",
+      test: "suite",
+    });
+    force("other", "building");
     await advance(ledger);
-    vi.mocked(merge).mockRejectedValueOnce(
-      new Error("assembly/is/head is not behind"),
-    );
-    force("is-value", "approved");
-    await advance(ledger);
-    expect(state("is-value")).toBe("escalated");
-    expect(ledger.events("is-value").at(-1)).toMatchObject({
+    expect(state("other")).toBe("escalated");
+    expect(ledger.events("other").at(-1)).toMatchObject({
       by: "orchestrator",
       word: "escalate",
-      reason: expect.stringMatching(/move failed: .*not behind/),
+      reason: expect.stringMatching(/move failed: .*building with no spec/),
     });
-    await advance(ledger);
-    expect(state("is")).toBe("escalated");
+    expect(state("is-value")).toBe("ready");
   });
 
   it("finishes a build a stop cut off: the cls in the ledger stay, and the rest are added", async () => {

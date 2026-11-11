@@ -16,6 +16,16 @@ describe("next", () => {
     expect(next("green", "cl", "pass", [], once)).toBe("approved");
   });
 
+  it("lands an approved cl on pass, keeps it approved on retry, and sends a red or a conflict back", () => {
+    expect(next("approved", "cl", "pass", [], once)).toBe("landed");
+    expect(next("approved", "cl", "retry", [], once)).toBe("approved");
+    expect(next("approved", "cl", "back", ["code"], once)).toBe("red");
+    expect(next("approved", "cl", "back", ["plan"], once)).toBe("raised");
+    expect(() => next("landed", "cl", "drop", [], once)).toThrow(
+      /no transition/,
+    );
+  });
+
   it("keeps an item in its state on retry, until the retry limit escalates it", () => {
     expect(
       next("open", "issue", "retry", [], {
@@ -74,7 +84,7 @@ describe("next", () => {
   });
 
   it("throws for a word its state has no row for, and an artifact its kind has no owner of", () => {
-    expect(() => next("merged", "cl", "pass", [], once)).toThrow(
+    expect(() => next("landed", "cl", "pass", [], once)).toThrow(
       /no transition/,
     );
     expect(() => next("built", "issue", "back", ["code"], once)).toThrow(

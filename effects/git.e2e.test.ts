@@ -1,7 +1,7 @@
 /**
- * The sparse checkout on real git, in the orchestrator's image (`just e2e`), since that git is the one that runs: a
- * bound attempt's worktree holds its checkout, the repo stays whole, and its tests see and its pass commits every
- * change it made.
+ * The worktrees on real git, in the orchestrator's image (`just e2e`), since that git is the one that runs: an attempt
+ * starts from main as the land target has it, a bound attempt's worktree holds its checkout, the repo stays whole, and
+ * its tests see and its pass commits every change it made.
  */
 
 import { execFileSync } from "node:child_process";
@@ -18,6 +18,7 @@ import {
 import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Run } from "../process/step.ts";
+import { landTarget } from "./land-target.fixture.ts";
 import {
   branchOf,
   commit,
@@ -48,6 +49,7 @@ function files(folder: string): string[] {
 
 describe.skipIf(!process.env["ASSEMBLY_E2E"])("the sparse checkout", () => {
   let dir: string;
+  let bare: string;
   let repo: string;
   const run = (n: number, checkout: string[]): Run => {
     const at = join(dir, "runs", "is", "cl", "x", String(n));
@@ -91,6 +93,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the sparse checkout", () => {
     writeFileSync(join(repo, ".gitignore"), "deps/\n");
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "init");
+    bare = landTarget(repo, dir);
   });
   afterAll(() => {
     if (!process.env["ASSEMBLY_E2E_KEEP"])
@@ -180,5 +183,31 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the sparse checkout", () => {
     rmSync(join(r.work, "src/c.ts"));
     await stage(r);
     expect(existsSync(join(fullOf(r), "src/c.ts"))).toBe(false);
+  });
+
+  it("starts an issue's attempt from main as the land target has it now, never from a branch of the issue's", async () => {
+    // main moves on the target, from another clone, after the repo last fetched
+    const other = join(dir, "other");
+    execFileSync("git", ["clone", "-q", bare, other]);
+    git(other, "config", "user.email", "e2e@assembly");
+    git(other, "config", "user.name", "e2e");
+    writeFileSync(join(other, "UPSTREAM"), "landed elsewhere\n");
+    git(other, "add", "-A");
+    git(other, "commit", "-q", "-m", "upstream");
+    git(other, "push", "-q", "origin", "main");
+    git(repo, "branch", branchOf("is"), "main");
+    const at = join(dir, "runs", "is", "issue", "1");
+    const r: Run = {
+      ...run(1, []),
+      name: "is",
+      kind: "issue",
+      dir: at,
+      work: join(at, "work"),
+    };
+    delete r.checkout;
+    expect(await worktree(r)).toBe(true);
+    expect(readFileSync(join(r.work, "UPSTREAM"), "utf8")).toBe(
+      "landed elsewhere\n",
+    );
   });
 });
