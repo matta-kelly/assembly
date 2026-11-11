@@ -95,6 +95,10 @@ The machine: what moves jobs from station to station, in four layers put togethe
 			- for nail and hammer: `write_file`, `edit_file`, in their sparse checkout
 			- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
 		- `types/`: the notes a role works to and is judged against
+			- in its context: que-pasa's memory middleware reads an agent's types once, when a run is made, keeps them with the run, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
+			- da-nail: [[tests]]. da-hammer: [[code]]. cl-review: [[code]] and [[tests]], the same text its builders have
+			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
+			- Not built: the planner's and plan-review's types. [[playbook]] is there to load; [[plan]] and [[cl]] are kinetic's type notes, outside the workspace
 - engine: what moves it (`orchestrator/`)
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
@@ -159,7 +163,7 @@ An attempt: one step on one item, at one bench. Its run, its sandbox and its wor
 
 Where it meets other systems, and what crosses each.
 
-- [[que-pasa]]: the harness. assembly gives it agents, tools, a model and a context per run; it gives back the result and the usage, keeps the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
+- [[que-pasa]]: the harness. assembly gives it agents, each with its tools and its middleware, a model and a context per run; it gives back the result and the usage, keeps the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
 - [[kinetic]]: the work. The spec is kinetic's, assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them from a commit, and writes only the notes of a spec its planner made
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, comes from the vault (`secrets.toml`, through rbw-run) into the orchestrator only, never a sandbox. `just smoke-model` makes one real call per model

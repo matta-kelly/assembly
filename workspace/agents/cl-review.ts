@@ -10,6 +10,7 @@ import { review } from "../../process/review.ts";
 import { resultOf } from "../../process/step.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
+import { types } from "./types.ts";
 
 export const clReview = (model: string) =>
   defineAgent({
@@ -17,5 +18,7 @@ export const clReview = (model: string) =>
     model,
     instructions: instructions("./cl-review.md", import.meta.url),
     tools: [...readTools, execute],
+    // the bars it judges against, the same notes the builders work to: always in its context
+    middleware: [types("code", "tests")],
     output: z.object({ result: resultOf(review) }),
   });
