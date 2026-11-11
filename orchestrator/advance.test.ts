@@ -364,7 +364,9 @@ describe("advance across repos", () => {
   it("keeps a cl waiting, naming the package and version, until the landed version is on npm", async () => {
     across();
     const registry = {
-      published: vi.fn(async (_n: string, _v: string) => false),
+      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
+        async () => false,
+      ),
     };
     const world = worldOf(
       {
@@ -379,9 +381,7 @@ describe("advance across repos", () => {
     expect(waiting["x-b"]).toMatch(/@s\/alpha/);
     expect(waiting["x-b"]).toMatch(/1\.2\.0/);
     expect(registry.published).toHaveBeenCalledWith("@s/alpha", "1.2.0");
-    registry.published.mockImplementation(
-      async (_n: string, _v: string) => true,
-    );
+    registry.published.mockImplementation(async () => true);
     expect(await advance(ledger, world)).toEqual({});
     expect(state("x-b")).toBe("ready");
   });
@@ -389,7 +389,9 @@ describe("advance across repos", () => {
   it("reads the version from the tag of the package's folder, and a dev dependency counts", async () => {
     across();
     const registry = {
-      published: vi.fn(async (_n: string, _v: string) => false),
+      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
+        async () => false,
+      ),
     };
     const world = worldOf(
       {
@@ -412,7 +414,9 @@ describe("advance across repos", () => {
   it("makes no wait when the landed commit has no version tag", async () => {
     across();
     const registry = {
-      published: vi.fn(async (_n: string, _v: string) => false),
+      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
+        async () => false,
+      ),
     };
     const world = worldOf(
       {
@@ -430,7 +434,9 @@ describe("advance across repos", () => {
   it("starts a cl whose repo does not depend on the landed package, without asking the registry", async () => {
     across();
     const registry = {
-      published: vi.fn(async (_n: string, _v: string) => false),
+      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
+        async () => false,
+      ),
     };
     const world = worldOf(
       {
@@ -449,7 +455,9 @@ describe("advance across repos", () => {
     across();
     force("x-a", "approved");
     const registry = {
-      published: vi.fn(async (_n: string, _v: string) => true),
+      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
+        async () => true,
+      ),
     };
     const world = worldOf(
       {

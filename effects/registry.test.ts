@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { npmRegistry } from "./registry.ts";
 
 const answer = (status: number) =>
-  vi.fn(async (_url: string | URL | Request) => new Response("{}", { status }));
+  vi.fn<(url: string | URL | Request) => Promise<Response>>(
+    async () => new Response("{}", { status }),
+  );
 
 describe("npmRegistry", () => {
   it("says a version is published when npm answers 200, asking for that name and version", async () => {
