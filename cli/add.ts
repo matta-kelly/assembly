@@ -13,7 +13,8 @@ import { basename, join, resolve } from "node:path";
 import type { Built } from "../main.ts";
 import { read, setStatus } from "../effects/notes.ts";
 import { kebab, readSpec, specLint, typeOf } from "../process/plan.ts";
-import type { Message } from "../process/step.ts";
+import type { Message, Repo } from "../process/step.ts";
+import { readerImage, settingsOf } from "../effects/repo.ts";
 
 /** What a command gives back: an exit code, and the lines it prints (to stderr when it refuses). */
 export type Done = { code: number; lines: string[] };
@@ -27,24 +28,24 @@ const said = (word: Message["word"], reason: string): Message => ({
 });
 
 /**
- * What add and submit are given: the repo the issue changes, the issue's image, which its attempts run on, its full
- * suite, which acceptance runs, and its setup, which installs the repo's dependencies into each new worktree (none when
- * left out).
+ * What add and submit are given: the repos the issue changes, each by its path, and the tags of the dev images the host
+ * put on this machine, by repo name. Each repo's image, full suite and setup are read from it (effects/repo.ts).
  */
 export interface Options {
-  repo?: string | undefined;
-  image: string;
-  test: string;
-  setup?: string | undefined;
+  repos: string[];
+  dev?: Record<string, string> | undefined;
 }
 
-/** The issue note at `note`, its name and its repo, or why it can't be one. */
+type At = { path: string; name: string; repos: Repo[]; done?: never };
+
+/** The issue note at `note`, its name and its repos, or why it can't be one. */
 function issueAt(
   f: () => Built,
   note: string,
   o: Options,
-): { path: string; name: string; repo: string; done?: never } | { done: Done } {
+): At | { done: Done } {
   const no = (done: Done) => ({ done });
+  if (!o.repos.length) return no(misused("an issue needs --repo"));
   const path = resolve(note);
   const doc = read(path);
   if (!doc)
@@ -62,35 +63,54 @@ function issueAt(
     return no(
       refused(`${path}: its type is ${type || "not set"}: an issue is needed`),
     );
-  if (!o.repo) return no(misused("an issue needs --repo"));
   const name = basename(path, ".md");
-  const repo = resolve(o.repo);
   if (!kebab.test(name))
     return no(refused(`${name}: an issue's name is kebab-case, from its note`));
-  if (!existsSync(join(repo, ".git")))
-    return no(refused(`${repo} is not a git repo`));
+  const repos: Repo[] = [];
+  for (const given of o.repos) {
+    const repo = resolve(given);
+    if (!existsSync(join(repo, ".git")))
+      return no(refused(`${repo} is not a git repo`));
+    const s = settingsOf(repo, o.dev);
+    if (!s.ok) return no(refused(s.error));
+    if (repos.some((r) => r.name === s.repo.name))
+      return no(
+        refused(
+          `two repos are named ${s.repo.name}: a cl names its repo by its folder`,
+        ),
+      );
+    repos.push(s.repo);
+  }
   if (
     f()
       .ledger.items()
       .some((i) => i.name === name)
   )
     return no(refused(`${name} is in the ledger already`));
-  return { path, name, repo };
+  return { path, name, repos };
+}
+
+/** Puts the issue in the ledger at open: one of one repo in that repo's image, one of several in the reader's. */
+function enter(f: () => Built, at: At) {
+  f().ledger.addIssueAcross({
+    name: at.name,
+    path: at.path,
+    image: readerImage,
+    repos: at.repos,
+  });
 }
 
 /** add <issue.md>: an issue at open, which the factory's planner plans. */
 export function add(f: () => Built, note: string, o: Options): Done {
   const at = issueAt(f, note, o);
   if (at.done) return at.done;
-  f().ledger.addIssue({
-    name: at.name,
-    path: at.path,
-    repo: at.repo,
-    image: o.image,
-    test: o.test,
-    setup: o.setup ?? "",
-  });
-  return { code: 0, lines: [`added ${at.name}, open`] };
+  enter(f, at);
+  return {
+    code: 0,
+    lines: [
+      `added ${at.name}, open, in ${at.repos.map((r) => r.name).join(", ")}`,
+    ],
+  };
 }
 
 /**
@@ -105,17 +125,11 @@ export function submit(f: () => Built, note: string, o: Options): Done {
   const { ledger } = f();
   const lint = specLint(got.spec, {
     taken: (c) => ledger.items().some((i) => i.name === `${at.name}-${c}`),
+    repos: at.repos.map((r) => r.name),
   });
   if (lint.word !== "pass") return refused(lint.reason);
   ledger.transaction(() => {
-    ledger.addIssue({
-      name: at.name,
-      path: at.path,
-      repo: at.repo,
-      image: o.image,
-      test: o.test,
-      setup: o.setup ?? "",
-    });
+    enter(f, at);
     ledger.apply(at.name, said("pass", "Matt planned it"), "matt");
     ledger.keepSpec(at.name, got.spec, "matt");
     ledger.apply(at.name, said("pass", "Matt approved its plan"), "matt");

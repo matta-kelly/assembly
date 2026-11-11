@@ -16,6 +16,7 @@
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import type { Run } from "../process/step.ts";
+import { partsOf } from "./runs.ts";
 import { must, sh } from "./sh.ts";
 
 /** The branch that holds an item's passed work. */
@@ -85,6 +86,13 @@ async function baseOf(r: Run): Promise<string> {
  * Gives back whether it made one: a new worktree holds nothing a setup installed.
  */
 export async function worktree(r: Run): Promise<boolean> {
+  // An issue with several repos: a worktree of each, side by side in its own.
+  if (r.repos?.length) {
+    mkdirSync(r.work, { recursive: true });
+    let made = false;
+    for (const p of partsOf(r)) made = (await worktree(p)) || made;
+    return made;
+  }
   mkdirSync(r.dir, { recursive: true });
   if (existsSync(join(r.work, ".git"))) return false;
   await must("git", ["-C", r.repo, "worktree", "prune"]);
@@ -251,6 +259,8 @@ export async function commit(r: Run, message: string) {
 
 /** The worktree's HEAD, or undefined when it has none: the end state an attempt's trace points at. */
 export async function head(r: Run): Promise<string | undefined> {
+  // An issue with several repos has no one HEAD: its folder holds a worktree of each.
+  if (r.repos?.length) return undefined;
   const at = await sh("git", ["-C", r.work, "rev-parse", "HEAD"]);
   return at.code === 0 ? at.out.trim() : undefined;
 }

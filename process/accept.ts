@@ -1,6 +1,6 @@
 /**
  * The accept step: an issue from built to accepted, or back to the planner. The final check, in two parts: code runs
- * the repo's full suite on main, where every cl has landed; then issue-review, read-only, judges the result against the
+ * each repo's full suite on main, where every cl has landed; then issue-review, read-only, judges the result against the
  * issue's intent and Done. It closes the issue and never gates the code: the code is on main already.
  */
 
@@ -65,7 +65,9 @@ export const accept: Step<Done> = {
           {
             about: "plan",
             what: `the full suite is red: exit ${suite.code}: ${suite.out.slice(-400)}`,
-            where: r.test,
+            where: r.repos?.length
+              ? r.repos.map((p) => `${p.name}: ${p.test}`).join("; ")
+              : r.test,
           },
         ],
       };

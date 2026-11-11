@@ -3,14 +3,17 @@
  * report.ts) on the factory main.ts builds. Output goes to stdout; a refusal goes to stderr with exit 1, and a usage
  * error with exit 2 (clig.dev). The factory is opened only for a verb it has, so a usage error leaves nothing behind.
  *
- *   factory add <issue.md> --repo <path> --image <image> --test <command> [--setup <command>]
- *   factory submit <issue.md> --repo <path> --image <image> --test <command> [--setup <command>]
+ *   factory add <issue.md> --repo <path> [--repo <path>]...
+ *   factory submit <issue.md> --repo <path> [--repo <path>]...
  *   factory approve <issue>
  *   factory replan <issue>
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
  *   factory explain <item>
+ *
+ * Each repo's image, full suite and setup are read from it (effects/repo.ts). A repo checked in its dev image needs that
+ * image's tag, which the host puts in $ASSEMBLY_DEV_IMAGES as name=tag pairs (`just factory` does).
  *
  * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly.
  */
@@ -20,6 +23,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
+import { devImagesOf } from "../effects/repo.ts";
 import { add, approve, type Done, replan, submit } from "./add.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
@@ -31,8 +35,8 @@ export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
   return join(state, "assembly");
 }
 
-export const usage = `factory add <issue.md> --repo <path> --image <image> --test <command> [--setup <command>]
-factory submit <issue.md> --repo <path> --image <image> --test <command> [--setup <command>]
+export const usage = `factory add <issue.md> --repo <path> [--repo <path>]...
+factory submit <issue.md> --repo <path> [--repo <path>]...
 factory approve <issue>
 factory replan <issue>
 factory run [--every <seconds>]
@@ -53,10 +57,7 @@ export async function main(argv: string[], env = process.env): Promise<number> {
       args: argv,
       allowPositionals: true,
       options: {
-        repo: { type: "string" },
-        image: { type: "string" },
-        test: { type: "string" },
-        setup: { type: "string" },
+        repo: { type: "string", multiple: true },
         every: { type: "string", default: "5" },
       },
     });
@@ -68,16 +69,13 @@ export async function main(argv: string[], env = process.env): Promise<number> {
   const { positionals, values } = parsed;
   const [verb, arg] = positionals;
   const factory = () => compose({ home: homeOf(env) });
-  const { repo, image, test, setup } = values;
   switch (verb) {
     case "add":
     case "submit": {
-      if (!arg || !image || !test) break;
+      if (!arg) break;
       const done = (verb === "add" ? add : submit)(factory, arg, {
-        repo,
-        image,
-        test,
-        setup,
+        repos: values.repo ?? [],
+        dev: devImagesOf(env["ASSEMBLY_DEV_IMAGES"]),
       });
       if (done.code === 2) done.lines.push(usage);
       return print(done);

@@ -11,7 +11,7 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 ---
 ## The product line
 
-[[repo]]: what the factory builds in, one repo and the environment it defines once.
+[[repo]]: what the factory builds in, a repo and the environment it defines once. An issue may change several, a cl one.
 
 - dev image: the toolchain and the package cache, which every bench starts from
 - services: what runs beside the work, from `pod.yaml`. Not built ([[workspace-services]])
@@ -63,6 +63,9 @@ The machine: what moves jobs from station to station, in four layers put togethe
 
 - process: what the work is (`process/`, `agents/`). It decides, and touches only its own notes
 	- the path: the states an item moves through on messages, held as data in `process/table.ts`
+		- an issue's repos: the ones its cls may change, named at `factory add` and nothing more. Each repo's image, full suite and setup are read from it (`effects/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, put on the machine by the host (`just factory`) through the repo's `scripts/dev-image.sh local`; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile
+			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
+			- the issue's own steps: each repo at `/work/<repo>`, in a plain Node image, since they only read; acceptance runs each repo's full suite
 		- an issue: open → planned (the planner cuts it) → building (plan-review approves, or Matt does) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review or a cl's raise can send it back to the planner. An issue Matt submits passes open and planned by his passes
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 	- a step: one per state, with its agent, its result's shape and its check (`process/*.ts`, listed in `process/index.ts`)
@@ -106,7 +109,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 An attempt: one step on one item, at one bench. Its run, its sandbox and its worktree are its own, and it lives until it ends.
 
 - begin: the ledger opens it, with its trace's ids
-- setup: the issue's `--setup` installs the repo's dependencies into the new worktree from the [[repo#Dev image|dev image]]'s cache, with no network, in a container of its own, inside the attempt's task, so a tick never waits on it
+- setup: the repo's setup installs its dependencies into the new worktree from the [[repo#Dev image|dev image]]'s cache, with no network, in a container of its own, inside the attempt's task, so a tick never waits on it
 	- once per worktree: `setup.done` in the attempt's folder, forgotten when the worktree is made again
 	- a bound attempt: its sparse worktree holds no install. The cl's full worktree, where its tests run, is set up once in its place (`full.setup/setup.done`)
 	- what it installs: ignored by git
@@ -197,8 +200,8 @@ What it keeps.
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default
-- the dev image's tag per lockfile: `--image` names one tag for every attempt, so a newer lockfile fails setup. The exact tag (`dev-image.sh local`) needs skopeo or a build in the orchestrator's image
-- a plan across repos: a plan's cls run in one repo
+- the dev image's tag per lockfile: an issue takes its repo's dev image tag once, at `factory add`, so a lockfile that changes while it runs fails setup
+- the order across repos: a cl that needs another repo's new version does not wait for it to be published ([[landing-flow]])
 - a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate
 - check reuse: runs are recorded with their input hash, and never skipped on it

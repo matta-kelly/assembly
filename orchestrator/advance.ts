@@ -62,7 +62,8 @@ function writeNotes(ledger: Ledger, issue: Item, s: Spec) {
 
 /**
  * Puts a spec's cls in the ledger, at their notes beside the issue's, after every cl of the plans before it, each with
- * its phase: phase 1 ready, the rest waiting. A cl the ledger has already is left as it is.
+ * its phase, and its repo with that repo's image and setup: phase 1 ready, the rest waiting. A cl the ledger has
+ * already is left as it is.
  */
 function addCls(ledger: Ledger, issue: Item, s: Spec) {
   const names = new Set(s.cls.map((c) => `${issue.name}-${c.name}`));
@@ -76,6 +77,8 @@ function addCls(ledger: Ledger, issue: Item, s: Spec) {
     const name = `${issue.name}-${c.name}`;
     if (had.some((h) => h.name === name)) return;
     const phase = c.phase ?? 1;
+    // Its repo: the one it names, of the issue's several, or the issue's one. The spec lint holds that it is there.
+    const at = issue.repos.find((p) => p.name === c.repo) ?? issue;
     ledger.addCl(
       {
         name,
@@ -83,10 +86,10 @@ function addCls(ledger: Ledger, issue: Item, s: Spec) {
         seq: seq + i + 1,
         phase,
         path: clPath(issue.path, issue.name, c.name),
-        repo: issue.repo,
-        image: issue.image,
+        repo: at.repo,
+        image: at.image,
         test: c.test,
-        setup: issue.setup,
+        setup: at.setup,
       },
       phase === 1 ? "ready" : "waiting",
     );

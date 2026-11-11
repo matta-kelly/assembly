@@ -29,24 +29,27 @@ describe("the factory's home", () => {
 
 describe("the command line", () => {
   const add = (note: string, repo: string) =>
-    main(
-      ["add", note, "--repo", repo, "--image", "img", "--test", "npm test"],
-      {
-        ASSEMBLY_HOME: home,
-      },
-    );
+    main(["add", note, "--repo", repo], {
+      ASSEMBLY_HOME: home,
+      ASSEMBLY_DEV_IMAGES: "repo=ghcr.io/x/repo-dev:abc",
+    });
 
   it("adds an issue by its note, named by the file", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const note = join(home, "my-issue.md");
     writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
-    mkdirSync(join(home, "repo", ".git"), { recursive: true });
-    expect(await add(note, join(home, "repo"))).toBe(0);
-    expect(log).toHaveBeenCalledWith("added my-issue, open");
+    const repo = join(home, "repo");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(join(repo, "scripts"));
+    writeFileSync(join(repo, "crate.toml"), 'image = "dev"\n');
+    writeFileSync(join(repo, "scripts", "check.sh"), "#!/bin/sh\n");
+    expect(await add(note, repo)).toBe(0);
+    expect(log).toHaveBeenCalledWith("added my-issue, open, in repo");
     expect(compose({ home }).ledger.item("my-issue")).toMatchObject({
       path: note,
-      repo: join(home, "repo"),
-      test: "npm test",
+      repo,
+      image: "ghcr.io/x/repo-dev:abc",
+      test: "scripts/check.sh all",
       state: "open",
     });
   });
@@ -62,6 +65,13 @@ describe("the command line", () => {
     expect(await add(note, repo)).toBe(1);
     expect(err).toHaveBeenLastCalledWith(`${repo} is not a git repo`);
     mkdirSync(join(repo, ".git"), { recursive: true });
+    expect(await add(note, repo)).toBe(1);
+    expect(err).toHaveBeenLastCalledWith(
+      `${repo} has no crate.toml: the factory runs repos on crate`,
+    );
+    mkdirSync(join(repo, "scripts"));
+    writeFileSync(join(repo, "crate.toml"), 'image = "img"\n');
+    writeFileSync(join(repo, "scripts", "check.sh"), "#!/bin/sh\n");
     expect(await add(note, repo)).toBe(0);
     expect(await add(note, repo)).toBe(1);
     expect(err).toHaveBeenLastCalledWith("is is in the ledger already");
@@ -87,12 +97,10 @@ describe("the command line", () => {
     expect(await main(["land"], env)).toBe(2);
     expect(existsSync(join(home, "ledger.db"))).toBe(false);
     expect(await main(["add", "x.md"], env)).toBe(2);
-    expect(err).toHaveBeenCalledWith(expect.stringMatching(/^factory add/));
+    expect(err).toHaveBeenCalledWith(expect.stringMatching(/\nfactory add/));
     const note = join(home, "is.md");
     writeFileSync(note, "---\ntype: issue\n---\n");
-    expect(
-      await main(["add", note, "--image", "img", "--test", "t"], env),
-    ).toBe(2);
+    expect(await main(["add", note], env)).toBe(2);
     expect(err).toHaveBeenLastCalledWith(
       expect.stringMatching(/^an issue needs --repo\nfactory add/),
     );

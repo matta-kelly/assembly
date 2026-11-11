@@ -11,13 +11,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compose } from "../main.ts";
 import { advance } from "../orchestrator/advance.ts";
 import { clOf } from "../process/plan.ts";
+import { readerImage } from "../effects/repo.ts";
 import { add, approve, replan, submit } from "./add.ts";
 
 let home: string;
 let notes: string;
 let repo: string;
 const factory = () => compose({ home: join(home, "factory") });
-const run = () => ({ repo, image: "img", test: "npm test" });
+const run = () => ({ repos: [repo] });
 
 // An issue, its plan and its cl notes as kinetic's types write them by hand: YAML lists in block form.
 const issue =
@@ -69,13 +70,22 @@ ${name}'s name and type.
 - src/b.ts: the exemplar
 `;
 
+/** A git repo on crate, with its image and its full suite, and a lockfile unless told not to. */
+function onCrate(at: string, image = "img", lock = true) {
+  mkdirSync(join(at, ".git"), { recursive: true });
+  mkdirSync(join(at, "scripts"), { recursive: true });
+  writeFileSync(join(at, "crate.toml"), `crate = "1"\nimage = "${image}"\n`);
+  writeFileSync(join(at, "scripts", "check.sh"), "#!/bin/sh\n");
+  if (lock) writeFileSync(join(at, "package-lock.json"), "{}\n");
+}
+
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "add-"));
   notes = join(home, "notes");
   repo = join(home, "repo");
   mkdirSync(notes);
   writeFileSync(join(notes, "fx.md"), issue);
-  mkdirSync(join(repo, ".git"), { recursive: true });
+  onCrate(repo);
   mkdirSync(join(repo, "src"));
   writeFileSync(join(repo, "src", "b.ts"), "export const b = 1;\n");
 });
@@ -94,9 +104,56 @@ describe("add", () => {
   it("puts an issue in the ledger at open, for the factory's planner", () => {
     expect(add(factory, join(notes, "fx.md"), run())).toEqual({
       code: 0,
-      lines: ["added fx, open"],
+      lines: ["added fx, open, in repo"],
     });
-    expect(factory().ledger.item("fx")).toMatchObject({ state: "open", repo });
+    expect(factory().ledger.item("fx")).toMatchObject({
+      state: "open",
+      repo,
+      image: "img",
+      test: "scripts/check.sh all",
+      setup: "npm ci --offline --no-audit --no-fund",
+      repos: [],
+    });
+  });
+
+  it("reads each repo's settings from it: its image from crate.toml, its dev image's tag from the host, no setup with no lockfile", () => {
+    const other = join(home, "other");
+    onCrate(other, "dev", false);
+    expect(
+      add(factory, join(notes, "fx.md"), { repos: [other] }).lines[0],
+    ).toMatch(/other's image is its dev image, and no tag was given/);
+    expect(
+      add(factory, join(notes, "fx.md"), {
+        repos: [other],
+        dev: { other: "ghcr.io/x/other-dev:abc" },
+      }).code,
+    ).toBe(0);
+    expect(factory().ledger.item("fx")).toMatchObject({
+      image: "ghcr.io/x/other-dev:abc",
+      setup: "",
+    });
+  });
+
+  it("puts an issue of several repos in with each, its own steps in the reader's image", () => {
+    const other = join(home, "other");
+    onCrate(other, "img2");
+    expect(
+      add(factory, join(notes, "fx.md"), { repos: [repo, other] }).lines,
+    ).toEqual(["added fx, open, in repo, other"]);
+    const i = factory().ledger.item("fx");
+    expect(i.image).toBe(readerImage);
+    expect(i.repos.map((r) => [r.name, r.image])).toEqual([
+      ["repo", "img"],
+      ["other", "img2"],
+    ]);
+  });
+
+  it("refuses a repo not on crate", () => {
+    const bare = join(home, "bare");
+    mkdirSync(join(bare, ".git"), { recursive: true });
+    expect(
+      add(factory, join(notes, "fx.md"), { repos: [bare] }).lines[0],
+    ).toMatch(/has no crate.toml/);
   });
 
   it("refuses a plan or a cl: its issue is submitted, which brings them", () => {
@@ -107,11 +164,9 @@ describe("add", () => {
   });
 
   it("refuses an issue with no repo, a repo that is not a git repo, and one in the ledger already", () => {
+    expect(add(factory, join(notes, "fx.md"), { repos: [] }).code).toBe(2);
     expect(
-      add(factory, join(notes, "fx.md"), { image: "i", test: "t" }).code,
-    ).toBe(2);
-    expect(
-      add(factory, join(notes, "fx.md"), { ...run(), repo: home }).lines[0],
+      add(factory, join(notes, "fx.md"), { repos: [home] }).lines[0],
     ).toMatch(/is not a git repo/);
     add(factory, join(notes, "fx.md"), run());
     expect(add(factory, join(notes, "fx.md"), run()).lines[0]).toMatch(

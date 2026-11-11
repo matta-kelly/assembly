@@ -11,6 +11,7 @@ import {
   type CheckRun,
   type Finding,
   type Message,
+  type Repo,
 } from "../process/step.ts";
 import { next, type State } from "../process/table.ts";
 import { newSpan, type SpanRef } from "../effects/trace.ts";
@@ -27,6 +28,7 @@ export interface Item {
   image: string;
   test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
   setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
+  repos: Repo[]; // an issue's repos when it has more than one, else none; a cl's always none
   state: State;
 }
 
@@ -91,7 +93,7 @@ const tables = `
   CREATE TABLE IF NOT EXISTS items (
     name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
     repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
-    phase INTEGER
+    phase INTEGER, repos TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE IF NOT EXISTS specs (
     issue TEXT PRIMARY KEY REFERENCES items(name), spec TEXT NOT NULL, by TEXT NOT NULL
@@ -126,6 +128,12 @@ const now = () => new Date().toISOString();
 export function open(file: string) {
   const db = new DatabaseSync(file);
   db.exec(tables);
+  // A ledger made before an issue could hold several repos has no column for them.
+  const columns = db.prepare("PRAGMA table_info(items)").all() as {
+    name: string;
+  }[];
+  if (!columns.some((c) => c.name === "repos"))
+    db.exec("ALTER TABLE items ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
 
   // A write inside another write joins its transaction, so a write made of others is still one.
   let depth = 0;
@@ -145,11 +153,17 @@ export function open(file: string) {
     }
   }
 
+  /** An item as its row holds it, its repos parsed. */
+  const itemOf = (row: unknown): Item => {
+    const i = row as Omit<Item, "repos"> & { repos: string };
+    return { ...i, repos: JSON.parse(i.repos) as Repo[] };
+  };
+  const itemsOf = (rows: unknown[]) => rows.map(itemOf);
+
   function item(name: string): Item {
-    const i = db.prepare("SELECT * FROM items WHERE name = ?").get(name) as
-      Item | undefined;
+    const i = db.prepare("SELECT * FROM items WHERE name = ?").get(name);
     if (!i) throw new Error(`no item ${name} in the ledger`);
-    return i;
+    return itemOf(i);
   }
 
   /** The item's last attempt number, or 0: a move with no attempt is recorded at it. */
@@ -315,7 +329,7 @@ export function open(file: string) {
   return {
     item,
 
-    /** Adds an issue, at open. */
+    /** Adds an issue of one repo, at open. */
     addIssue(
       i: Pick<Item, "name" | "path" | "repo" | "image" | "test"> &
         Partial<Pick<Item, "setup">>,
@@ -328,12 +342,39 @@ export function open(file: string) {
       });
     },
 
+    /**
+     * Adds an issue of several repos, at open. Its image is its own steps' sandbox's; its repo, test and setup are its
+     * first repo's. Given one repo, it is an issue of one repo, in that repo's image.
+     */
+    addIssueAcross(
+      i: Pick<Item, "name" | "path" | "image"> & { repos: Repo[] },
+    ) {
+      const [first] = i.repos;
+      if (!first) throw new Error(`${i.name}: an issue needs a repo`);
+      const several = i.repos.length > 1 ? i.repos : [];
+      tx(() => {
+        db.prepare(
+          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state, repos) VALUES (?, 'issue', ?, 0, ?, ?, ?, ?, ?, 'open', ?)",
+        ).run(
+          i.name,
+          i.name,
+          i.path,
+          first.repo,
+          several.length ? i.image : first.image,
+          first.test,
+          first.setup,
+          JSON.stringify(several),
+        );
+        event(i.name, null, "new", null, "open", "added");
+      });
+    },
+
     /** Runs `f` as one transaction: the ledger's writes inside it are all made, or none. */
     transaction: <T>(f: () => T): T => tx(f),
 
     /** Adds a cl of an issue, at `state`: ready, or waiting for the phase before it. A lone cl is phase 1. */
     addCl(
-      i: Omit<Item, "kind" | "state" | "setup" | "phase"> &
+      i: Omit<Item, "kind" | "state" | "setup" | "phase" | "repos"> &
         Partial<Pick<Item, "setup" | "phase">>,
       state: State,
     ) {
@@ -359,35 +400,39 @@ export function open(file: string) {
     /** The items in one of `states` with no attempt open. */
     waiting(states: State[]): Item[] {
       const marks = states.map(() => "?").join(", ");
-      return db
-        .prepare(
-          `SELECT * FROM items i WHERE state IN (${marks})
+      return itemsOf(
+        db
+          .prepare(
+            `SELECT * FROM items i WHERE state IN (${marks})
            AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.name = i.name AND a.ended IS NULL) ORDER BY rowid`,
-        )
-        .all(...states) as unknown as Item[];
+          )
+          .all(...states),
+      );
     },
 
     /** Every item, in the order it was added. */
     items(): Item[] {
-      return db
-        .prepare("SELECT * FROM items ORDER BY rowid")
-        .all() as unknown as Item[];
+      return itemsOf(db.prepare("SELECT * FROM items ORDER BY rowid").all());
     },
 
     /** The items in `state`, in the order they were added. */
     inState(state: State): Item[] {
-      return db
-        .prepare("SELECT * FROM items WHERE state = ? ORDER BY rowid")
-        .all(state) as unknown as Item[];
+      return itemsOf(
+        db
+          .prepare("SELECT * FROM items WHERE state = ? ORDER BY rowid")
+          .all(state),
+      );
     },
 
     /** An issue's cls, in their plan's order. */
     cls(issue: string): Item[] {
-      return db
-        .prepare(
-          "SELECT * FROM items WHERE kind = 'cl' AND issue = ? ORDER BY seq",
-        )
-        .all(issue) as unknown as Item[];
+      return itemsOf(
+        db
+          .prepare(
+            "SELECT * FROM items WHERE kind = 'cl' AND issue = ? ORDER BY seq",
+          )
+          .all(issue),
+      );
     },
 
     open(): Open[] {

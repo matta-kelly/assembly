@@ -35,7 +35,7 @@ const plan = (...cls: ClSpec[]): Spec => ({
   },
   cls,
 });
-const o = { taken: () => false };
+const o = { taken: () => false, repos: ["repo"] };
 
 describe("spec lint", () => {
   it("passes a plan whose phases run from 1, and a lone cl with no plan and no phase", () => {
@@ -81,6 +81,30 @@ describe("spec lint", () => {
         o,
       ).reason,
     ).toMatch(/outside the repo/);
+  });
+
+  it("takes a cl that names one of the issue's repos, and one that names none when the issue has one", () => {
+    expect(specLint({ cls: [cl("one")] }, o).word).toBe("pass");
+    expect(specLint({ cls: [{ ...cl("one"), repo: "repo" }] }, o).word).toBe(
+      "pass",
+    );
+    const two = { ...o, repos: ["a", "b"] };
+    expect(
+      specLint(
+        plan({ ...cl("one", 1), repo: "a" }, { ...cl("two", 1), repo: "b" }),
+        two,
+      ).word,
+    ).toBe("pass");
+  });
+
+  it("retries a cl whose repo is not the issue's, or that names none when the issue has several", () => {
+    expect(
+      specLint({ cls: [{ ...cl("one"), repo: "other" }] }, o).reason,
+    ).toMatch(/its repo other is not the issue's: repo/);
+    const two = { ...o, repos: ["a", "b"] };
+    expect(
+      specLint(plan({ ...cl("one", 1), repo: "a" }, cl("two", 1)), two).reason,
+    ).toMatch(/cl two: names no repo, and the issue has 2: a, b/);
   });
 
   it("retries a test command that runs a file not in its checkout", () => {

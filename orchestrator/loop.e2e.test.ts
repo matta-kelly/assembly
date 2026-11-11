@@ -129,6 +129,34 @@ const plannerScript = (input: string, done: number) => {
       ],
     });
   if (done === 0) return fauxToolCall("ls", {});
+  if (input.includes("TWO REPOS"))
+    return submit({
+      word: "done",
+      plan: {
+        approach: "alpha in ra, beta in rb: neither needs the other",
+        phases: ["alpha and beta, one in each repo, apart"],
+      },
+      cls: [
+        {
+          ...cl(
+            "alpha",
+            "ra's src/alpha.mjs exports alpha, which is 2",
+            "given src/alpha.mjs, when imported, then alpha is 2",
+            1,
+          ),
+          repo: "ra",
+        },
+        {
+          ...cl(
+            "beta",
+            "rb's src/beta.mjs exports beta, which is 2",
+            "given src/beta.mjs, when imported, then beta is 2",
+            1,
+          ),
+          repo: "rb",
+        },
+      ],
+    });
   return submit({
     word: "done",
     plan: {
@@ -179,6 +207,28 @@ const testOf = (name: string, imports: string, assertion: string) =>
 
 /** da-nail writes its cut's failing test and the stub it imports, runs it, and submits. */
 const nailScript = (input: string, done: number) => {
+  const lone = /The cut (alpha|beta) of/.exec(input)?.[1];
+  if (lone) {
+    if (done === 0)
+      return fauxToolCall("write_file", {
+        file_path: `test/${lone}.test.mjs`,
+        content: testOf(
+          lone,
+          `import { ${lone} } from "../src/${lone}.mjs";`,
+          `assert.strictEqual(${lone}, 2)`,
+        ),
+      });
+    if (done === 1)
+      return fauxToolCall("write_file", {
+        file_path: `src/${lone}.mjs`,
+        content: `export const ${lone} = 0;\n`,
+      });
+    if (done === 2) return fauxToolCall("test", {});
+    return submit({
+      word: "done",
+      tests: [{ behavior: 1, file: `test/${lone}.test.mjs`, name: lone }],
+    });
+  }
   const double = input.includes("The cut double of");
   const name = double ? "double" : "value";
   if (done === 0)
@@ -231,6 +281,15 @@ const probes = [
 
 /** da-hammer makes its cut's test pass. value's first reaches past its cut. */
 const hammerScript = (input: string, at: number, last: string) => {
+  const lone = /The cut (alpha|beta) of/.exec(input)?.[1];
+  if (lone)
+    return at === 0
+      ? fauxToolCall("edit_file", {
+          file_path: `src/${lone}.mjs`,
+          old_string: `${lone} = 0`,
+          new_string: `${lone} = 2`,
+        })
+      : submit({ word: "done", changed: [`src/${lone}.mjs`] });
   const double = input.includes("The cut double of");
   // a run of value's hammer starts its probes again: the last run's are the ones checked
   if (!double && at === 0) probed.length = 0;
@@ -344,7 +403,16 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       // ASSEMBLY_E2E_KEEP keeps the run folder, its worktrees, logs and notes, to read after a failure.
       if (!process.env["ASSEMBLY_E2E_KEEP"])
         rmSync(dir, { recursive: true, force: true });
-      const names = ["is", "gap", "is-value", "is-double", "rs-value"];
+      const names = [
+        "is",
+        "gap",
+        "is-value",
+        "is-double",
+        "rs-value",
+        "mr",
+        "mr-alpha",
+        "mr-beta",
+      ];
       for (const name of names.flatMap((c) =>
         Array.from({ length: 8 }, (_, n) => `assembly-${c}-${n + 1}`),
       ))
@@ -764,6 +832,166 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             "utf8",
           ).match(/^set up in/gm),
         ).toHaveLength(1);
+      },
+    );
+
+    it(
+      "takes an issue across two repos to accepted: a cl lands in each, and each repo's suite runs",
+      { timeout: 600_000 },
+      async () => {
+        const at = join(dir, "across");
+        mkdirSync(join(at, "work"), { recursive: true });
+        // two repos, each with its own land target
+        const repoOf = (name: string) => {
+          const r = join(at, name);
+          mkdirSync(join(r, "test"), { recursive: true });
+          writeFileSync(join(r, "README"), `${name}\n`);
+          writeFileSync(join(r, ".gitignore"), "deps/\n");
+          // its full suite has a test from the start, so it runs before and after its cl
+          writeFileSync(
+            join(r, "test", "readme.test.mjs"),
+            testOf(
+              "readme",
+              'import { readFileSync } from "node:fs";',
+              'assert.ok(readFileSync("README", "utf8"))',
+            ),
+          );
+          git(r, "init", "-q", "-b", "main");
+          git(r, "add", "-A");
+          git(r, "commit", "-q", "-m", "init");
+          const target = join(at, `${name}.target`);
+          mkdirSync(target);
+          return { repo: r, bare: landTarget(r, target) };
+        };
+        const ra = repoOf("ra");
+        const rb = repoOf("rb");
+        writeFileSync(
+          join(at, "work", "mr.md"),
+          issueNote(false)
+            .replace(
+              "Two exports, value and double.",
+              "One export in each of two repos.",
+            )
+            .replace("## Intent", "## Intent\n\nTWO REPOS"),
+        );
+
+        const models = createModels();
+        const model = (
+          provider: string,
+          script: Parameters<typeof scripted>[0],
+        ) => {
+          const faux = fauxProvider({ provider });
+          models.setProvider(faux.provider);
+          faux.setResponses(scripted(script));
+          const m = faux.getModel();
+          return `${m.provider}:${m.id}`;
+        };
+        const scripts = {
+          planner: model("faux-planner-mr", plannerScript),
+          "plan-review": model("faux-plan-review-mr", planReviewScript),
+          "da-nail": model("faux-nail-mr", nailScript),
+          "da-hammer": model("faux-hammer-mr", hammerScript),
+          "cl-review": model("faux-cl-review-mr", clReviewScript),
+          "issue-review": model("faux-issue-review-mr", issueReviewScript),
+        };
+        const f = compose({
+          home: at,
+          agents: {
+            make: {
+              planner,
+              "plan-review": planReviewer,
+              "da-nail": daNail,
+              "da-hammer": daHammer,
+              "cl-review": clReview,
+              "issue-review": issueReviewer,
+            },
+            modelFor: (name: string) => scripts[name as keyof typeof scripts],
+          },
+          models,
+          timeoutMs: 120_000,
+        });
+        const ledger = f.ledger;
+        const repo = (name: string, r: { repo: string }) => ({
+          name,
+          repo: r.repo,
+          image,
+          test: suite,
+          setup,
+        });
+        ledger.addIssueAcross({
+          name: "mr",
+          path: join(at, "work", "mr.md"),
+          image,
+          repos: [repo("ra", ra), repo("rb", rb)],
+        });
+        const l = await f.loop();
+        const settled = ["accepted", "raised", "escalated"];
+        for (let i = 0; i < 40; i++) {
+          await l.tick();
+          await l.settled();
+          if (settled.includes(ledger.item("mr").state)) break;
+        }
+        await l.tick();
+
+        const moves = (name: string) =>
+          ledger
+            .events(name)
+            .map((e) => `${String(e["from_state"])}>${String(e["to_state"])}`);
+        expect(moves("mr"), JSON.stringify(ledger.events("mr"))).toEqual([
+          "new>open",
+          "open>planned",
+          "planned>building",
+          "building>built",
+          "built>accepted",
+        ]);
+        // each cl is in its own repo, with that repo's settings, and both were phase 1
+        expect(ledger.item("mr-alpha").repo).toBe(ra.repo);
+        expect(ledger.item("mr-beta").repo).toBe(rb.repo);
+        for (const c of ["mr-alpha", "mr-beta"])
+          expect(moves(c), `${c}: ${JSON.stringify(ledger.events(c))}`).toEqual(
+            [
+              "new>ready",
+              "ready>red",
+              "red>green",
+              "green>approved",
+              "approved>landed",
+            ],
+          );
+
+        // each landed on its own repo's main, and only there
+        expect(git(ra.bare, "show", "main:src/alpha.mjs")).toContain(
+          "alpha = 2",
+        );
+        expect(git(rb.bare, "show", "main:src/beta.mjs")).toContain("beta = 2");
+        expect(
+          git(ra.bare, "ls-tree", "-r", "--name-only", "main"),
+        ).not.toMatch(/beta/);
+        expect(
+          git(rb.bare, "ls-tree", "-r", "--name-only", "main"),
+        ).not.toMatch(/alpha/);
+
+        // the issue's own attempts saw both repos, each set up with its own setup
+        const issueRuns = join(f.runs, "mr", "issue");
+        for (const n of readdirSync(issueRuns).filter((x) => /^\d+$/.test(x)))
+          for (const r of ["ra", "rb"]) {
+            expect(existsSync(join(issueRuns, n, "work", r, "README"))).toBe(
+              true,
+            );
+            expect(
+              existsSync(join(issueRuns, n, "repos", r, "setup.done")),
+            ).toBe(true);
+          }
+
+        // acceptance ran each repo's suite on main: both green, alpha's and beta's tests among them
+        const db = new DatabaseSync(join(at, "ledger.db"));
+        const accepted = db
+          .prepare(
+            "SELECT reason FROM events WHERE name = 'mr' AND to_state = 'accepted'",
+          )
+          .get() as { reason: string };
+        expect(accepted.reason).toMatch(/full suite is green/);
+        db.close();
+        await l.close();
       },
     );
   },

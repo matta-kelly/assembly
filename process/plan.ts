@@ -8,7 +8,7 @@
  */
 
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
@@ -47,6 +47,13 @@ export const clSpec = z.object({
     .min(1)
     .optional()
     .describe("its phase in the plan, from 1. None for an issue's lone cl"),
+  repo: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "the repo it changes, by its folder's name: one of the issue's. Needed when the issue has more than one; its paths and test are from that repo's root",
+    ),
   shape: z.object({
     change: z
       .enum(["behavior", "structure"])
@@ -201,6 +208,10 @@ export function pathsIn(command: string): string[] {
   );
 }
 
+/** The names of the repos an issue's cls may change: its several, or its one, by their folders' names. */
+export const reposOf = (r: Pick<Run, "repo" | "repos">): string[] =>
+  r.repos?.length ? r.repos.map((p) => p.name) : [basename(r.repo)];
+
 /** A file in the repo, from its root: not the root itself, nor outside it. */
 const inside = (f: string) => {
   const n = normalize(f).replace(/\/+$/, "");
@@ -216,12 +227,13 @@ const no = (reason: string): Lint => ({
 /**
  * Spec lint: what can be decided about a spec without judgment, the same rules kinetic's lint holds and what only the
  * repo can say. A plan's cls each have a phase, the phases run from 1 with no gap, and each has a reason; a lone cl has
- * no plan and no phase. The cls' names are their own and new. A cl's checkout stays in the repo, and its test command
- * runs only files in its checkout. Whether the cls of one phase stay apart is a judgment: the plan review's.
+ * no plan and no phase. The cls' names are their own and new. A cl names a repo of the issue's, and must when the issue
+ * has more than one. A cl's checkout stays in its repo, and its test command runs only files in its checkout. Whether
+ * the cls of one phase stay apart is a judgment: the plan review's.
  */
 export function specLint(
   s: Spec,
-  o: { taken: (cut: string) => boolean },
+  o: { taken: (cut: string) => boolean; repos: string[] },
 ): Lint {
   const names = s.cls.map((c) => c.name);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
@@ -252,6 +264,14 @@ export function specLint(
       );
   }
   for (const c of s.cls) {
+    if (c.repo === undefined && o.repos.length > 1)
+      return no(
+        `cl ${c.name}: names no repo, and the issue has ${o.repos.length}: ${o.repos.join(", ")}`,
+      );
+    if (c.repo !== undefined && !o.repos.includes(c.repo))
+      return no(
+        `cl ${c.name}: its repo ${c.repo} is not the issue's: ${o.repos.join(", ")}`,
+      );
     const outside = c.checkout.filter((f) => !inside(f));
     if (outside.length)
       return no(
@@ -308,6 +328,7 @@ export const plan: Step<Planned> = {
       };
     const v = specLint(d, {
       taken: (c) => existsSync(clPath(r.path, r.issue, c)),
+      repos: reposOf(r),
     });
     return { ...v, findings: [], ...(d.notes ? { notes: d.notes } : {}) };
   },
@@ -363,6 +384,7 @@ export const clFields = (issue: string, c: ClSpec, plan: boolean) => ({
   belongsTo: link(plan ? `${issue}-plan` : issue),
   status: "new",
   ...(c.phase === undefined ? {} : { phase: c.phase }),
+  ...(c.repo === undefined ? {} : { repo: c.repo }),
   shape: c.shape,
   checkout: c.checkout,
   test: c.test,
@@ -434,6 +456,7 @@ export function readSpec(issuePath: string, issue: string): Read {
       name: name.slice(issue.length + 1),
       intent: firstLine(body),
       ...(fields["phase"] === undefined ? {} : { phase: fields["phase"] }),
+      ...(fields["repo"] === undefined ? {} : { repo: fields["repo"] }),
       shape: fields["shape"],
       checkout: fields["checkout"],
       test: fields["test"],

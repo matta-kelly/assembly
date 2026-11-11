@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 import type { Run, TestRun } from "../process/step.ts";
 import { fullOf, stage, treeOf } from "./git.ts";
+import { partsOf } from "./runs.ts";
 import { prepareFull } from "./setup.ts";
 import { offline } from "./sandbox.ts";
 import { sh } from "./sh.ts";
@@ -20,6 +21,21 @@ export const checkLimitS = 15 * 60;
  * when `signal` aborts.
  */
 export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
+  // An issue with several repos: each one's suite, in its own image, on its own worktree. The first that fails is the
+  // run's result and its record; all pass, the last one's.
+  if (r.repos?.length) {
+    const ran: TestRun[] = [];
+    for (const p of partsOf(r)) {
+      const t = await runTests(p, signal);
+      ran.push({ ...t, out: `== ${p.repo}\n${t.out}` });
+    }
+    const failed = ran.find((t) => t.code !== 0);
+    const last = ran.at(-1) as TestRun;
+    return {
+      ...(failed ?? last),
+      out: ran.map((t) => t.out).join("\n"),
+    };
+  }
   let tree: string;
   let on = r.work;
   if (r.checkout) {

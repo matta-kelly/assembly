@@ -44,7 +44,19 @@ factory +args:
     just _node true
     key=()
     [ "$1" = run ] && key=(rbw-run -f "{{root}}/secrets.toml" --)
-    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN {{as_matt}} -e ASSEMBLY_HOME="$home" -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/cli/index.ts" "$@"
+    # A repo checked in its dev image: put the image on this machine, from the repo's own script, and pass its tag in.
+    dev=()
+    if [ "$1" = add ] || [ "$1" = submit ]; then
+      prev=""
+      for a in "$@"; do
+        if [ "$prev" = --repo ] && grep -qE '^[[:space:]]*image[[:space:]]*=[[:space:]]*"dev"' "$a/crate.toml" 2>/dev/null; then
+          dev+=("$(basename "$(realpath "$a")")=$(cd "$a" && scripts/dev-image.sh local | tail -1)")
+        fi
+        prev=$a
+      done
+    fi
+    export ASSEMBLY_DEV_IMAGES=$(IFS=,; echo "${dev[*]}")
+    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_DEV_IMAGES {{as_matt}} -e ASSEMBLY_HOME="$home" -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/cli/index.ts" "$@"
 
 # Run a command in the Node image: `just run npm install zod`
 run +command:

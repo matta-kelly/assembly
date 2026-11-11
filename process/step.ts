@@ -109,6 +109,18 @@ export function back(about: Artifact[]) {
 }
 export type Back = { word: "back"; findings: Finding[] };
 
+/**
+ * A repo an issue may change, with what its attempts need: the image its sandbox and checks run in, its full suite, and
+ * the setup that installs its dependencies into a new worktree ('' for none). Its name is its folder's, as a cl names it.
+ */
+export type Repo = {
+  name: string;
+  repo: string;
+  image: string;
+  test: string;
+  setup: string;
+};
+
 /** One attempt of one step on one item, and where its files are on the host. Plain JSON: it is a run's context. */
 export type Run = {
   name: string; // the item's name: the issue's, or the cl's
@@ -124,6 +136,9 @@ export type Run = {
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
   work: string; // the worktree, mounted at /work in the attempt's sandbox
   checkout?: string[]; // a bound step's: the cl's checkout, the only paths on disk in its worktree, a sparse checkout
+  // An issue's repos when it has more than one: its own steps see each at work/<name>, and its suite runs in each. Its
+  // repo, image, test and setup are then the first's, and its image the one its own steps' sandbox runs.
+  repos?: Repo[];
 };
 
 export interface Step<D extends { word: "done" }> {
