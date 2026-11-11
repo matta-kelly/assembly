@@ -179,7 +179,7 @@ async function unpublished(
   const needs = dependsOn(world.reader, cl.repo);
   if (!needs.size) return undefined;
   for (const landed of ledger.cls(cl.issue)) {
-    if (landed.state !== "landed" || landed.repo === cl.repo) continue;
+    if (landed.state !== "landed") continue;
     for (const tag of await world.tags(landed.repo, landed.name)) {
       const [, folder, version] = versionTag.exec(tag) ?? [];
       if (!version) continue;
