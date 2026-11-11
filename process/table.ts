@@ -124,8 +124,6 @@ export function next(
   }
   const to = table[state]?.[word as "pass" | "retry"];
   if (!to) throw new Error(`no transition from ${state} on ${word}`);
-  // A waiting cl's retry is the orchestrator saying why it waits: no attempt, so it never runs out.
-  if (word === "retry" && state !== "waiting" && c.attempts >= retryLimit)
-    return "escalated";
+  if (word === "retry" && c.attempts >= retryLimit) return "escalated";
   return to;
 }

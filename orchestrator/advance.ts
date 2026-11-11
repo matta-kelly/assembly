@@ -161,6 +161,12 @@ function dependsOn(reader: Reader, repo: string): Set<string> {
   ]);
 }
 
+/** When a landed cl landed, in ms. */
+function landedAt(ledger: Ledger, cl: Item): number | undefined {
+  const land = ledger.events(cl.name).findLast((e) => e.to_state === "landed");
+  return land && Date.parse(land.at);
+}
+
 /**
  * Why a waiting cl cannot start yet: a package its repo depends on, made by a landed cl of its issue, has a version not
  * on npm. Undefined when nothing holds it. A landed commit with no version tag makes no wait.
@@ -185,14 +191,12 @@ async function unpublished(
       const name = (JSON.parse(json) as { name?: string }).name;
       if (!name || !needs.has(name)) continue;
       if (!(await world.registry.published(name, version))) {
-        const land = ledger
-          .events(landed.name)
-          .findLast((e) => e.to_state === "landed");
+        const since = landedAt(ledger, landed);
         return {
           reason: `${name}@${version}, made by ${landed.name}, is not on npm yet`,
           package: name,
           version,
-          ...(land ? { since: Date.parse(land.at) } : {}),
+          ...(since === undefined ? {} : { since }),
         };
       }
     }
@@ -212,11 +216,14 @@ function hold(ledger: Ledger, cl: Item, h: Hold, world: World) {
   const waited = Date.now() - h.since;
   if (waited <= (world.limitMs ?? defaultLimitMs)) return;
   if (ledger.item(cl.issue).state === "escalated") return;
+  const what = h.package
+    ? `waits for ${h.package}@${h.version} to be on npm`
+    : `cannot ask what it waits for (${h.reason})`;
   ledger.apply(
     cl.issue,
     say(
       "escalate",
-      `${cl.name} waits for ${h.package}@${h.version} to be on npm: ${Math.floor(waited / 60_000)} min, past its limit`,
+      `${cl.name} ${what}: ${Math.floor(waited / 60_000)} min, past its limit`,
     ),
     "orchestrator",
   );
@@ -251,11 +258,18 @@ export async function advance(ledger: Ledger, world?: World) {
           live(c) && (c.phase ?? 1) < (cl.phase ?? 1) && c.state !== "landed",
       );
     if (before.length) continue;
-    // A failed ask is a reason too: the cl waits and the others go on.
+    // A failed ask is a reason too: the cl waits and the others go on. Its limit counts from the last land before the cl.
+    const since = Math.max(
+      ...ledger
+        .cls(cl.issue)
+        .filter((c) => live(c) && (c.phase ?? 1) < (cl.phase ?? 1))
+        .map((c) => landedAt(ledger, c) ?? -Infinity),
+    );
     const held =
       world &&
       (await unpublished(ledger, cl, world).catch((e: Error): Hold => ({
         reason: e.message.slice(0, 400),
+        ...(Number.isFinite(since) ? { since } : {}),
       })));
     if (held && world) hold(ledger, cl, held, world);
     else
