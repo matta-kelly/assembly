@@ -85,7 +85,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed, the issue built, the relay of a raise
 - effects: how it touches the world (`effects/`), each behind a small seam
 	- `git.ts`: branches, worktrees and commits, and main as the land target has it
-	- `land.ts`: the land, an approved cl onto main through `git land`
+	- `land.ts`: the land, an approved cl onto main: a push that crate checks, or `git land` for a repo not on crate
 	- `sandbox.ts`: what each container is given. que-pasa's `podman()` makes it
 	- `tests.ts`: a test run, in a container of its own
 	- `setup.ts`: a worktree's setup, the same way
@@ -127,16 +127,20 @@ An attempt: one step on one item, at one bench. Its run, its sandbox and its wor
 [[ci]]: final inspection into the warehouse, main.
 
 - the gate: the check passes on the exact commit, then main moves by fast-forward
-- the land target: the remote `git land` lands on, `local` when the repo has it, else `origin`. Main is its main, fetched as each attempt starts
+- the land target: the remote a cl lands on: `server`, main's bare repo guarded by crate ([[repo#Platform]]), when the repo has it; else `local`, a bare repo on this machine; else `origin`. Main is its main, fetched as each attempt starts
 - the land: each approved cl onto main, as Matt, on the cl's full worktree (`effects/land.ts`)
 	- rebase: the cl's branch onto main. A conflict is a back about the plan (`restack_conflict`), since keeping the cls of one phase apart is the plan's work
 	- landed already: a cl whose change main holds passes as it is, so a land a stop cut off is safe to run again
-	- retest: the cl's test command on the rebased tree, when main moved under it. A red is a back about the code (`check_failed`), and the cl's branch moves to the rebased tree, so da-hammer works on the code main will hold
-	- push: `git land`, through the repo's gate. A land it refuses is a retry
+	- through crate (`server`): a plain push to main. crate's hook runs the repo's check on the exact tree main becomes, so the land runs no test of its own
+		- refused by the check: a back about the code (`check_failed`), with the check's output, and the cl's branch moves to the rebased tree, so da-hammer works on the code main will hold
+		- main moved while the push waited: fetch, rebase and push again, three times at most, then a retry
+	- through `git land`, for a repo not on crate
+		- retest: the cl's test command on the rebased tree, when main moved under it. A red is a back about the code (`check_failed`), and the branch moves as above
+		- push: `git land`, through the repo's gate. A land it refuses is a retry
 	- landed: the cl's branch is the commit main took, its note is done, and the files it changed are kept
 - the identity: Matt's
 	- the author: his name, from the host's git config
-	- the push: his GH_TOKEN, from the vault through rbw-run, set as gh's credential for the push alone
+	- the push: to `server`, over SSH as the server's git user; to GitHub through `git land`, his GH_TOKEN from the vault through rbw-run, set as gh's credential for the push alone
 - after the dock: [[cd]] ships main onto a node, outside the plant
 
 ## Seams
@@ -195,6 +199,6 @@ What it keeps.
 - a thinking level per bin: each model runs at its provider's default
 - the dev image's tag per lockfile: `--image` names one tag for every attempt, so a newer lockfile fails setup. The exact tag (`dev-image.sh local`) needs skopeo or a build in the orchestrator's image
 - a plan across repos: a plan's cls run in one repo
-- a tested push: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. [[landing-flow]]'s queue closes it; acceptance on main catches it until then
+- a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate
 - check reuse: runs are recorded with their input hash, and never skipped on it

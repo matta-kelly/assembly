@@ -50,10 +50,16 @@ export const within = (entries: string[], path: string) => {
 const patterns = (checkout: string[]) =>
   checkout.map((e) => `/${normalize(e).replace(/^\/+|\/+$/g, "")}`);
 
-/** The remote a cl lands on, as `git land` picks it: `local`, a bare repo on this machine, when the repo has it. */
+/**
+ * The remote a cl lands on: `server`, main's bare repo guarded by crate's hooks, when the repo has it; else `local`, a
+ * bare repo on this machine, as `git land` picks it; else `origin`.
+ */
 export async function targetOf(repo: string): Promise<string> {
-  const local = await sh("git", ["-C", repo, "remote", "get-url", "local"]);
-  return local.code === 0 ? "local" : "origin";
+  for (const remote of ["server", "local"]) {
+    const has = await sh("git", ["-C", repo, "remote", "get-url", remote]);
+    if (has.code === 0) return remote;
+  }
+  return "origin";
 }
 
 /** Main as the land target has it now: fetched, and named as its remote-tracking branch. */
