@@ -5,10 +5,10 @@
 
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
-import { hammer } from "../process/hammer.ts";
-import { resultOf } from "../process/step.ts";
+import { hammer } from "../../process/hammer.ts";
+import { resultOf } from "../../process/step.ts";
 import { fileTools } from "@mku1tra/que-pasa/sandbox";
-import { test } from "../effects/tools.ts";
+import { test } from "../tools/test.ts";
 import { instructions } from "./instructions.ts";
 
 export const daHammer = (model: string) =>

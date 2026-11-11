@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { agents } from "./agents/index.ts";
+import { agents } from "./workspace/agents/index.ts";
 import { landedTags } from "./effects/git.ts";
 import { bins, modelOf } from "./effects/models.ts";
 import { npmRegistry } from "./effects/registry.ts";

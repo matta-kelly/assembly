@@ -108,8 +108,8 @@ How a workspace makes its container from the image ([[workspace]]):
 - main: always releasable. Main moves only through the gate ([[ci#Merge queue]])
 - a change: one commit, or a short stack of them, pushed to its own branch. No pull request: what one carried goes in the commit message ([[changelist#Parts]]). The branch is deleted after it lands
 - settings: pull requests off, and the ruleset on main ([[ci#The ruleset]])
-- review: before the push, on the local diff ([[daworks/assembly/agents/cl-review|review]]). Not a GitHub approval, so approvals stay at zero
-- a person's review: none by default. The plan is checked before any CL, and the build is trusted. A person reviews a CL only when the reviewer can't tell whether it meets the issue's intent ([[daworks/assembly/agents/cl-review|cl-review]])
+- review: before the push, on the local diff ([[daworks/assembly/workspace/agents/cl-review|review]]). Not a GitHub approval, so approvals stay at zero
+- a person's review: none by default. The plan is checked before any CL, and the build is trusted. A person reviews a CL only when the reviewer can't tell whether it meets the issue's intent ([[daworks/assembly/workspace/agents/cl-review|cl-review]])
 - remotes: `origin` is GitHub, in every project
 	- any other server has its own name, such as `forgejo`
 	- a remote is removed once the project no longer needs that server

@@ -7,7 +7,7 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
 - [[software-factory-v2-design]]: the design it follows
-- the bar: what a role works to and is judged against, each a note in `_well/`
+- the types: what a role works to and is judged against, each a note in `workspace/types/`
 	- [[tests]]: what a test is, its kinds, and what a good one is
 	- [[code]]: how code is written here
 	- [[changelist]]: one self-contained change to main, and what a good one is
@@ -44,7 +44,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 - product: the files a cl's builders make, its tests and its code, in git
 	- judged by: the process's checks. Red at an assertion, no test changed, green
 	- held by: `effects/git.ts`. The engine commits it, and lands it on main ([[#The dock]])
-- role: the instructions one agent works from (`agents/*.md`)
+- role: the instructions one agent works from (`workspace/agents/*.md`)
 	- run by: `effects/runner.ts`, from the agent and the bin its step names
 - message: the record a step ends with, saying what it concluded and who acts next (`process/step.ts`'s `Message`)
 	- its parts: a word, why in one line, a failure's cause, its findings, and notes for the next step
@@ -67,7 +67,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 
 The machine: what moves jobs from station to station, in four layers put together by `main.ts`. The engine runs the process and calls the effects; the process reaches the effects only through its notes and the tools each agent names.
 
-- process: what the work is (`process/`, `agents/`). It decides, and touches only its own notes
+- process: what the work is (`process/`, `workspace/`). It decides, and touches only its own notes
 	- the path: the states an item moves through on messages, held as data in `process/table.ts`
 		- an issue's repos: the ones its cls may change. By default every repo on crate under lot (a git repo with a `server` remote), and the planner picks among them; `factory add --repo` narrows them. Each repo's image, full suite and setup are read from its main (`effects/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, put on the machine by the host (`just factory`) through the repo's `scripts/dev-image.sh local`; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile
 			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
@@ -87,6 +87,14 @@ The machine: what moves jobs from station to station, in four layers put togethe
 				- the tree: the attempt's HEAD with its change is put there first, so the tree a test sees is the tree a pass commits
 	- the land: an approved cl's attempt, code with no agent (`effects/land.ts`). Its moves are in [[#The dock]]
 	- an agent: its instructions in its role note beside it, and the bin it names (plan, implement, review), never a model
+	- the workspace: what the agents are made of (`workspace/`), apart from the machine that runs them. Not the bench ([[workspace]])
+		- `agents/`: each agent's role note, and its code beside it
+		- `tools/`: `test`, the cl's test command, for nail and hammer: the factory's one tool of its own
+			- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
+			- for every agent: `ls`, `read_file`, `glob`, `grep`
+			- for nail and hammer: `write_file`, `edit_file`, in their sparse checkout
+			- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
+		- `types/`: the notes a role works to and is judged against
 - engine: what moves it (`orchestrator/`)
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
@@ -99,13 +107,8 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- `tests.ts`: a test run, in a container of its own
 	- `setup.ts`: a worktree's setup, the same way
 	- `runs.ts`: the run folders. `sh.ts`: the commands under them
-	- `runner.ts`: the run, on que-pasa's durable runtime
+	- `runner.ts`: the run, on que-pasa's durable runtime, and the run's context, which its tools read
 	- `models.ts`: the bins, a default model and a fallback for a retry
-	- `tools.ts`: the run's context, and `test`, the cl's test command, for nail and hammer
-		- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
-		- for every agent: `ls`, `read_file`, `glob`, `grep`
-		- for nail and hammer: `write_file`, `edit_file`, in their sparse checkout
-		- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
 	- `notes.ts`: the issue and cl notes. `trace.ts`: the record of each attempt
 - wiring: `main.ts`. `compose` builds the factory from the other three, and the world the loop waits on (`npmRegistry`, `gitReader`, `landedTags`), under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
 - the command line: `cli/`, one module per command, on what `compose` builds (`just factory`)

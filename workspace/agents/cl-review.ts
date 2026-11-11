@@ -6,8 +6,8 @@
 
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
-import { review } from "../process/review.ts";
-import { resultOf } from "../process/step.ts";
+import { review } from "../../process/review.ts";
+import { resultOf } from "../../process/step.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 

@@ -2,7 +2,7 @@
  * The factory's agents, by name, as the steps name them: each one's bin, and how to make it on a model.
  */
 
-import type { BinName } from "../effects/models.ts";
+import type { BinName } from "../../effects/models.ts";
 import { clReview } from "./cl-review.ts";
 import { daHammer } from "./da-hammer.ts";
 import { daNail } from "./da-nail.ts";

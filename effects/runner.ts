@@ -5,7 +5,7 @@
  *
  * Each attempt is one run, its id the attempt's (`<item>/<n>`), so the same attempt taken up again is the same run: it
  * goes on from where it stopped, with the model and context it started with. `modelFor` picks the run's model: on the
- * bins, their default, and their fallback on a retry. The run's context is the attempt (tools.ts), and from it the
+ * bins, their default, and their fallback on a retry. The run's context is the attempt (`Context`), and from it the
  * runner provides the run's Sandbox, the attempt's box (sandbox.ts). A run taken up in a new process resolves it from
  * the same context, so it finds the same container. Its usage is summed for the ledger. que-pasa traces the run itself, with
  * its messages and each tool call, under the attempt's span (trace.ts).
@@ -18,9 +18,15 @@ import { openRuntime, provide, type RunUsage } from "@mku1tra/que-pasa/loop";
 import { Sandbox } from "@mku1tra/que-pasa/sandbox";
 import type { z } from "zod";
 import { boxOf } from "./sandbox.ts";
-import type { Context } from "./tools.ts";
 import type { Usage } from "../orchestrator/ledger.ts";
 import { RunFailed, type Runner } from "../orchestrator/loop.ts";
+import type { Run } from "../process/step.ts";
+
+/** What a run of an agent gives its tools: the attempt. JSON, so que-pasa keeps it with the run. */
+export type Context = {
+  run: Run;
+  readOnly: boolean; // its worktree is mounted read-only, as a review's
+};
 
 /** The tokens and cost of a run, over every model it called. */
 export function total(usage: RunUsage): Usage {

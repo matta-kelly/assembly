@@ -15,7 +15,7 @@ Like an issue, a CL is a piece of intent plus the check that says it is met: its
 - [[kinetic#The checks]]: the map, a cl landed on main
 - [[issue]]: where a CL comes from
 - [[plan]]: how CLs are cut from an issue, and how they link
-- [[daworks/assembly/agents/cl-review|review]]: how one is reviewed
+- [[daworks/assembly/workspace/agents/cl-review|review]]: how one is reviewed
 
 ---
 ## Good CL
@@ -73,5 +73,5 @@ What the CL does to behaviors, and so to their tests. The commit type names the 
 
 ## Seam
 
-- in: the local diff, reviewed before the push ([[daworks/assembly/agents/cl-review|review]])
+- in: the local diff, reviewed before the push ([[daworks/assembly/workspace/agents/cl-review|review]])
 - the gate: one command before the push runs the full check ([[ci]]); then presubmit runs it on a clean machine and builds the artifact. Main moves to the change only when presubmit passes ([[ci]])

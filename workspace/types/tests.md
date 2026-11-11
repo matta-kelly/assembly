@@ -12,7 +12,7 @@ A test checks one behavior: in this situation, when this happens, that is the re
 
 - [[kinetic#The checks]]: the map, a gate of the cl's check
 - [[changelist#Behavior|behavior]]: what a test checks
-- [[daworks/assembly/agents/da-nail|da-nail]]: who writes a cl's tests
+- [[daworks/assembly/workspace/agents/da-nail|da-nail]]: who writes a cl's tests
 - [[agent-verification]]: the checks an agent cannot change; [[backpressure]]: a check as a force on the work
 
 ---

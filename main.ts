@@ -13,7 +13,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { models as hostModels } from "./effects/models.ts";
-import { agents } from "./agents/index.ts";
+import { agents } from "./workspace/agents/index.ts";
 import { modelOf } from "./effects/models.ts";
 import { landedTags } from "./effects/git.ts";
 import { npmRegistry } from "./effects/registry.ts";

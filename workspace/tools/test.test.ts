@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Run } from "../process/step.ts";
+import type { Run } from "../../process/step.ts";
 import { maxAnswer } from "@mku1tra/que-pasa/sandbox";
-import { runTests } from "./tests.ts";
-import { test } from "./tools.ts";
+import { runTests } from "../../effects/tests.ts";
+import { test } from "./test.ts";
 
-vi.mock("./tests.ts", () => ({ runTests: vi.fn() }));
+vi.mock("../../effects/tests.ts", () => ({ runTests: vi.fn() }));
 
 const run = { name: "is-b", test: "node --test test/b.test.ts" } as Run;
 

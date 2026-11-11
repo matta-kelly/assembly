@@ -16,7 +16,7 @@
   "include": [
     "orchestrator",
     "process",
-    "agents",
+    "workspace",
     "effects",
     "main.ts",
     "main.test.ts",

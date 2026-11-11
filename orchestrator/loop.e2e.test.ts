@@ -33,12 +33,12 @@ import {
 } from "@earendil-works/pi-ai";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { clReview } from "../agents/cl-review.ts";
-import { daHammer } from "../agents/da-hammer.ts";
-import { daNail } from "../agents/da-nail.ts";
-import { issueReviewer } from "../agents/issue-review.ts";
-import { planReviewer } from "../agents/plan-review.ts";
-import { planner } from "../agents/planner.ts";
+import { clReview } from "../workspace/agents/cl-review.ts";
+import { daHammer } from "../workspace/agents/da-hammer.ts";
+import { daNail } from "../workspace/agents/da-nail.ts";
+import { issueReviewer } from "../workspace/agents/issue-review.ts";
+import { planReviewer } from "../workspace/agents/plan-review.ts";
+import { planner } from "../workspace/agents/planner.ts";
 import { landTarget } from "../effects/land-target.fixture.ts";
 import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";

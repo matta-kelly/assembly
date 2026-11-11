@@ -11,7 +11,7 @@ Playbook: a proven way to do one kind of change, at one level. At the plan, it s
 
 - [[kinetic#The split]], [[kinetic#The build]]: the map, at the plan and the cl
 - [[plan]], [[cl]]: what a playbook's phases and cuts become; a playbook's Out meets their bar
-- [[daworks/assembly/agents/planner|planner]], [[daworks/assembly/agents/plan-review|plan-review]]: the roles that use them
+- [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]]: the roles that use them
 
 ---
 ## Choosing one

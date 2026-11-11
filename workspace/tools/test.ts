@@ -1,7 +1,7 @@
 /**
- * What the runner gives the agents' tools: the run's context, and the factory's one tool of its own. Every other tool is
- * que-pasa's (Deep Agents' ls, read_file, write_file, edit_file, glob, grep, execute), working in the `Sandbox` the
- * runner provides each run: the attempt's box, with its worktree at /work (effects/runner.ts).
+ * `test`: the factory's one tool of its own, for nail and hammer. Every other tool is que-pasa's (Deep Agents' ls,
+ * read_file, write_file, edit_file, glob, grep, execute), working in the `Sandbox` the runner provides each run: the
+ * attempt's box, with its worktree at /work (effects/runner.ts).
  *
  * A bound step's worktree (nail, hammer) is a sparse checkout of its cl's checkout, so its tools see only those paths,
  * and a pass commits what it changed. `test` runs its cl's
@@ -11,14 +11,8 @@
 import { defineTool, type Runtime } from "@mku1tra/que-pasa/define";
 import { commandAnswer } from "@mku1tra/que-pasa/sandbox";
 import { z } from "zod";
-import type { Run } from "../process/step.ts";
-import { runTests } from "./tests.ts";
-
-/** What a run of an agent gives its tools: the attempt. JSON, so que-pasa keeps it with the run. */
-export type Context = {
-  run: Run;
-  readOnly: boolean; // its worktree is mounted read-only, as a review's
-};
+import type { Context } from "../../effects/runner.ts";
+import { runTests } from "../../effects/tests.ts";
 
 export const test = defineTool({
   name: "test",

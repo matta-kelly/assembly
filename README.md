@@ -4,9 +4,10 @@ The software factory: a deployment of que-pasa (`@mku1tra/que-pasa`) that moves 
 
 ## Parts
 
-- `process/`, `agents/`: what the work is, the states, steps and agents. Unit tests, beside each file
+- `process/`: what the work is, the states and steps. Unit tests, beside each file
+- `workspace/`: what the agents are made of: each agent's role note and code (`agents/`), the one tool of the factory's own, `test` (`tools/`), and the notes a role works to (`types/`). Unit tests, beside each file
 - `orchestrator/`: the engine, the loop, the orchestrator's own moves and the ledger. Unit tests, with git and podman faked; the end-to-end test, `loop.e2e.test.ts`
-- `effects/`: how it touches the world, git, the sandbox, test runs, the runner, notes, traces and the one tool of the factory's own, `test` (the rest are que-pasa's). Unit tests, with the sandbox faked
+- `effects/`: how it touches the world, git, the sandbox, test runs, the runner, notes and traces. Unit tests, with the sandbox faked
 - `main.ts`: the wiring. Unit tests
 - `cli/`: the factory's command line, one module per command. Unit tests
 

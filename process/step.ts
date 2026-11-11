@@ -143,7 +143,7 @@ export type Run = {
 
 export interface Step<D extends { word: "done" }> {
   from: State;
-  agent: string; // the agent's name, in agents/
+  agent: string; // the agent's name, in workspace/agents/
   worktree?: "ro"; // the agent may read the worktree but not edit it, as a review
   done: z.ZodType<D>; // the done shape. The result is this or the back shape
   about: Artifact[]; // what its agent may send back about
