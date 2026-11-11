@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { Run } from "../process/step.ts";
 import { runTests } from "./tests.ts";
 
-/** What a run of the inner loop gives its tools: the attempt. JSON, so que-pasa keeps it with the run. */
+/** What a run of an agent gives its tools: the attempt. JSON, so que-pasa keeps it with the run. */
 export type Context = {
   run: Run;
   readOnly: boolean; // its worktree is mounted read-only, as a review's

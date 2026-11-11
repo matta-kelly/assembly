@@ -11,7 +11,7 @@ Today only dazoo keeps the gate: `checks.yml` on every push, and the required ch
 - [[#checks.yml]] the workflow: when it runs, and what it runs
 - [[#All three workflows]] rules for checks.yml, dev-image.yml and ship.yml
 
-- [[kinetic#The checks]]: the map, a cl to main; [[inner-loop]]: presubmit in the loop
+- [[kinetic#The checks]]: the map, a cl to main; [[assembly#The dock]]: how a cl reaches it
 - [[cd]]: the other workflow
 - [[tests]]: what the checks run
 - [[ci-throughput]]: why CI speed is a product under agent volume

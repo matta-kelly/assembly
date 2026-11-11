@@ -2,7 +2,7 @@
  * What Matt does to the factory from the command line, each a message through the ledger's one door (apply), as Matt.
  * - add <issue.md>: an issue enters at open, for the factory's planner
  * - submit <issue.md>: an issue with the spec Matt made, its cls and its plan beside it, enters at building: his pass
- *   at open and at plan review, so only the inner loop and acceptance run it
+ *   at open and at plan review, so only the build and acceptance run it
  * - approve <issue>: his pass at plan review, for a plan the factory's planner made
  * - replan <issue>: an issue he holds, raised or escalated, back to open, its cls not landed dropped
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.

@@ -93,7 +93,7 @@ How a workspace makes its container from the image ([[workspace]]):
 	- enforced only on a public repo (free plan)
 	- a private repo: a pre-push hook in `.githooks/` runs the check command, and refuses a push straight to main. The check command sets `core.hooksPath` to it. Not enforced past `--no-verify`
 - review: before the push, on the local diff ([[daworks/assembly/agents/cl-review|review]]). Not a GitHub approval, so approvals stay at zero
-- a person's review: none by default. The plan is checked before any CL, and the inner loop is trusted. A person reviews a CL only when the reviewer can't tell whether it meets the issue's intent ([[daworks/assembly/agents/cl-review|cl-review]])
+- a person's review: none by default. The plan is checked before any CL, and the build is trusted. A person reviews a CL only when the reviewer can't tell whether it meets the issue's intent ([[daworks/assembly/agents/cl-review|cl-review]])
 - remotes: `origin` is GitHub, in every project
 	- any other server has its own name, such as `forgejo`
 	- a remote is removed once the project no longer needs that server

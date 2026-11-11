@@ -176,7 +176,7 @@ What it keeps.
 	- each command: a message through the one door, as Matt
 	- `add`: an issue, which enters at open, for the planner
 	- `submit`: an issue with the spec Matt made, its cls and its plan beside it in kinetic's format
-		- where it enters: building, by his passes at open and plan review. Only the inner loop and acceptance run it, and they write only its notes' status
+		- where it enters: building, by his passes at open and plan review. Only the build and acceptance run it, and they write only its notes' status
 		- its notes: read whole, each cl's fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is
 		- a raise or a send-back on it: goes to Matt, escalated, never to the planner
 	- `approve`: an issue at planned, his pass in place of plan-review's
