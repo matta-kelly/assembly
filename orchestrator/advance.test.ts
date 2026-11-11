@@ -312,3 +312,154 @@ describe("advance", () => {
     expect(state("is")).toBe("escalated");
   });
 });
+
+describe("advance across repos", () => {
+  const pkg = (name: string, deps: Record<string, string> = {}) =>
+    JSON.stringify({ name, version: "0.0.0", dependencies: deps });
+
+  /** An issue "x" with a cl of repo /a landed in phase 1, and a cl of repo /b waiting in phase 2. */
+  function across() {
+    writeFileSync(join(dir, "x.md"), issueNote);
+    ledger.addIssue({
+      name: "x",
+      path: join(dir, "x.md"),
+      repo: "/a",
+      image: "img",
+      test: "suite",
+    });
+    for (const [name, repo, phase, state] of [
+      ["x-a", "/a", 1, "ready"],
+      ["x-b", "/b", 2, "waiting"],
+    ] as const)
+      ledger.addCl(
+        {
+          name,
+          issue: "x",
+          seq: phase,
+          phase,
+          path: join(dir, `${name}.md`),
+          repo,
+          image: "img",
+          test: "t",
+        },
+        state,
+      );
+    force("x-a", "landed");
+  }
+
+  /** The world: repo files by "<repo>:<file>", the tags the land of x-a put on main, the registry. */
+  const worldOf = (
+    files: Record<string, string>,
+    tags: string[],
+    registry: { published: (n: string, v: string) => Promise<boolean> },
+  ) => ({
+    registry,
+    reader: {
+      file: (repo: string, file: string) => files[`${repo}:${file}`],
+      onCrate: () => true,
+    },
+    tags: async (_repo: string, cl: string) => (cl === "x-a" ? tags : []),
+  });
+
+  it("keeps a cl waiting, naming the package and version, until the landed version is on npm", async () => {
+    across();
+    const registry = {
+      published: vi.fn(async (_n: string, _v: string) => false),
+    };
+    const world = worldOf(
+      {
+        "/a:package.json": pkg("@s/alpha"),
+        "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
+      },
+      ["v1.2.0"],
+      registry,
+    );
+    const waiting = await advance(ledger, world);
+    expect(state("x-b")).toBe("waiting");
+    expect(waiting["x-b"]).toMatch(/@s\/alpha/);
+    expect(waiting["x-b"]).toMatch(/1\.2\.0/);
+    expect(registry.published).toHaveBeenCalledWith("@s/alpha", "1.2.0");
+    registry.published.mockImplementation(
+      async (_n: string, _v: string) => true,
+    );
+    expect(await advance(ledger, world)).toEqual({});
+    expect(state("x-b")).toBe("ready");
+  });
+
+  it("reads the version from the tag of the package's folder, and a dev dependency counts", async () => {
+    across();
+    const registry = {
+      published: vi.fn(async (_n: string, _v: string) => false),
+    };
+    const world = worldOf(
+      {
+        "/a:crate.toml": 'crate = "1"\npackages = ["lib"]\n',
+        "/a:lib/package.json": pkg("gamma"),
+        "/b:package.json": JSON.stringify({
+          name: "delta",
+          devDependencies: { gamma: "^0.3.0" },
+        }),
+      },
+      ["lib-v0.3.0"],
+      registry,
+    );
+    const waiting = await advance(ledger, world);
+    expect(state("x-b")).toBe("waiting");
+    expect(waiting["x-b"]).toMatch(/gamma.*0\.3\.0/);
+    expect(registry.published).toHaveBeenCalledWith("gamma", "0.3.0");
+  });
+
+  it("makes no wait when the landed commit has no version tag", async () => {
+    across();
+    const registry = {
+      published: vi.fn(async (_n: string, _v: string) => false),
+    };
+    const world = worldOf(
+      {
+        "/a:package.json": pkg("@s/alpha"),
+        "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
+      },
+      [],
+      registry,
+    );
+    expect(await advance(ledger, world)).toEqual({});
+    expect(state("x-b")).toBe("ready");
+    expect(registry.published).not.toHaveBeenCalled();
+  });
+
+  it("starts a cl whose repo does not depend on the landed package, without asking the registry", async () => {
+    across();
+    const registry = {
+      published: vi.fn(async (_n: string, _v: string) => false),
+    };
+    const world = worldOf(
+      {
+        "/a:package.json": pkg("@s/alpha"),
+        "/b:package.json": pkg("@s/beta", { other: "^1.0.0" }),
+      },
+      ["v1.2.0"],
+      registry,
+    );
+    expect(await advance(ledger, world)).toEqual({});
+    expect(state("x-b")).toBe("ready");
+    expect(registry.published).not.toHaveBeenCalled();
+  });
+
+  it("keeps a cl waiting for a phase before it that has not landed, though the registry has the version", async () => {
+    across();
+    force("x-a", "approved");
+    const registry = {
+      published: vi.fn(async (_n: string, _v: string) => true),
+    };
+    const world = worldOf(
+      {
+        "/a:package.json": pkg("@s/alpha"),
+        "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
+      },
+      ["v1.2.0"],
+      registry,
+    );
+    await advance(ledger, world);
+    expect(state("x-b")).toBe("waiting");
+  });
+});

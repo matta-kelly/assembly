@@ -23,6 +23,8 @@ import {
 import type { Message } from "../process/step.ts";
 import type { Item, Ledger } from "./ledger.ts";
 import { writeNote } from "../effects/notes.ts";
+import type { Reader } from "../effects/repo.ts";
+import type { Registry } from "../effects/registry.ts";
 import { top } from "../process/table.ts";
 
 const link = (name: string) => `[[${name}]]`;
@@ -122,7 +124,21 @@ async function guarded(ledger: Ledger, item: Item, move: () => unknown) {
   }
 }
 
-export async function advance(ledger: Ledger) {
+/** What a waiting cl needs to know of the world: its repos' files, the tags a land put on main, and the registry. */
+export interface World {
+  registry: Registry;
+  reader: Reader;
+  /** The version tags the land target holds on the commit main took for the landed cl `cl`, of `repo`. */
+  tags(repo: string, cl: string): Promise<string[]>;
+}
+
+/** A waiting cl's name, and why it still waits for a published version. */
+export type Waiting = Record<string, string>;
+
+export async function advance(
+  ledger: Ledger,
+  _world?: World,
+): Promise<Waiting> {
   for (const issue of ledger.inState("building"))
     await guarded(ledger, issue, () => {
       const made = specOf(ledger, issue.name);
@@ -230,4 +246,5 @@ export async function advance(ledger: Ledger) {
         ),
         "orchestrator",
       );
+  return {};
 }
