@@ -190,12 +190,20 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 
 *A land to main makes a new version, and the repo's ship kind releases it, with no hand step*
 
-- the version: semver, the next one read from the commits since the last (Conventional Commits; release-please or semantic-release)
-- the ship kinds
-	- a package: published to its registry (npm) by `publish.yml`
+- the version: crate's post-receive, after the copy to GitHub ([[repo#Platform]])
+	- the bump: semver (SemVer 2.0), read from the types of the commits since the package's last version tag (Conventional Commits 1.0). The strongest wins
+		- a breaking change (`feat!:`, or a `BREAKING CHANGE:` footer): major
+		- `feat`: minor
+		- `fix`, `perf`: patch
+		- any other type: no version
+	- before 1.0.0: each bump one place down, as npm's caret reads a 0.x version (`^0.30.0` takes 0.30.x only): a breaking change bumps minor, and `feat` bumps patch (release-please's `bump-minor-pre-major` and `bump-patch-for-minor-pre-major`). A package leaves 0.x only by a `v1.0.0` tag made by hand
+	- the tag: the truth, never committed back. `v<version>` for the package at the root, `<folder>-v<version>` for one in a folder (`crate.toml`'s `packages`), each counting only the commits that touch its folder
+	- the copy: every version tag to GitHub, by the repo's deploy key, which the version-tag ruleset lets through
+- the ship kinds, `crate.toml`'s `ship`
+	- a package (`npm`): published by the repo's `publish.yml` on the version tag, by npm's trusted publishing: no token, with provenance. It runs the check set, sets `package.json`'s version from the tag, and publishes. que-pasa and basis
 	- an image: built once, in presubmit, tagged by its commit, and released by a tag ([[cd#ship.yml]])
-	- nothing: a semantic or config repo, whose land is its release
-- Not built: a version read from the commits. que-pasa, basis and que publish on a `v*` tag pushed by hand, and que's `ship.yml` builds its image on main, not in presubmit ([[landing-flow]])
+	- nothing: no `ship`, no versions. A semantic or config repo, whose land is its release
+- Not built: the image kind on crate. que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[landing-flow]])
 
 ## Every workflow
 
