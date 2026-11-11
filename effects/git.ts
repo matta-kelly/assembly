@@ -297,14 +297,28 @@ export async function touched(r: Run): Promise<string[]> {
     .map((line) => line.slice(3));
 }
 
+/** A version tag crate puts on a commit: `v<version>` for the package at `.`, `<folder>-v<version>` for one in a folder. */
+const versionTag = /^(?:(.+)-)?v(\d+\.\d+\.\d+\S*)$/;
+
 /**
  * The version tags the land target holds on the commit main took for the landed cl `cl` (its branch), of `repo`. Asked
  * from the land target, never from the repo's local tags.
  */
 export async function landedTags(repo: string, cl: string): Promise<string[]> {
-  void repo;
-  void cl;
-  return [];
+  const took = (
+    await must("git", ["-C", repo, "rev-parse", `refs/heads/${branchOf(cl)}`])
+  ).trim();
+  const remote = await targetOf(repo);
+  const out = await must("git", ["-C", repo, "ls-remote", "--tags", remote]);
+  // An annotated tag is listed twice: itself, and its commit as `<tag>^{}`. A light tag is listed once, as its commit.
+  const tags = new Set<string>();
+  for (const line of out.split("\n")) {
+    const [sha, ref] = line.split("\t");
+    if (sha !== took || !ref?.startsWith("refs/tags/")) continue;
+    const tag = ref.slice("refs/tags/".length).replace(/\^\{\}$/, "");
+    if (versionTag.test(tag)) tags.add(tag);
+  }
+  return [...tags];
 }
 
 /** Which of `files` differ in the worktree from the item's branch, committed or not. */

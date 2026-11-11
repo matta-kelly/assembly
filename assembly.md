@@ -101,7 +101,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 		- for nail and hammer: `write_file`, `edit_file`, in their sparse checkout
 		- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
 	- `notes.ts`: the issue and cl notes. `trace.ts`: the record of each attempt
-- wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
+- wiring: `main.ts`. `compose` builds the factory from the other three, and the world the loop waits on (`npmRegistry`, `gitReader`, `landedTags`), under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
 - the command line: `cli/`, one module per command, on what `compose` builds (`just factory`)
 
 ## One job
@@ -201,7 +201,6 @@ What it keeps.
 - the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default
 - the dev image's tag per lockfile: an issue takes its repo's dev image tag once, at `factory add`, so a lockfile that changes while it runs fails setup
-- the wait for a published version in the running loop: `advance` takes a `World` (registry, reader, the tags of a landed cl), but `compose` does not build one yet, since the ledger keeps no landed commit to read tags from ([[landing-flow]])
 - a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate
 - check reuse: runs are recorded with their input hash, and never skipped on it

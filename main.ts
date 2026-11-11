@@ -15,6 +15,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { models as hostModels } from "./effects/models.ts";
 import { agents } from "./agents/index.ts";
 import { modelOf } from "./effects/models.ts";
+import { landedTags } from "./effects/git.ts";
 import { npmRegistry } from "./effects/registry.ts";
 import { gitReader } from "./effects/repo.ts";
 import { type Agents, quePasa } from "./effects/runner.ts";
@@ -68,7 +69,7 @@ export function compose(f: Factory) {
         world: {
           registry: npmRegistry(),
           reader: gitReader,
-          tags: async () => [],
+          tags: landedTags,
         },
         ...(f.concurrent !== undefined ? { concurrent: f.concurrent } : {}),
         ...(f.timeoutMs !== undefined ? { timeoutMs: f.timeoutMs } : {}),

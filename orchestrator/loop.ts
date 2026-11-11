@@ -175,6 +175,7 @@ export async function loop({
   steps,
   runner: openRunner,
   runs,
+  world,
   concurrent = 4,
   timeoutMs = 30 * 60_000,
 }: Loop) {
@@ -402,7 +403,7 @@ export async function loop({
     if (ticking || closing) return;
     ticking = true;
     try {
-      await advance(ledger);
+      await advance(ledger, world);
       await start();
     } finally {
       ticking = false;
