@@ -20,7 +20,7 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 [[repo]]: what the factory builds in, a repo and the environment it defines once. An issue may change several, a cl one.
 
 - dev image: the toolchain and the package cache, which every bench starts from
-- services: what runs beside the work, from `pod.yaml`. Not built ([[workspace-services]])
+- services: what runs beside the work, from `pod.yaml`. Not built ([[workspace-on-crate]])
 - check: `check.sh`, the one inspection, the same at every bench and at the dock
 
 ## The bench

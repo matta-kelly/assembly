@@ -35,7 +35,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 
 - four parts, all in the repo, each the repo's own
 	- the dev image: its Containerfile layer, with its system libraries and the package cache of its lockfile, from `.devcontainer/Containerfile` ([[#Dev image]])
-	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml` (kube YAML, `WORKSPACE` standing for the workspace's name), played by `scripts/workspace.sh` ([[workspace#Services]]). A repo with no services has no file. Not built: no repo has one yet
+	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml` (kube YAML, `WORKSPACE` standing for the workspace's name), played by `scripts/workspace.sh` ([[workspace#Services]]). A repo with no services has no file. stateball has the first
 		- the app under test: a repo with a UI runs its runtime image as one more service, `site`, on the same network as its tests, and its tests reach it by name (`http://site:3000`): on the workspace's network on a machine, on the job's own network in CI. Never `--network host`. Held by: publicpersona's check, the first; every repo with a UI follows it
 	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]])
 	- the ship kind: what a land to main releases, a package, an image, or nothing ([[ci#Release]])

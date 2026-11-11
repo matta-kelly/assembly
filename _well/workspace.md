@@ -50,7 +50,7 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 - the pod: the repo's `pod.yaml`, played on the network. The app reaches its database by the alias `postgres`, the same in every workspace, and the database runs the branch's migrations at start
 - the router: one Caddy container per machine, `workspace-router`, started on demand at `127.0.0.1:80`. It joins each workspace's network and routes `<name>.localhost` to `<name>-app`, the dev container's alias. A container cannot reach a port published on the host's loopback, so it proxies by name
 - an attempt: `up --attempt`. Its network is `--internal`, so its services are reachable and the outside is not, and it gets no route, so it cannot reach another workspace through the router
-- in use: basis, que-pasa, landl and publicpersona call it, for their network. Not built: a repo with a `pod.yaml` or a route ([[workspace-services]])
+- in use: que-pasa, landl, publicpersona and stateball call it. stateball has a `pod.yaml`, and publicpersona and stateball have a route. Not built: its place in crate, and basis's call ([[workspace-on-crate]])
 
 ## Machine
 
