@@ -284,7 +284,9 @@ describe("advance", () => {
     const before = ["is", "is-plan", "is-value", "is-double"].map(read);
     force("is", "accepted");
     await advance(ledger);
-    expect(["is", "is-plan", "is-value", "is-double"].map(read)).toEqual(before);
+    expect(["is", "is-plan", "is-value", "is-double"].map(read)).toEqual(
+      before,
+    );
     expect(read("is")).toBe(issueNote);
     expect(read("is-plan")).toMatch(/^status: active$/m);
     expect(state("is")).toBe("accepted");

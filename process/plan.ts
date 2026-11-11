@@ -7,13 +7,20 @@
  * approves (orchestrator/advance.ts). A spec Matt makes is read from its notes (readSpec) and checked by the same lint.
  */
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { within } from "../effects/git.ts";
-import { items, itemsIn, read, sectionIn } from "../effects/notes.ts";
+import {
+  folderNotes,
+  items,
+  itemsIn,
+  type Notes,
+  read,
+  sectionIn,
+} from "../effects/notes.ts";
 import type { Message, Run, Step } from "./step.ts";
 
 /** A lint's word, and why: a spec lints, or its attempt is a retry with the cause. */
@@ -425,23 +432,25 @@ export type Read = { ok: true; spec: Spec } | { ok: false; errors: string[] };
  * A spec Matt made, from the notes beside its issue: its cls (every cl note that belongs to the issue, or to its plan)
  * and its plan, `<issue>-plan.md`, when it has more than one. The issue has Done items. The plan is active, and its
  * Phases list names exactly its cls, each under its own phase. Each cl is new and holds kinetic's cl fields. What the
- * repo must hold is spec lint's.
+ * repo must hold is spec lint's. The notes come from a folder, or from a commit (`notes`).
  */
-export function readSpec(issuePath: string, issue: string): Read {
+export function readSpec(
+  issuePath: string,
+  issue: string,
+  notes: Notes = folderNotes,
+): Read {
   const errors: string[] = [];
-  const doc = read(issuePath);
+  const doc = notes.text(issuePath);
   if (!doc) return { ok: false, errors: [`no issue note at ${issuePath}`] };
   if (typeOf(doc) !== "issue") errors.push(`${issuePath}: not an issue note`);
   if (!itemsIn(noteOf(doc).body, "Done").length)
     errors.push(`${issuePath}: its Done has no items`);
   const dir = dirname(issuePath);
   const planFile = planPath(issuePath, issue);
-  const planDoc = read(planFile);
+  const planDoc = notes.text(planFile);
   const cls: ClSpec[] = [];
-  for (const f of readdirSync(dir)
-    .filter((x) => x.endsWith(".md"))
-    .sort()) {
-    const text = read(join(dir, f));
+  for (const f of notes.names(dir).sort()) {
+    const text = notes.text(join(dir, f));
     const { fields, body } = noteOf(text);
     if (fields["type"] !== "cl") continue;
     const to = linked(fields["belongsTo"]);

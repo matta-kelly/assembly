@@ -23,7 +23,7 @@ export interface Item {
   issue: string; // the issue it is, or belongs to
   seq: number; // a cl's place in its plan's order, from 1. 0 for an issue
   phase: number | null; // a cl's phase in its plan, from 1; null for an issue, and 1 for a lone cl
-  path: string; // its note, which the orchestrator writes
+  path: string; // its note
   repo: string;
   image: string;
   test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
@@ -96,7 +96,7 @@ const tables = `
     phase INTEGER, repos TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE IF NOT EXISTS specs (
-    issue TEXT PRIMARY KEY REFERENCES items(name), spec TEXT NOT NULL, by TEXT NOT NULL
+    issue TEXT PRIMARY KEY REFERENCES items(name), spec TEXT NOT NULL, by TEXT NOT NULL, commit_sha TEXT
   );
   CREATE TABLE IF NOT EXISTS attempts (
     name TEXT NOT NULL REFERENCES items(name), n INTEGER NOT NULL, step TEXT NOT NULL,
@@ -134,6 +134,12 @@ export function open(file: string) {
   }[];
   if (!columns.some((c) => c.name === "repos"))
     db.exec("ALTER TABLE items ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
+  // A ledger made before a spec kept its commit has no column for it.
+  const specColumns = db.prepare("PRAGMA table_info(specs)").all() as {
+    name: string;
+  }[];
+  if (!specColumns.some((c) => c.name === "commit_sha"))
+    db.exec("ALTER TABLE specs ADD COLUMN commit_sha TEXT");
 
   // A write inside another write joins its transaction, so a write made of others is still one.
   let depth = 0;
@@ -526,22 +532,28 @@ export function open(file: string) {
       });
     },
 
-    /** The spec Matt submitted for an issue, kept with who made it, or undefined. */
+    /** The spec Matt submitted for an issue, kept with who made it and the commit it was read at, or undefined. */
     spec(
       issue: string,
     ): { spec: unknown; by: string; commit?: string } | undefined {
       const row = db
-        .prepare("SELECT spec, by FROM specs WHERE issue = ?")
-        .get(issue) as { spec: string; by: string } | undefined;
-      return row && { spec: JSON.parse(row.spec), by: row.by };
+        .prepare("SELECT spec, by, commit_sha FROM specs WHERE issue = ?")
+        .get(issue) as
+        { spec: string; by: string; commit_sha: string | null } | undefined;
+      return (
+        row && {
+          spec: JSON.parse(row.spec),
+          by: row.by,
+          ...(row.commit_sha === null ? {} : { commit: row.commit_sha }),
+        }
+      );
     },
 
-    /** Keeps an issue's spec, and who made it, in place of any before. */
+    /** Keeps an issue's spec, who made it and the commit it was read at, in place of any before. */
     keepSpec(issue: string, spec: unknown, by: string, commit?: string) {
-      void commit;
       db.prepare(
-        "INSERT INTO specs (issue, spec, by) VALUES (?, ?, ?) ON CONFLICT(issue) DO UPDATE SET spec = excluded.spec, by = excluded.by",
-      ).run(issue, JSON.stringify(spec), by);
+        "INSERT INTO specs (issue, spec, by, commit_sha) VALUES (?, ?, ?, ?) ON CONFLICT(issue) DO UPDATE SET spec = excluded.spec, by = excluded.by, commit_sha = excluded.commit_sha",
+      ).run(issue, JSON.stringify(spec), by, commit ?? null);
     },
 
     /** Lets go of an issue's kept spec: its next plan is the factory's planner's. */

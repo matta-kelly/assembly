@@ -323,12 +323,16 @@ describe("submit", () => {
       const { ledger } = factory();
       expect(ledger.spec("fx")?.commit).toBe(c);
       expect(ledger.spec("fx")?.commit).toMatch(/^[0-9a-f]{40}$/);
-      expect(
-        clOf(ledger, { name: "fx-a", issue: "fx" }).checkout,
-      ).toEqual(["src/a.ts", "test/a.test.ts", "src/b.ts"]);
-      expect(
-        clOf(ledger, { name: "fx-c", issue: "fx" }).checkout,
-      ).toEqual(["src/c.ts", "test/c.test.ts", "src/b.ts"]);
+      expect(clOf(ledger, { name: "fx-a", issue: "fx" }).checkout).toEqual([
+        "src/a.ts",
+        "test/a.test.ts",
+        "src/b.ts",
+      ]);
+      expect(clOf(ledger, { name: "fx-c", issue: "fx" }).checkout).toEqual([
+        "src/c.ts",
+        "test/c.test.ts",
+        "src/b.ts",
+      ]);
     },
   );
 

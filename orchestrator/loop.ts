@@ -29,7 +29,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { changed, commit, head, touched, worktree } from "../effects/git.ts";
 import { land } from "../effects/land.ts";
-import { read, setStatus } from "../effects/notes.ts";
+import { read } from "../effects/notes.ts";
 import { log, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
 import {
@@ -349,7 +349,6 @@ export async function loop({
       if (ran) checkSpan(span, landing, ran);
       if (v.word === "pass") {
         ledger.paths(r.name, out.files);
-        setStatus(r.path, "done");
       }
     } catch (e) {
       if (closing) return;

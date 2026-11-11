@@ -1,8 +1,8 @@
 /**
  * What Matt does to the factory from the command line, each a message through the ledger's one door (apply), as Matt.
  * - add <issue.md>: an issue enters at open, for the factory's planner
- * - submit <issue.md>: an issue with the spec Matt made, its cls and its plan beside it, enters at building: his pass
- *   at open and at plan review, so only the build and acceptance run it
+ * - submit <issue> [--at <ref>]: an issue with the spec Matt made, read from kinetic at one commit, its cls and its plan
+ *   beside it, enters at building: his pass at open and at plan review, so only the build and acceptance run it
  * - approve <issue>: his pass at plan review, for a plan the factory's planner made
  * - replan <issue>: an issue he holds, raised or escalated, back to open, its cls not landed dropped
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
@@ -11,10 +11,11 @@
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { Built } from "../main.ts";
-import { read, setStatus } from "../effects/notes.ts";
+import { commitOf, notesAt, read, readAt } from "../effects/notes.ts";
 import { kebab, readSpec, specLint, typeOf } from "../process/plan.ts";
 import type { Message, Repo } from "../process/step.ts";
 import {
+  mainRef,
   type Reader,
   readerImage,
   reposOn,
@@ -47,6 +48,52 @@ export interface Options {
 
 type At = { path: string; name: string; repos: Repo[]; done?: never };
 
+/** The paths of the repos an issue may change: those given, else every repo on crate under the root. */
+function given(o: Options): { paths: string[]; done?: never } | { done: Done } {
+  const paths = (
+    o.repos.length ? o.repos : o.root ? reposOn(o.root, o.read) : []
+  ).map((each) => resolve(each));
+  if (paths.length) return { paths };
+  return {
+    done: misused(
+      o.root
+        ? `no repo on crate under ${o.root}`
+        : "an issue needs its repos: --repo, or a root to find every repo on crate under",
+    ),
+  };
+}
+
+/** The repos at `paths`, each with its settings read from its main, or why the issue can't be run. */
+function reposFor(
+  f: () => Built,
+  name: string,
+  paths: string[],
+  o: Options,
+): { repos: Repo[]; done?: never } | { done: Done } {
+  const no = (done: Done) => ({ done });
+  const repos: Repo[] = [];
+  for (const repo of paths) {
+    if (!existsSync(join(repo, ".git")))
+      return no(refused(`${repo} is not a git repo`));
+    const s = settingsOf(repo, o.dev, o.read);
+    if (!s.ok) return no(refused(s.error));
+    if (repos.some((r) => r.name === s.repo.name))
+      return no(
+        refused(
+          `two repos are named ${s.repo.name}: a cl names its repo by its folder`,
+        ),
+      );
+    repos.push(s.repo);
+  }
+  if (
+    f()
+      .ledger.items()
+      .some((i) => i.name === name)
+  )
+    return no(refused(`${name} is in the ledger already`));
+  return { repos };
+}
+
 /** The issue note at `note`, its name and its repos, or why it can't be one. */
 function issueAt(
   f: () => Built,
@@ -54,19 +101,8 @@ function issueAt(
   o: Options,
 ): At | { done: Done } {
   const no = (done: Done) => ({ done });
-  const given = o.repos.length
-    ? o.repos
-    : o.root
-      ? reposOn(o.root, o.read)
-      : [];
-  if (!given.length)
-    return no(
-      misused(
-        o.root
-          ? `no repo on crate under ${o.root}`
-          : "an issue needs its repos: --repo, or a root to find every repo on crate under",
-      ),
-    );
+  const repos = given(o);
+  if (repos.done) return repos;
   const path = resolve(note);
   const doc = read(path);
   if (!doc)
@@ -87,28 +123,9 @@ function issueAt(
   const name = basename(path, ".md");
   if (!kebab.test(name))
     return no(refused(`${name}: an issue's name is kebab-case, from its note`));
-  const repos: Repo[] = [];
-  for (const each of given) {
-    const repo = resolve(each);
-    if (!existsSync(join(repo, ".git")))
-      return no(refused(`${repo} is not a git repo`));
-    const s = settingsOf(repo, o.dev, o.read);
-    if (!s.ok) return no(refused(s.error));
-    if (repos.some((r) => r.name === s.repo.name))
-      return no(
-        refused(
-          `two repos are named ${s.repo.name}: a cl names its repo by its folder`,
-        ),
-      );
-    repos.push(s.repo);
-  }
-  if (
-    f()
-      .ledger.items()
-      .some((i) => i.name === name)
-  )
-    return no(refused(`${name} is in the ledger already`));
-  return { path, name, repos };
+  const got = reposFor(f, name, repos.paths, o);
+  if (got.done) return got;
+  return { path, name, repos: got.repos };
 }
 
 /** Puts the issue in the ledger at open: one of one repo in that repo's image, one of several in the reader's. */
@@ -134,34 +151,58 @@ export function add(f: () => Built, note: string, o: Options): Done {
   };
 }
 
+/** The folder of the kinetic repo that holds the issues' notes. */
+const wellDir = "_well";
+
 /**
- * submit <issue.md>: an issue with the spec Matt made, read whole from its notes (readSpec) and linted against the repo
- * as the factory's own planner's is (specLint). It enters at building, with his two passes, and the spec is kept.
+ * submit <issue> [--at <ref>]: an issue with the spec Matt made, its note `_well/<issue>.md` in the kinetic repo (the
+ * repo named kinetic among the issue's) and its plan and cls beside it. The spec is read with git at the commit `at`
+ * (kinetic's server/main when none), never from the working tree, linted against the repo as the factory's own planner's
+ * is (specLint), and kept with that commit. It enters at building, with his two passes.
  */
-export function submit(f: () => Built, note: string, o: Options): Done {
-  const at = issueAt(f, note, o);
-  if (at.done) return at.done;
-  const got = readSpec(at.path, at.name);
-  if (!got.ok) return refused(...got.errors);
+export function submit(f: () => Built, issue: string, o: Options): Done {
+  if (!kebab.test(issue))
+    return refused(`${issue}: an issue's name is kebab-case`);
+  const paths = given(o);
+  if (paths.done) return paths.done;
+  const got = reposFor(f, issue, paths.paths, o);
+  if (got.done) return got.done;
+  const kinetic = paths.paths.find((p) => basename(p) === "kinetic");
+  if (!kinetic)
+    return refused(
+      "a submit needs the kinetic repo among the repos: the one named kinetic",
+    );
+  const ref = o.at ?? mainRef;
+  const note = `${wellDir}/${issue}.md`;
+  const commit = commitOf(kinetic, ref);
+  if (!commit || !readAt(kinetic, commit, note))
+    return refused(`no note ${note} at ${ref} in ${kinetic}`);
+  const spec = readSpec(note, issue, notesAt(kinetic, commit));
+  if (!spec.ok) return refused(...spec.errors);
   const { ledger } = f();
-  const lint = specLint(got.spec, {
-    taken: (c) => ledger.items().some((i) => i.name === `${at.name}-${c}`),
-    repos: at.repos.map((r) => r.name),
+  const lint = specLint(spec.spec, {
+    taken: (c) => ledger.items().some((i) => i.name === `${issue}-${c}`),
+    repos: got.repos.map((r) => r.name),
   });
   if (lint.word !== "pass") return refused(lint.reason);
   ledger.transaction(() => {
-    enter(f, at);
-    ledger.apply(at.name, said("pass", "Matt planned it"), "matt");
-    ledger.keepSpec(at.name, got.spec, "matt");
-    ledger.apply(at.name, said("pass", "Matt approved its plan"), "matt");
+    ledger.addIssueAcross({
+      name: issue,
+      path: join(kinetic, note),
+      image: readerImage,
+      repos: got.repos,
+    });
+    ledger.apply(issue, said("pass", "Matt planned it"), "matt");
+    ledger.keepSpec(issue, spec.spec, "matt", commit);
+    ledger.apply(issue, said("pass", "Matt approved its plan"), "matt");
   });
-  const n = got.spec.cls.length;
+  const n = spec.spec.cls.length;
   return {
     code: 0,
     lines: [
-      `submitted ${at.name}, building, with ${n} ${n === 1 ? "cl" : "cls"}:`,
-      ...got.spec.cls.map(
-        (c) => `  ${at.name}-${c.name}  phase ${c.phase ?? 1}`,
+      `submitted ${issue}, building, with ${n} ${n === 1 ? "cl" : "cls"}:`,
+      ...spec.spec.cls.map(
+        (c) => `  ${issue}-${c.name}  phase ${c.phase ?? 1}`,
       ),
     ],
   };
@@ -197,7 +238,6 @@ export function replan(f: () => Built, name: string): Done {
   ledger.transaction(() => {
     for (const c of rest) {
       ledger.apply(c.name, said("drop", "Matt replans its issue"), "matt");
-      setStatus(c.path, "dropped");
     }
     ledger.dropSpec(name);
     ledger.apply(

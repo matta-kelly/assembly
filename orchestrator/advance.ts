@@ -8,7 +8,6 @@
  * - a cl that raised relays its message to its issue: findings about the cl or the plan send it to the planner, and
  *   about the issue to Matt; its cls not landed are dropped. A cl escalated escalates its issue. An issue whose spec
  *   Matt made goes to Matt instead of the planner, on a raise or a send-back, escalated
- * - an accepted issue's notes are done
  */
 
 import {
@@ -23,7 +22,7 @@ import {
 } from "../process/plan.ts";
 import type { Message } from "../process/step.ts";
 import type { Item, Ledger } from "./ledger.ts";
-import { read, setStatus, writeNote } from "../effects/notes.ts";
+import { writeNote } from "../effects/notes.ts";
 import { top } from "../process/table.ts";
 
 const link = (name: string) => `[[${name}]]`;
@@ -100,7 +99,6 @@ function addCls(ledger: Ledger, issue: Item, s: Spec) {
 function build(ledger: Ledger, issue: Item, s: Spec, by: string) {
   if (by === "factory") writeNotes(ledger, issue, s);
   addCls(ledger, issue, s);
-  setStatus(issue.path, "in-progress");
 }
 
 const live = (c: Item) => c.state !== "dropped" && c.state !== "raised";
@@ -188,7 +186,6 @@ export async function advance(ledger: Ledger) {
     // is Matt's; a cl or the plan is the planner's, by the table.
     ledger.transaction(() => {
       for (const c of [cl, ...rest]) {
-        setStatus(c.path, "dropped");
         ledger.apply(
           c.name,
           say(
@@ -233,11 +230,4 @@ export async function advance(ledger: Ledger) {
         ),
         "orchestrator",
       );
-
-  for (const issue of ledger.inState("accepted")) {
-    if (read(issue.path).match(/^status: done$/m)) continue;
-    setStatus(issue.path, "done");
-    if (specOf(ledger, issue.name)?.spec.plan)
-      setStatus(planPath(issue.path, issue.name), "done");
-  }
 }

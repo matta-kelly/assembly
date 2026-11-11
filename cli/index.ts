@@ -4,7 +4,7 @@
  * error with exit 2 (clig.dev). The factory is opened only for a verb it has, so a usage error leaves nothing behind.
  *
  *   factory add <issue.md> [--repo <path>]...
- *   factory submit <issue.md> [--repo <path>]...
+ *   factory submit <issue> [--repo <path>]... [--at <ref>]
  *   factory approve <issue>
  *   factory replan <issue>
  *   factory run [--every <seconds>]
@@ -37,7 +37,7 @@ export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export const usage = `factory add <issue.md> [--repo <path>]...
-factory submit <issue.md> [--repo <path>]...
+factory submit <issue> [--repo <path>]... [--at <ref>]
 factory approve <issue>
 factory replan <issue>
 factory run [--every <seconds>]
@@ -64,6 +64,7 @@ export async function main(
       options: {
         repo: { type: "string", multiple: true },
         every: { type: "string", default: "5" },
+        at: { type: "string" },
       },
     });
   } catch (e) {
@@ -83,6 +84,7 @@ export async function main(
         root: env["ASSEMBLY_REPOS"],
         dev: devImagesOf(env["ASSEMBLY_DEV_IMAGES"]),
         read,
+        at: values.at,
       });
       if (done.code === 2) done.lines.push(usage);
       return print(done);

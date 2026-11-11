@@ -31,10 +31,10 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 The model: the four things that travel with a job, each with its rules in the process, its store behind an effect, and its moves in the engine.
 
 - spec: the notes that say what must be true: the issue, the plan and its cls, in kinetic
-	- shapes: held by the process. `effects/notes.ts` reads them by path
-	- writes: the engine writes only the notes of a spec the factory's planner made, in kinetic's format, and each item's `status`. A finding is never written into a note
-	- Matt's spec: his own notes, which the engine reads and never writes, except their `status`
-	- the kept spec: the ledger keeps each issue's spec with who made it, the planner's passed result or the one Matt submitted (`specs`)
+	- shapes: held by the process. `effects/notes.ts` reads them by path, or from a git commit
+	- writes: the engine writes only the notes of a spec the factory's planner made, in kinetic's format. No note's `status` is written: the ledger is the status. A finding is never written into a note
+	- Matt's spec: his own notes, which the engine reads at one kinetic commit and never writes
+	- the kept spec: the ledger keeps each issue's spec with who made it, the planner's passed result or the one Matt submitted, and the commit a submitted one was read at (`specs`)
 - product: the files a cl's builders make, its tests and its code, in git
 	- judged by: the process's checks. Red at an assertion, no test changed, green
 	- held by: `effects/git.ts`. The engine commits it, and lands it on main ([[#The dock]])
@@ -151,7 +151,7 @@ An attempt: one step on one item, at one bench. Its run, its sandbox and its wor
 Where it meets other systems, and what crosses each.
 
 - [[que-pasa]]: the harness. assembly gives it agents, tools, a model and a context per run; it gives back the result and the usage, keeps the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
-- [[kinetic]]: the work. The spec is kinetic's, assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them by path, and writes back only its projections
+- [[kinetic]]: the work. The spec is kinetic's, assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them from a commit, and writes only the notes of a spec its planner made
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, comes from the vault (`secrets.toml`, through rbw-run) into the orchestrator only, never a sandbox. `just smoke-model` makes one real call per model
 - the host: git and podman
@@ -182,9 +182,9 @@ What it keeps.
 - the command line: `just factory`, its home `$XDG_STATE_HOME/assembly`
 	- each command: a message through the one door, as Matt
 	- `add`: an issue, which enters at open, for the planner
-	- `submit`: an issue with the spec Matt made, its cls and its plan beside it in kinetic's format
-		- where it enters: building, by his passes at open and plan review. Only the build and acceptance run it, and they write only its notes' status
-		- its notes: read whole, each cl's fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is
+	- `submit <issue> [--at <ref>]`: an issue with the spec Matt made, its cls and its plan beside it in kinetic's format, as kinetic's repo holds them at one commit (its `server/main` when none is given)
+		- where it enters: building, by his passes at open and plan review. Only the build and acceptance run it, and they write no note
+		- its notes: read with git at the commit, never from the working tree, whole, each cl's fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is
 		- a raise or a send-back on it: goes to Matt, escalated, never to the planner
 	- `approve`: an issue at planned, his pass in place of plan-review's
 	- `replan`: an issue he holds, raised or escalated, back to open, its cls not landed dropped
