@@ -51,9 +51,6 @@ checkout:
   - src/${name}.ts
   - test/${name}.test.ts
   - src/b.ts
-scope:
-  - src/${name}.ts
-  - test/${name}.test.ts
 test: npx vitest run test/${name}.test.ts
 ---
 src/${name}.ts exports ${name}, which is 2.
@@ -150,10 +147,7 @@ describe("submit", () => {
       ["fx-c", 2, "waiting"],
     ]);
     const a = clOf(ledger, { name: "fx-a", issue: "fx" });
-    expect([a.checkout, a.scope]).toEqual([
-      ["src/a.ts", "test/a.test.ts", "src/b.ts"],
-      ["src/a.ts", "test/a.test.ts"],
-    ]);
+    expect(a.checkout).toEqual(["src/a.ts", "test/a.test.ts", "src/b.ts"]);
     expect(readFileSync(join(notes, "fx-plan.md"), "utf8")).toBe(before);
   });
 
@@ -167,7 +161,7 @@ describe("submit", () => {
     ]);
   });
 
-  it("refuses a spec its notes can't make whole, or that does not lint against the repo, and writes nothing", () => {
+  it("refuses a spec its notes can't make whole, or that does not lint, and writes nothing", () => {
     twoPhases();
     writeFileSync(join(notes, "fx-c.md"), cl("c", 1));
     expect(submit(factory, join(notes, "fx.md"), run()).lines).toEqual([
@@ -177,11 +171,11 @@ describe("submit", () => {
     ]);
     writeFileSync(
       join(notes, "fx-c.md"),
-      cl("c", 2).replace("src/b.ts", "src/gone.ts"),
+      cl("c", 2).replace("src/b.ts", "../b.ts"),
     );
     expect(submit(factory, join(notes, "fx.md"), run()).lines).toEqual([
       expect.stringMatching(
-        /cl c: files of its checkout are not in the repo: src\/gone.ts/,
+        /cl c: files outside the repo, or its root: ..\/b.ts/,
       ),
     ]);
     expect(factory().ledger.items()).toEqual([]);

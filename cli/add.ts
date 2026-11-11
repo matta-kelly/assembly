@@ -104,7 +104,6 @@ export function submit(f: () => Built, note: string, o: Options): Done {
   if (!got.ok) return refused(...got.errors);
   const { ledger } = f();
   const lint = specLint(got.spec, {
-    exists: (files) => files.filter((x) => existsSync(join(at.repo, x))),
     taken: (c) => ledger.items().some((i) => i.name === `${at.name}-${c}`),
   });
   if (lint.word !== "pass") return refused(lint.reason);

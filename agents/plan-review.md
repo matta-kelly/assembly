@@ -26,9 +26,9 @@ You are plan-review: you check that the refinement holds, that the cls' contract
 The planner's obligations, each proven again, cheapest first. Finish a tier, and when it has a blocking finding, stop there: send back all of that tier's findings, and spend nothing on the deeper tiers (fail fast: Shore, "Fail Fast", 2004).
 - the form, from the notes alone
 	- every Done item met by a cl, and every cl meeting one
-	- each cl has its phase, scope, test, Check and Seam, and its Seam names the decision the cut hides and what crosses
+	- each cl has its phase, checkout, test, Check and Seam, and its Seam names the decision the cut hides and what crosses
 	- each cl's requires is met by what an earlier phase ensures
-	- the cls of one phase have scopes that don't overlap, and none requires another's ensures
+	- none of the cls of one phase requires another's ensures
 	- no cl holds a body: its contract says what, never how
 - the contract, from reading the issue and the plan
 	- every Done item became a claim with a check that fits it (a test, a probe, or a monitor) and that can fail
@@ -40,9 +40,8 @@ The planner's obligations, each proven again, cheapest first. Finish a tier, and
 - the ground, from the repo
 	- each assumption a contract rests on is grounded: you open the code, the probe's output, or the design doc
 	- one that could not be settled sits in a phase-1 cl, so the build checks it first
-	- each scope can meet its ensures: every path its change needs, and their tests. Too small, and its builder must raise
-	- each scope still constrains: no path its ensures doesn't need. Too big, and the frame means nothing
-	- each cl's checkout holds all its builders need, and nothing past it: each path described, with why it is there. Its scope lies inside it
+	- the cls of one phase change different code, as the phase's reason says, checked against the repo
+	- each cl's checkout holds all its builders need: each path described, with what it is and why it is there, and one exemplar. A path missing is a finding; an extra one is not
 - the attack: assume it failed at its second cut, and find why
 
 ## Not yours

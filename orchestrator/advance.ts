@@ -92,7 +92,6 @@ function addCls(ledger: Ledger, issue: Item, s: Spec) {
       },
       phase === 1 ? "ready" : "waiting",
     );
-    ledger.paths(name, "planned", c.scope);
   });
 }
 

@@ -512,8 +512,8 @@ export function open(file: string) {
       return row?.result ? JSON.parse(row.result) : undefined;
     },
 
-    /** Records paths of a cl: the files its plan says it changes, or the files it changed when merged. */
-    paths(name: string, kind: "planned" | "actual", paths: string[]) {
+    /** Records the files a cl changed, when merged. */
+    paths(name: string, kind: "actual", paths: string[]) {
       tx(() => {
         for (const path of paths)
           db.prepare(

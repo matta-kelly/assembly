@@ -39,7 +39,7 @@ const remove = (r: Run) =>
 /**
  * Runs the attempt's setup on its worktree, and marks it done when it passes. Throws, with why, when it fails. A
  * cache that lacks a package of the lockfile (npm's ENOTCACHED) is named: the image is older than the lockfile. So is
- * a setup that leaves files git does not ignore: the scope check and the commits would take them for the agent's.
+ * a setup that leaves files git does not ignore: the commits would take them for the agent's.
  * The podman client an abort stops leaves its container running, so it is removed: here, and before each setup.
  */
 export async function runSetup(r: Run, signal?: AbortSignal) {

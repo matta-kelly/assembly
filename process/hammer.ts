@@ -44,7 +44,7 @@ export const changedOf = (ledger: Ledger, cl: string): string =>
 export const hammer: Step<Done> = {
   from: "red",
   agent: "da-hammer",
-  // a sparse checkout of its cl's checkout, committing only its scope
+  // a sparse checkout of its cl's checkout
   bound: true,
   done,
   about: ["tests", "cl", "plan", "issue"],

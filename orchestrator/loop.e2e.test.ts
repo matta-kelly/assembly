@@ -109,7 +109,6 @@ const cl = (
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`, "README", ...read],
-  scope: [`src/${name}.mjs`, `test/${name}.test.mjs`],
   test: `node --test test/${name}.test.mjs`,
   check: [behavior],
   seam: `src/${name}.mjs's export, which the next cl imports`,
@@ -221,14 +220,12 @@ const plain = (last: string) => {
 };
 
 /**
- * What value's da-hammer saw when it reached past its cl, before it coded: a file outside its checkout, the root, and a
- * write outside its scope.
+ * What value's da-hammer saw when it reached past its cl, before it coded: a file outside its checkout, and the root.
  */
 const probed: string[] = [];
 const probes = [
   fauxToolCall("read_file", { file_path: "NOTES" }),
   fauxToolCall("ls", { path: "." }),
-  fauxToolCall("write_file", { file_path: "src/stray.mjs", content: "x" }),
 ];
 
 /** da-hammer makes its cut's test pass. value's first reaches past its cut. */
@@ -330,7 +327,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       writeFileSync(join(repo, "README"), "a repo\n");
       // in no cut: no bound agent may see it
       writeFileSync(join(repo, "NOTES"), "not in any cut\n");
-      // what setup installs: in no commit, and outside every cut's scope check
+      // what setup installs: in no commit
       writeFileSync(join(repo, ".gitignore"), "deps/\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "init");
@@ -448,7 +445,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         }
 
         // value's da-hammer held only its cl's checkout: NOTES, in the repo but not in the checkout, is not on disk;
-        // the root holds only the checkout's paths; a write outside its scope is in no commit.
+        // the root holds only the checkout's paths.
         expect(probed[0]).toMatch(/NOTES/);
         // (the worktree's .git file points at the repo, which is not mounted)
         expect(probed[1]).toBe(".git\nREADME\nsrc/\ntest/");
@@ -460,9 +457,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           .map((x) => join(valueRuns, String(x.n), "work"));
         expect(bound.length).toBeGreaterThan(1);
         expect(bound.filter((w) => existsSync(join(w, "NOTES")))).toEqual([]);
-        expect(
-          git(repo, "log", "--all", "--format=%h", "--", "src/stray.mjs"),
-        ).toBe("");
 
         // The issue went through each of its steps once, in order, and each cl through its own.
         const moves = (name: string) =>
@@ -504,7 +498,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           "- Phase 2: double, once value is merged\n\t- [[is-double]]",
         );
         expect(note("is-double")).toContain(
-          'scope: ["src/double.mjs","test/double.test.mjs"]',
+          'checkout: ["src/double.mjs","test/double.test.mjs","README","src/value.mjs"]',
         );
         expect(note("is-value")).toMatch(/^status: done$/m);
 
@@ -554,12 +548,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             )
             .all()
             .map((p) => `${p["kind"] as string} ${p["path"] as string}`),
-        ).toEqual([
-          "actual src/double.mjs",
-          "actual test/double.test.mjs",
-          "planned src/double.mjs",
-          "planned test/double.test.mjs",
-        ]);
+        ).toEqual(["actual src/double.mjs", "actual test/double.test.mjs"]);
         // Each check's test run is recorded with its attempt: the cl's red, green and review checks, on real trees.
         const checks = db
           .prepare(

@@ -15,7 +15,6 @@ import {
   specLint,
   specText,
 } from "./plan.ts";
-import { fakeWorktree } from "./fake-worktree.ts";
 
 const cl = (name: string, phase?: number, o: Partial<ClSpec> = {}): ClSpec => ({
   name,
@@ -23,7 +22,6 @@ const cl = (name: string, phase?: number, o: Partial<ClSpec> = {}): ClSpec => ({
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.ts`, `src/${name}.test.ts`, "src/a.ts"],
-  scope: [`src/${name}.ts`, `src/${name}.test.ts`],
   test: `node --test src/${name}.test.ts`,
   check: ["given x, when y, then z"],
   seam: `the export of src/${name}.ts`,
@@ -37,10 +35,7 @@ const plan = (...cls: ClSpec[]): Spec => ({
   },
   cls,
 });
-const o = {
-  exists: fakeWorktree({ files: ["src/a.ts"] }).exists,
-  taken: () => false,
-};
+const o = { taken: () => false };
 
 describe("spec lint", () => {
   it("passes a plan whose phases run from 1, and a lone cl with no plan and no phase", () => {
@@ -73,11 +68,7 @@ describe("spec lint", () => {
     ).toMatch(/already has the name: one/);
   });
 
-  it("retries a scope outside its checkout, a path outside the repo, and a file to read that is not there", () => {
-    expect(
-      specLint({ cls: [cl("one", undefined, { scope: ["lib/x.ts"] })] }, o)
-        .reason,
-    ).toMatch(/scope is not in its checkout: lib\/x.ts/);
+  it("retries a path outside the repo", () => {
     expect(
       specLint(
         {
@@ -90,39 +81,6 @@ describe("spec lint", () => {
         o,
       ).reason,
     ).toMatch(/outside the repo/);
-    expect(
-      specLint(
-        {
-          cls: [
-            cl("one", undefined, {
-              checkout: ["src/one.ts", "src/one.test.ts", "src/gone.ts"],
-            }),
-          ],
-        },
-        o,
-      ).reason,
-    ).toMatch(/not in the repo: src\/gone.ts/);
-  });
-
-  it("lets a cl read a file a cl of an earlier phase makes, and not one of its own phase", () => {
-    const two = cl("two", 2, {
-      checkout: ["src/two.ts", "src/two.test.ts", "src/one.ts"],
-    });
-    expect(specLint(plan(cl("one", 1), two), o).word).toBe("pass");
-    expect(
-      specLint(plan(cl("one", 1), { ...two, phase: 1 }), o).reason,
-    ).toMatch(/not in the repo: src\/one.ts/);
-  });
-
-  it("retries two cls of one phase that change the same file", () => {
-    const two = cl("two", 1, {
-      checkout: ["src/one.ts", "src/two.test.ts"],
-      scope: ["src/one.ts"],
-      test: "node --test src/two.test.ts",
-    });
-    expect(specLint(plan(cl("one", 1), two), o).reason).toMatch(
-      /overlaps a cl of its phase/,
-    );
   });
 
   it("retries a test command that runs a file not in its checkout", () => {
@@ -155,14 +113,11 @@ describe("a cl's spec", () => {
       passed: () => undefined,
     }) as unknown as Parameters<typeof clOf>[0];
 
-  it("is found in its issue's spec by the cl's name, with its checkout and its scope", () => {
+  it("is found in its issue's spec by the cl's name, with its checkout", () => {
     const s = plan(cl("one", 1), cl("two", 2));
     expect(clOf(ledger(s), { name: "is-two", issue: "is" }).name).toBe("two");
     const one = clOf(ledger(s), { name: "is-one", issue: "is" });
-    expect([one.checkout, one.scope]).toEqual([
-      ["src/one.ts", "src/one.test.ts", "src/a.ts"],
-      ["src/one.ts", "src/one.test.ts"],
-    ]);
+    expect(one.checkout).toEqual(["src/one.ts", "src/one.test.ts", "src/a.ts"]);
   });
 
   it("is an error for a cl its issue's spec does not have", () => {
@@ -175,7 +130,7 @@ describe("a cl's spec", () => {
     const text = specText(plan(cl("one", 1), cl("two", 2)));
     expect(text).toContain("- Phase 2: phase 2");
     expect(text).toContain("### two, phase 2: two works");
-    expect(text).toContain("- scope: src/two.ts, src/two.test.ts");
+    expect(text).toContain("- checkout: src/two.ts, src/two.test.ts, src/a.ts");
   });
 });
 

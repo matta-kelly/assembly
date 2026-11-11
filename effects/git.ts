@@ -7,10 +7,9 @@
  * attempt and moves the item's branch to it, so the next step starts from it. A failed attempt's branch is kept, as its
  * record.
  *
- * A bound attempt (nail, hammer) has a scope: its worktree is a sparse checkout of its cl's checkout, so only those
- * paths are on disk, and a pass commits only what it changed inside its scope. Its tests run on the item's full
- * worktree, beside the attempts' folders, with that same change applied (stage), so the tree a test sees is the tree
- * the pass commits.
+ * A bound attempt (nail, hammer) has a checkout: its worktree is a sparse checkout of its cl's checkout, so only those
+ * paths are on disk, and a pass commits what it changed. Its tests run on the item's full worktree, beside the
+ * attempts' folders, with that same change applied (stage), so the tree a test sees is the tree the pass commits.
  */
 
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
@@ -147,12 +146,12 @@ async function scratch<T>(
 }
 
 /**
- * The tree of the attempt's HEAD with its changes inside its scope, and nothing else: what a pass commits and what its
- * tests see. Built in a scratch index from HEAD, so the worktree's own index is left as it is.
+ * The tree of a sparse attempt's HEAD with its changes: what a pass commits and what its tests see. Built in a scratch
+ * index from HEAD, by path, so the worktree's own index is left as it is and no path outside the checkout is staged
+ * as removed.
  */
-async function scopedTree(r: Run): Promise<string> {
-  const scope = r.scope ?? [];
-  const these = (await touched(r)).filter((f) => within(scope, f));
+async function changedTree(r: Run): Promise<string> {
+  const these = await touched(r);
   const index = join(r.dir, "stage.index");
   const env = { ...process.env, GIT_INDEX_FILE: index };
   try {
@@ -170,11 +169,11 @@ async function scopedTree(r: Run): Promise<string> {
 }
 
 /**
- * Puts the attempt's change into the item's full worktree: its HEAD, with what it changed inside its scope. Files git
+ * Puts the attempt's change into the item's full worktree: its HEAD, with what it changed. Files git
  * ignores there, as the installed dependencies, stay. Gives back the tree, the one the test run sees.
  */
 export async function stage(r: Run): Promise<string> {
-  const tree = await scopedTree(r);
+  const tree = await changedTree(r);
   await must("git", ["-C", fullOf(r), "read-tree", "-u", "--reset", tree]);
   return tree;
 }
@@ -182,7 +181,7 @@ export async function stage(r: Run): Promise<string> {
 /**
  * Adds an approved cl to its issue's branch. A cl starts from its issue's branch and the cls run one at a time, so the
  * issue's branch is always behind the cl's, and it moves forward to it. An issue's branch that is not behind it is an
- * error: two cls ran at once. Gives back the files the cl changed, for the ledger's planned and actual paths.
+ * error: two cls ran at once. Gives back the files the cl changed, for the ledger's actual paths.
  */
 export async function merge(
   repo: string,
@@ -225,12 +224,11 @@ export async function merge(
 
 /**
  * Commits what the agent left in the worktree, and moves the item's branch to it. Nothing to commit is not an error.
- * A bound attempt commits only what it changed inside its scope: the same tree its tests saw. A write outside the
- * scope stays in the attempt's worktree, in no commit.
+ * A bound attempt commits the tree its tests saw.
  */
 export async function commit(r: Run, message: string) {
-  if (r.scope) {
-    const tree = await scopedTree(r);
+  if (r.checkout) {
+    const tree = await changedTree(r);
     const at = (await must("git", ["-C", r.work, "rev-parse", "HEAD"])).trim();
     const was = (
       await must("git", ["-C", r.work, "rev-parse", `${at}^{tree}`])

@@ -124,7 +124,6 @@ export type Run = {
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
   work: string; // the worktree, mounted at /work in the attempt's sandbox
   checkout?: string[]; // a bound step's: the cl's checkout, the only paths on disk in its worktree, a sparse checkout
-  scope?: string[]; // a bound step's: the part of its checkout a pass commits, and its test runs see
 };
 
 export interface Step<D extends { word: "done" }> {
@@ -140,7 +139,7 @@ export interface Step<D extends { word: "done" }> {
    */
   input?(run: Run, ledger: Ledger): string;
   /**
-   * A bound step (nail, hammer) works in a sparse checkout of its cl's checkout, and a pass commits only its scope.
+   * A bound step (nail, hammer) works in a sparse checkout of its cl's checkout.
    * Left out, the agent's worktree is the whole repo, as for a step that explores (the planner) or judges (the reviews).
    */
   bound?: true;

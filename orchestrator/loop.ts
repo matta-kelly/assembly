@@ -294,7 +294,7 @@ export async function loop({
           if (ran) checkSpan(span, state, ran);
         }
         // A pass of a step that edits the worktree is its product: the attempt is committed, and becomes the item's
-        // branch. A bound attempt's commit holds only its scope.
+        // branch.
         if (v.word === "pass" && step.worktree !== "ro")
           await commit(r, `${step.agent}(${r.name})`);
       }
@@ -356,11 +356,11 @@ export async function loop({
       return false;
     }
     // A bound attempt's sparse worktree holds no install: its tests run on the item's full worktree, set up once.
-    if (r.scope || needsSetup(r)) {
+    if (r.checkout || needsSetup(r)) {
       const at = Date.now();
       let ran = true;
       try {
-        if (r.scope) ran = await prepareFull(r, closed.signal);
+        if (r.checkout) ran = await prepareFull(r, closed.signal);
         else await runSetup(r, closed.signal);
       } catch (e) {
         // a setup the loop's closing stopped is not a failure: the attempt is set up when it is taken up
@@ -429,7 +429,7 @@ export async function loop({
   const left = () =>
     ledger.open().filter((a) => !running.has(`${a.name}/${a.n}`));
 
-  /** The attempt's run, with its cl's checkout and scope when its step is bound. */
+  /** The attempt's run, with its cl's checkout when its step is bound. */
   const runFor = (
     i: Parameters<typeof runOf>[0],
     n: number,
@@ -438,7 +438,7 @@ export async function loop({
     const r = runOf(i, n, runs);
     if (!step?.bound || i.kind !== "cl") return r;
     const c = clOf(ledger, i);
-    return { ...r, checkout: c.checkout, scope: c.scope };
+    return { ...r, checkout: c.checkout };
   };
 
   async function start() {

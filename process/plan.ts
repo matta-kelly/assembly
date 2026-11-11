@@ -1,7 +1,7 @@
 /**
  * The plan step: an issue from open to planned. The planner reads the issue and the code, read-only, and hands back the
  * spec as data, in the shape of kinetic's plan and cl types: its plan (the approach, each phase's reason, and what does
- * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, checkout, scope, test, check,
+ * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, checkout, test, check,
  * seam and the description of its checkout). The check is spec lint, in code: what can be decided without judgment.
  * Whether the cut is good is the plan review's. Nothing is written yet: the notes are written once the plan review
  * approves (orchestrator/advance.ts). A spec Matt makes is read from its notes (readSpec) and checked by the same lint.
@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { within } from "../effects/git.ts";
 import { items, itemsIn, read, sectionIn } from "../effects/notes.ts";
-import type { Message, Run, Step, Worktree } from "./step.ts";
+import type { Message, Run, Step } from "./step.ts";
 
 /** A lint's word, and why: a spec lints, or its attempt is a retry with the cause. */
 type Lint = Omit<Message, "findings">;
@@ -30,9 +30,6 @@ const path = z
   .string()
   .min(1)
   .refine((p) => !/[*?[\]!#\\]/.test(p), "a path, not a pattern");
-
-/** Whether two entries overlap: one is the other, or a folder over it. */
-const overlap = (a: string, b: string) => within([a], b) || within([b], a);
 
 /** One cl, as kinetic's cl type holds it: its frontmatter fields and the prose of its body. */
 export const clSpec = z.object({
@@ -64,13 +61,7 @@ export const clSpec = z.object({
     .array(path)
     .min(1)
     .describe(
-      "every file its builders get on disk, from the repo's root: what they change and what they must read. They see nothing else",
-    ),
-  scope: z
-    .array(path)
-    .min(1)
-    .describe(
-      "the files it may change: a part of its checkout. Only these are committed",
+      "every path conceivably relevant to the cut, from the repo's root: what its builders get on disk. They see nothing else, so err wide",
     ),
   test: z
     .string()
@@ -94,7 +85,7 @@ export const clSpec = z.object({
     .string()
     .min(1)
     .describe(
-      "its Checkout section: each path of its checkout, as a tree, with what it is and why it is there, its scope marked, and one exemplar",
+      "its Checkout section: each path of its checkout, with what it is and why it is there, and one exemplar: the file its builders should write like",
     ),
 });
 export type ClSpec = z.infer<typeof clSpec>;
@@ -189,7 +180,6 @@ export function specText(s: Spec): string {
       `### ${c.name}${c.phase ? `, phase ${c.phase}` : ""}: ${c.intent}`,
       `- shape: ${c.shape.change}, checked in the ${c.shape.checked}`,
       `- checkout: ${c.checkout.join(", ")}`,
-      `- scope: ${c.scope.join(", ")}`,
       `- test: \`${c.test}\``,
       "- check:",
       ...c.check.map((b) => `  - ${b}`),
@@ -226,13 +216,12 @@ const no = (reason: string): Lint => ({
 /**
  * Spec lint: what can be decided about a spec without judgment, the same rules kinetic's lint holds and what only the
  * repo can say. A plan's cls each have a phase, the phases run from 1 with no gap, and each has a reason; a lone cl has
- * no plan and no phase. The cls' names are their own and new. A cl's scope lies in its checkout, and its paths stay in
- * the repo. Two cls of one phase change no file in common. A file in a checkout and not in its scope is in the repo, or a
- * cl of an earlier phase makes it. A test command runs only files in its checkout.
+ * no plan and no phase. The cls' names are their own and new. A cl's checkout stays in the repo, and its test command
+ * runs only files in its checkout. Whether the cls of one phase stay apart is a judgment: the plan review's.
  */
 export function specLint(
   s: Spec,
-  o: { exists: Worktree["exists"]; taken: (cut: string) => boolean },
+  o: { taken: (cut: string) => boolean },
 ): Lint {
   const names = s.cls.map((c) => c.name);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
@@ -262,43 +251,16 @@ export function specLint(
         `the plan gives ${s.plan.phases.length} phase reasons for ${top} phases`,
       );
   }
-  const phase = (c: ClSpec) => c.phase ?? 1;
   for (const c of s.cls) {
-    const outside = [...c.checkout, ...c.scope].filter((f) => !inside(f));
+    const outside = c.checkout.filter((f) => !inside(f));
     if (outside.length)
       return no(
         `cl ${c.name}: files outside the repo, or its root: ${outside.join(", ")}`,
-      );
-    const loose = c.scope.filter((f) => !within(c.checkout, f));
-    if (loose.length)
-      return no(
-        `cl ${c.name}: its scope is not in its checkout: ${loose.join(", ")}`,
       );
     const unnamed = pathsIn(c.test).filter((f) => !within(c.checkout, f));
     if (unnamed.length)
       return no(
         `cl ${c.name}: its test command runs files not in its checkout: ${unnamed.join(", ")}`,
-      );
-    const made = s.cls
-      .filter((x) => phase(x) < phase(c))
-      .flatMap((x) => x.scope);
-    const read = c.checkout.filter((f) => !within(c.scope, f));
-    const there = new Set(o.exists(read));
-    const missing = read.filter((f) => !there.has(f) && !within(made, f));
-    if (missing.length)
-      return no(
-        `cl ${c.name}: files of its checkout are not in the repo: ${missing.join(", ")}`,
-      );
-    const shared = s.cls
-      .filter((x) => x.name !== c.name && phase(x) === phase(c))
-      .flatMap((x) =>
-        x.scope
-          .filter((f) => c.scope.some((g) => overlap(f, g)))
-          .map((f) => `${f} (${x.name})`),
-      );
-    if (shared.length)
-      return no(
-        `cl ${c.name}: its scope overlaps a cl of its phase: ${shared.join(", ")}`,
       );
   }
   return { word: "pass", reason: "the spec lints" };
@@ -331,7 +293,7 @@ export const plan: Step<Planned> = {
   about: ["issue"],
   input,
   // The spec is the attempt's result, in the ledger. Its notes are written once the plan review approves it.
-  async check(r, d, at) {
+  async check(r, d) {
     if (!items(r.path, "Done").length)
       return {
         word: "back",
@@ -345,7 +307,6 @@ export const plan: Step<Planned> = {
         ],
       };
     const v = specLint(d, {
-      exists: (f) => at.exists(f),
       taken: (c) => existsSync(clPath(r.path, r.issue, c)),
     });
     return { ...v, findings: [], ...(d.notes ? { notes: d.notes } : {}) };
@@ -404,7 +365,6 @@ export const clFields = (issue: string, c: ClSpec, plan: boolean) => ({
   ...(c.phase === undefined ? {} : { phase: c.phase }),
   shape: c.shape,
   checkout: c.checkout,
-  scope: c.scope,
   test: c.test,
 });
 
@@ -476,7 +436,6 @@ export function readSpec(issuePath: string, issue: string): Read {
       ...(fields["phase"] === undefined ? {} : { phase: fields["phase"] }),
       shape: fields["shape"],
       checkout: fields["checkout"],
-      scope: fields["scope"],
       test: fields["test"],
       check: itemsIn(body, "Check").map((x) => x.slice(2)),
       seam: sectionIn(body, "Seam").trim(),

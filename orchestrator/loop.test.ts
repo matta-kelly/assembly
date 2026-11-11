@@ -158,7 +158,7 @@ describe("an attempt", () => {
     });
   });
 
-  it("gives a bound step's run its cl's checkout and scope, sets up the full worktree, not its own, and commits the run", async () => {
+  it("gives a bound step's run its cl's checkout, sets up the full worktree, not its own, and commits the run", async () => {
     ledger.keepSpec(
       "i",
       {
@@ -168,7 +168,6 @@ describe("an attempt", () => {
             intent: "c",
             shape: { change: "behavior", checked: "repo" },
             checkout: ["src/", "test/a.test.ts"],
-            scope: ["src/a.ts"],
             test: "t",
             check: ["b1"],
             seam: "s",
@@ -196,20 +195,19 @@ describe("an attempt", () => {
     const ran = runner.mock.calls.map((c) => c[2].run);
     expect(ran.find((x) => x.name === "i-c")).toMatchObject({
       checkout: ["src/", "test/a.test.ts"],
-      scope: ["src/a.ts"],
     });
     expect(prepareFull).toHaveBeenCalledOnce();
     expect(runSetup).not.toHaveBeenCalled();
     expect(vi.mocked(commit).mock.calls[0]?.[0]).toMatchObject({
       name: "i-c",
-      scope: ["src/a.ts"],
+      checkout: ["src/", "test/a.test.ts"],
     });
   });
 
-  it("gives a step that is not bound the whole worktree: no checkout or scope", async () => {
+  it("gives a step that is not bound the whole worktree: no checkout", async () => {
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner));
-    expect(runner.mock.calls[0]?.[2].run).not.toHaveProperty("scope");
+    expect(runner.mock.calls[0]?.[2].run).not.toHaveProperty("checkout");
   });
 
   it("retries a bound step whose cl is not in its issue's spec, before any worktree", async () => {

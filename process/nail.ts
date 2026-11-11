@@ -87,7 +87,7 @@ export function judge(code: number, out: string): Message {
 export const nail: Step<Done> = {
   from: "ready",
   agent: "da-nail",
-  // a sparse checkout of its cl's checkout, committing only its scope
+  // a sparse checkout of its cl's checkout
   bound: true,
   done,
   about: ["cl", "plan", "issue"],

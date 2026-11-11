@@ -29,7 +29,6 @@ const cl = (name: string, phase?: number): ClSpec => ({
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`],
-  scope: [`src/${name}.mjs`],
   test: `node --test test/${name}.test.mjs`,
   check: [`given ${name}, when read, then right`],
   seam: "src/value.mjs's exports",
@@ -95,7 +94,9 @@ describe("advance", () => {
     );
     expect(read("is-plan")).not.toMatch(/one phase|## Trace/);
     expect(read("is-value")).toContain('belongsTo: "[[is-plan]]"');
-    expect(read("is-value")).toContain('scope: ["src/value.mjs"]');
+    expect(read("is-value")).toContain(
+      'checkout: ["src/value.mjs","test/value.test.mjs"]',
+    );
     expect(section(join(dir, "is-value.md"), "Check").trim()).toBe(
       "- given value, when read, then right",
     );
@@ -149,7 +150,7 @@ describe("advance", () => {
       "ready",
     ]);
     expect(read("is-value")).toMatch(/status: done/);
-    // The plan's files and the merged ones: the context hit rate's two sides.
+    // The files it changed, once merged.
     const db = new DatabaseSync(join(dir, "ledger.db"));
     expect(
       db
@@ -158,11 +159,7 @@ describe("advance", () => {
         )
         .all()
         .map((p) => `${p["kind"] as string} ${p["path"] as string}`),
-    ).toEqual([
-      "actual src/value.mjs",
-      "actual test/x.test.mjs",
-      "planned src/value.mjs",
-    ]);
+    ).toEqual(["actual src/value.mjs", "actual test/x.test.mjs"]);
     db.close();
   });
 

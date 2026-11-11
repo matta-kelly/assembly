@@ -1,7 +1,6 @@
 /**
  * Test runs: the item's test command, in a container of its own, offline. A test run never runs in the agent's sandbox.
- * A bound attempt's runs on its item's full worktree, with the attempt's change inside its scope applied (git.ts,
- * stage): the agent's `test` tool and its step's check are the same op, on the tree a pass commits. Any other attempt's
+ * A bound attempt's runs on its item's full worktree, with the attempt's change applied (git.ts, stage): the agent's `test` tool and its step's check are the same op, on the tree a pass commits. Any other attempt's
  * runs on its own worktree. Each run is recorded with its inputs (the tree, the command and the image), so the same
  * inputs could be looked up again.
  */
@@ -23,7 +22,7 @@ export const checkLimitS = 15 * 60;
 export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
   let tree: string;
   let on = r.work;
-  if (r.scope) {
+  if (r.checkout) {
     await prepareFull(r, signal);
     tree = await stage(r);
     on = fullOf(r);

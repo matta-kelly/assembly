@@ -4,7 +4,7 @@
  * runner provides each run: the attempt's box, with its worktree at /work (effects/runner.ts).
  *
  * A bound step's worktree (nail, hammer) is a sparse checkout of its cl's checkout, so its tools see only those paths,
- * and a pass commits only its scope: a write outside the scope is in no commit and no test run. `test` runs its cl's
+ * and a pass commits what it changed. `test` runs its cl's
  * tests as its step's check does, through runTests, on the item's full worktree.
  */
 
