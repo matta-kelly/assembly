@@ -171,6 +171,10 @@ describe("an attempt", () => {
   });
 
   it("gives a bound step's run its cl's checkout, sets up the full worktree, not its own, and commits the run", async () => {
+    // The issue is building, as it is when its cls are built.
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'building' WHERE name = 'i'").run();
+    db.close();
     ledger.keepSpec(
       "i",
       {
