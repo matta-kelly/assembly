@@ -6,6 +6,7 @@ status: active
 Workspace: the place one change (CL) is made, so that many changes can be made at once and none touches another. A person and an agent work the same way: all reading, editing and running for a change happen inside its workspace. It is one running copy of the environment its repo defines ([[repo#Environment]]): the same image, services and check as every other workspace, CI and an attempt.
 
 - [[#Parts]] what one is made of
+- [[#Services]] its network, its pod and its route
 - [[#Bar]] what holds for every one
 - [[#Machine]] set up once per machine
 - [[#Run]] make, use and remove one
@@ -22,7 +23,7 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 - branch: one per change, a short branch from main
 - worktree: its own checkout on disk, in `~/worktrees`. Parallel changes never share files
 - container: one, made from the repo's dev image with the worktree mounted in. Everyone on the change works in it: they differ by permission, not by box
-- services: what runs beside the container, its database first. Being built ([[workspace-services]]): each workspace gets its own Podman network; its services run in a pod on it, from the repo's `pod.yaml`; the container joins that network and reaches the database by the name `postgres`. Today que's checkouts share one Postgres
+- services: what runs beside the container, its database first ([[#Services]])
 - an attempt: the same parts, on a network with no way out ([[assembly]])
 
 ## Bar
@@ -34,6 +35,17 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 - nobody works in the main checkout. It is for reading, and for notes
 - credentials are scoped to the workspace; model keys never enter it
 - made when the change starts, removed when it lands. The record of what happened is in the commit and the issue, not the workspace
+
+## Services
+
+`scripts/workspace.sh`: what a workspace runs beside its container, made by `up` and removed by `down` (from kinetic's template, [[repo#Environment]]).
+
+- the name: `<repo>-<folder>`, a DNS label. It names the network, the pod, its volumes and the URL. A folder that is not one is refused
+- the network: the workspace's own, `--opt isolate=strict`, so no workspace reaches another. Podman 5.4 isolates none by default
+- the pod: the repo's `pod.yaml`, played on the network. The app reaches its database by the alias `postgres`, the same in every workspace, and the database runs the branch's migrations at start
+- the router: one Caddy container per machine, `workspace-router`, started on demand at `127.0.0.1:8080`. It joins each workspace's network and routes `<name>.localhost:8080` to `<name>-app`, the dev container's alias. A container cannot reach a port published on the host's loopback, so it proxies by name
+- an attempt: `up --attempt`. Its network is `--internal`, so its services are reachable and the outside is not, and it gets no route, so it cannot reach another workspace through the router
+- Not built: no repo's `devcontainer.json` calls it yet ([[workspace-services]])
 
 ## Machine
 

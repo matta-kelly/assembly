@@ -21,9 +21,9 @@ A repo: one per project. What it carries, and the standards its parts follow.
 
 - three parts, all in the repo
 	- the dev image: the toolchain and the package cache, from `.devcontainer/Containerfile`
-	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml`. Not built yet: [[workspace-services]] builds it. A repo with no services has no file
+	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml` (kube YAML, `WORKSPACE` standing for the workspace's name), played by `scripts/workspace.sh` ([[workspace#Services]]). A repo with no services has no file. Not built: no repo has one yet
 	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#One command]])
-- the template: `templates/repo/` in kinetic. A new repo copies its `.devcontainer/Containerfile`, `scripts/dev-image.sh`, its test and its smoke, and `.github/workflows/dev-image.yml` and `checks.yml`, with `<repo>` filled in
+- the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and copies its `.devcontainer/Containerfile` and `.github/workflows/` from basis, with `<repo>` filled in
 - lot, kinetic and dazoo have none: their lint runs in a pinned Node image
 
 ### Dev image
@@ -62,10 +62,11 @@ How a workspace makes its container from the image ([[workspace]]):
 {
   "name": "<repo>",
   "image": "ghcr.io/matta-kelly/<repo>-dev:main",
-  "initializeCommand": "podman pull ghcr.io/matta-kelly/<repo>-dev:main || echo 'could not pull: the copy this machine has is used' >&2",
+  "initializeCommand": "(podman pull ghcr.io/matta-kelly/<repo>-dev:main || echo 'could not pull: the copy this machine has is used' >&2) && scripts/workspace.sh up ${localWorkspaceFolder}",
   "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
   "workspaceFolder": "${localWorkspaceFolder}",
-  "runArgs": ["--userns=keep-id:uid=1000,gid=1000", "--cpus=3", "--cpu-shares=256"],
+  "runArgs": ["--userns=keep-id:uid=1000,gid=1000", "--network", "<repo>-${localWorkspaceFolderBasename}", "--network-alias", "<repo>-${localWorkspaceFolderBasename}-app", "--cpus=3", "--cpu-shares=256"],
+  "forwardPorts": [3000],
   "remoteUser": "node",
   "updateRemoteUserUID": false,
   "mounts": [
@@ -77,6 +78,8 @@ How a workspace makes its container from the image ([[workspace]]):
 
 - `initializeCommand` runs on the host before the CLI looks for the image, and the CLI never pulls a tag the machine has: so the pull is what keeps `:main` current
 - `--userns=keep-id:uid=1000,gid=1000`: maps the host user onto the image's `node` user, so files written from inside stay the host user's
+- `--network` and `--network-alias`: the workspace's own network, which `workspace.sh up` made, and the name the router proxies to
+- `forwardPorts`: the app port the router routes `<workspace>.localhost` to. A repo that serves nothing leaves it out
 - `--cpus` and `--cpu-shares`: the container's CPU budget, below the machine's cores, and its low priority, enforced by the kernel (cgroups). They live here and nowhere else: `just` and VS Code both make the container from this file
 - `workspaceMount` at the host path: caches such as `.next` store absolute paths, and a different path inside the container breaks them
 - packages live in a volume, never in the repo folder: Obsidian loads every file in the vault, and `node_modules` is tens of thousands of files. One volume per checkout (`${devcontainerId}` differs per folder), and one more for each folder that fills with generated files (a second `node_modules`, `.next`)
