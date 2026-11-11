@@ -15,6 +15,8 @@ import type { Models } from "@earendil-works/pi-ai";
 import { models as hostModels } from "./effects/models.ts";
 import { agents } from "./agents/index.ts";
 import { modelOf } from "./effects/models.ts";
+import { npmRegistry } from "./effects/registry.ts";
+import { gitReader } from "./effects/repo.ts";
 import { type Agents, quePasa } from "./effects/runner.ts";
 import { steps as all } from "./process/index.ts";
 import type { Step } from "./process/step.ts";
@@ -63,6 +65,11 @@ export function compose(f: Factory) {
             join(f.home, "pi.db"),
           ),
         runs,
+        world: {
+          registry: npmRegistry(),
+          reader: gitReader,
+          tags: async () => [],
+        },
         ...(f.concurrent !== undefined ? { concurrent: f.concurrent } : {}),
         ...(f.timeoutMs !== undefined ? { timeoutMs: f.timeoutMs } : {}),
       }),

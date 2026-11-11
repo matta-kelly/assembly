@@ -24,6 +24,7 @@ import {
   commit,
   full,
   fullOf,
+  landedTags,
   stage,
   touched,
   worktree,
@@ -209,5 +210,62 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the sparse checkout", () => {
     expect(readFileSync(join(r.work, "UPSTREAM"), "utf8")).toBe(
       "landed elsewhere\n",
     );
+  });
+});
+
+describe.skipIf(!process.env["ASSEMBLY_E2E"])("a landed cl's tags", () => {
+  let dir: string;
+  let bare: string;
+  let repo: string;
+  /** A commit on main, pushed to the land target; gives back its hash. */
+  const land = (file: string) => {
+    writeFileSync(join(repo, file), `${file}\n`);
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", file);
+    git(repo, "push", "-q", "local", "main");
+    return git(repo, "rev-parse", "HEAD").trim();
+  };
+
+  beforeAll(() => {
+    mkdirSync(".e2e", { recursive: true });
+    dir = mkdtempSync(join(process.cwd(), ".e2e", "tags-"));
+    repo = join(dir, "repo");
+    mkdirSync(repo);
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "e2e@assembly");
+    git(repo, "config", "user.name", "e2e");
+    writeFileSync(join(repo, "README"), "init\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "init");
+    bare = landTarget(repo, dir);
+  });
+  afterAll(() => {
+    if (!process.env["ASSEMBLY_E2E_KEEP"])
+      rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("are the version tags the land target holds on the commit the cl's branch points at, and no others", async () => {
+    const before = git(repo, "rev-parse", "HEAD").trim();
+    const took = land("x.ts");
+    const after = land("y.ts");
+    git(repo, "branch", branchOf("is-x"), took);
+    // crate tags on the server only: the repo has fetched none of these
+    git(bare, "tag", "v1.2.3", took);
+    git(bare, "tag", "lib-v0.4.0", took);
+    git(bare, "tag", "nightly", took);
+    git(bare, "tag", "v1.2.2", before);
+    git(bare, "tag", "v2.0.0", after);
+    // a local tag the target does not hold
+    git(repo, "tag", "v9.9.9", took);
+    expect((await landedTags(repo, "is-x")).sort()).toEqual([
+      "lib-v0.4.0",
+      "v1.2.3",
+    ]);
+  });
+
+  it("are none for a commit crate put no version tag on", async () => {
+    const took = land("z.ts");
+    git(repo, "branch", branchOf("is-z"), took);
+    expect(await landedTags(repo, "is-z")).toEqual([]);
   });
 });

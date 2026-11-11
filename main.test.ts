@@ -3,8 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agents } from "./agents/index.ts";
+import { landedTags } from "./effects/git.ts";
 import { bins, modelOf } from "./effects/models.ts";
+import { npmRegistry } from "./effects/registry.ts";
+import { gitReader } from "./effects/repo.ts";
 import { compose, onBins } from "./main.ts";
+import { type Loop, loop } from "./orchestrator/loop.ts";
+
+// The loop is not opened here: what compose gives it is the subject.
+vi.mock("./orchestrator/loop.ts", async (original) => ({
+  ...(await original<typeof import("./orchestrator/loop.ts")>()),
+  loop: vi.fn(),
+}));
+vi.mock("./effects/registry.ts", () => ({ npmRegistry: vi.fn() }));
+vi.mock("./effects/git.ts", async (original) => ({
+  ...(await original<typeof import("./effects/git.ts")>()),
+  landedTags: vi.fn(),
+}));
 
 let home: string;
 beforeEach(() => {
@@ -29,6 +44,29 @@ describe("the factory's agents", () => {
       expect(Object.keys(bins)).toContain(a.bin);
       expect(onBins().modelFor(name, true)).toBe(modelOf(a.bin, true));
     }
+  });
+});
+
+describe("the factory's world", () => {
+  const world = () => {
+    void compose({ home }).loop();
+    return (vi.mocked(loop).mock.calls.at(-1)?.[0] as Loop).world;
+  };
+
+  it("gives the loop npm's registry and git's reader", () => {
+    const registry = { published: async () => true };
+    vi.mocked(npmRegistry).mockReturnValue(registry);
+    expect(world().registry).toBe(registry);
+    expect(world().reader).toBe(gitReader);
+  });
+
+  it("answers a landed cl's tags from the land target's, for the repo and the cl asked", async () => {
+    vi.mocked(landedTags).mockImplementation(async (repo, cl) =>
+      repo === "/r" && cl === "is-a" ? ["v1.0.0"] : ["lib-v2.1.0"],
+    );
+    expect(await world().tags("/r", "is-a")).toEqual(["v1.0.0"]);
+    expect(await world().tags("/o", "is-b")).toEqual(["lib-v2.1.0"]);
+    expect(landedTags).toHaveBeenCalledWith("/o", "is-b");
   });
 });
 

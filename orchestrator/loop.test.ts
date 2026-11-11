@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Message, Step } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
+import type { World } from "./advance.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
 import { commit, worktree } from "../effects/git.ts";
 import { land } from "../effects/land.ts";
@@ -70,12 +71,20 @@ const runnerOf = (run: Run1) => async (): Promise<Runner> => ({
   close: async () => undefined,
 });
 
+/** A world with nothing to wait for: no repo has a file, no landed cl has a tag. */
+const idle: World = {
+  registry: { published: async () => true },
+  reader: { file: () => undefined, onCrate: () => false },
+  tags: async () => [],
+};
+
 const make = (
   run: Run1,
   o: {
     steps?: Step<{ word: "done"; text: string }>[];
     concurrent?: number;
     timeoutMs?: number;
+    world?: World;
   } = {},
 ) =>
   loop({
@@ -84,6 +93,7 @@ const make = (
     runner: runnerOf(run),
     runs: join(dir, "runs"),
     ...o,
+    world: o.world ?? idle,
   });
 type L = Awaited<ReturnType<typeof make>>;
 
@@ -643,6 +653,83 @@ describe("the tick", () => {
       ledger.events("c").map((e) => (e as { word: string }).word),
     ).not.toContain("retry");
     expect(ledger.item("c").state).toBe("red");
+  });
+});
+
+describe("the world", () => {
+  /**
+   * Issue j across two repos: a, phase 1, landed with the tag v1.2.0, and b, phase 2, waiting. b's repo depends on the
+   * package a's repo ships, `@x/a`.
+   */
+  const across = (published: () => Promise<boolean>) => {
+    for (const [name, seq, phase, repo, state] of [
+      ["j-a", 1, 1, "/a", "landed"],
+      ["j-b", 2, 2, "/b", "waiting"],
+    ] as const)
+      ledger.addCl(
+        {
+          name,
+          issue: "j",
+          seq,
+          phase,
+          path: join(dir, "cl.md"),
+          repo,
+          image: "img",
+          test: "t",
+        },
+        state,
+      );
+    const files: Record<string, string> = {
+      "/a:package.json": JSON.stringify({ name: "@x/a", version: "1.2.0" }),
+      "/b:package.json": JSON.stringify({
+        name: "b",
+        dependencies: { "@x/a": "^1.0.0" },
+      }),
+    };
+    const registry = { published: vi.fn(published) };
+    const world: World = {
+      registry,
+      reader: { file: (r, f) => files[`${r}:${f}`], onCrate: () => true },
+      tags: async (repo, cl) =>
+        repo === "/a" && cl === "j-a" ? ["v1.2.0"] : [],
+    };
+    return { registry, world };
+  };
+  const ranFor = (runner: ReturnType<typeof vi.fn<Run1>>, name: string) =>
+    runner.mock.calls.some((c) => c[2].run.name === name);
+
+  it("holds a cl whose dependency's version is not on npm, and starts it on the tick after it is", async () => {
+    let on = false;
+    const { registry, world } = across(async () => on);
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner, { world });
+    await once(l);
+    expect(registry.published).toHaveBeenCalledWith("@x/a", "1.2.0");
+    expect(ledger.item("j-b").state).toBe("waiting");
+    expect(ranFor(runner, "j-b")).toBe(false);
+    on = true;
+    await once(l);
+    expect(ranFor(runner, "j-b")).toBe(true);
+    expect(ledger.item("j-b").state).toBe("red");
+  });
+
+  it("starts at once a cl that waits for nothing: its dependency's version is on npm already", async () => {
+    const { world } = across(async () => true);
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner, { world }));
+    expect(ranFor(runner, "j-b")).toBe(true);
+  });
+
+  it("is a world a loop cannot be built without", () => {
+    const withoutWorld = () =>
+      // @ts-expect-error a loop is built with a world
+      loop({
+        ledger,
+        steps: [step],
+        runner: runnerOf(gives(done("x"))),
+        runs: join(dir, "runs"),
+      });
+    expect(withoutWorld).toBeTypeOf("function");
   });
 });
 

@@ -56,7 +56,7 @@ import {
 } from "../process/step.ts";
 import { clOf } from "../process/plan.ts";
 import { type State, top } from "../process/table.ts";
-import { advance } from "./advance.ts";
+import { advance, type World } from "./advance.ts";
 import type { Event, Ledger, Usage } from "./ledger.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
@@ -104,6 +104,7 @@ export interface Loop {
   steps: AnyStep[];
   runner: () => Promise<Runner>; // opened once the open attempts' worktrees are there
   runs: string; // where run folders go
+  world: World; // what a waiting cl needs of the world: registry, repos' files, landed tags
   concurrent?: number; // attempts at once, at most
   timeoutMs?: number; // the most one attempt may take
 }

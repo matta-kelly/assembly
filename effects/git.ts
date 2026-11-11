@@ -297,6 +297,16 @@ export async function touched(r: Run): Promise<string[]> {
     .map((line) => line.slice(3));
 }
 
+/**
+ * The version tags the land target holds on the commit main took for the landed cl `cl` (its branch), of `repo`. Asked
+ * from the land target, never from the repo's local tags.
+ */
+export async function landedTags(repo: string, cl: string): Promise<string[]> {
+  void repo;
+  void cl;
+  return [];
+}
+
 /** Which of `files` differ in the worktree from the item's branch, committed or not. */
 export async function changed(r: Run, files: string[]): Promise<string[]> {
   const out = await must("git", [
