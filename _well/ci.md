@@ -184,7 +184,15 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 
 *The checks too slow for the queue, run on each new commit of main. A red one is reverted first*
 
-- Not built: `checks.yml` runs every set on main, and a red run only sends its notice ([[#The gate]], [[landing-flow]])
+- the run: crate's post-receive starts it in the background after the copy to GitHub, so a land never waits for it ([[repo#Platform]])
+	- the sets: `crate.toml`'s `postsubmit`, run as `scripts/check.sh <sets>` in the check's image, with `postsubmit_timeout` as its limit (3600 seconds by default)
+	- one run at a time, on main as it stands, so a run that waited covers every land since the last green main
+- green: main is the last green, and only then released ([[#Release]]), so no version is made from a main postsubmit failed
+- red: one commit on main undoes every commit since the last green main, landed through the check like any push
+	- the failure, kept: its last lines in the revert's message, all of it in the server's `<repo>.git/crate/postsubmit/<sha>.log`
+	- the revert passes postsubmit with no run, since its tree is the last green's
+	- a revert that does not apply leaves main as it is, and the log says it needs a hand
+- Not built: no repo names a postsubmit set yet. assembly's `just e2e`, the first, needs the engine's socket in the check's container. The dock is not told when its landed cl is reverted ([[landing-flow]])
 
 ## Release
 

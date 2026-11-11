@@ -22,7 +22,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 *crate: one source every repo runs at a version, so a fix reaches every repo with no change in it ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))*
 
 - the parts, by where they run
-	- on the server: crate's git hooks on each repo's bare repo, which hold main, check every push to it, copy it to GitHub ([[ci#Merge queue]]), and version it ([[ci#Release]]). `crate init` makes a bare repo, and `crate apply` makes a server match its declaration in [[dazoo]]
+	- on the server: crate's git hooks on each repo's bare repo, which hold main, check every push to it, copy it to GitHub ([[ci#Merge queue]]), run the slow sets after it moves ([[ci#Postsubmit]]), and version it ([[ci#Release]]). `crate init` makes a bare repo, and `crate apply` makes a server match its declaration in [[dazoo]]
 	- on the machine: the host scripts, `dev-image.sh` and `workspace.sh`, as one tool at a version. They run before any container exists, so no container can carry them. Not built: still copies in each repo
 	- in the container: the base dev image, upstream `devcontainers/javascript-node:22` with the shared tools. Every repo's dev image is `FROM` it. Not built: each Containerfile starts from upstream
 - a repo on crate: its `crate.toml` names the crate version and its check's image (`dev`, or a pinned ref), and its checkouts land on the remote `server`
@@ -39,7 +39,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 		- the app under test: a repo with a UI runs its runtime image as one more service, `site`, on the same network as its tests, and its tests reach it by name (`http://site:3000`): on the workspace's network on a machine, on the job's own network in CI. Never `--network host`. Held by: publicpersona's check, the first; every repo with a UI follows it
 	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]])
 	- the ship kind: what a land to main releases, a package, an image, or nothing ([[ci#Release]])
-- `crate.toml`: the crate version the repo runs, its check's image (`dev`, or a pinned ref), its check's time limit, its ship kind (`ship`), and its package folders (`packages`) ([[#Platform]])
+- `crate.toml`: the crate version the repo runs, its check's image (`dev`, or a pinned ref), its check's time limit, its ship kind (`ship`), its package folders (`packages`), and its slow sets (`postsubmit`) ([[#Platform]])
 - the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and its `.devcontainer/Containerfile` from basis, with `<repo>` filled in. crate replaces the copies as it takes each part ([[#Platform]])
 - lot, kinetic and dazoo have none: their lint runs in a pinned Node image
 
