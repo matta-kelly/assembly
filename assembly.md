@@ -7,6 +7,12 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
 - [[software-factory-v2-design]]: the design it follows
+- the bar: what a role works to and is judged against, each a note in `_well/`
+	- [[tests]]: what a test is, its kinds, and what a good one is
+	- [[code]]: how code is written here
+	- [[changelist]]: one self-contained change to main, and what a good one is
+	- [[playbook]]: a proven way to do one kind of change
+	- [[lint]]: the check on code that does not run it
 
 ---
 ## The product line
