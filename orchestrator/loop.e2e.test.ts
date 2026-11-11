@@ -40,6 +40,7 @@ import { issueReviewer } from "../agents/issue-review.ts";
 import { planReviewer } from "../agents/plan-review.ts";
 import { planner } from "../agents/planner.ts";
 import { landTarget } from "../effects/land-target.fixture.ts";
+import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";
 import { advance } from "./advance.ts";
 import { nail } from "../process/nail.ts";
@@ -412,6 +413,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         "mr",
         "mr-alpha",
         "mr-beta",
+        "rz-one",
       ];
       for (const name of names.flatMap((c) =>
         Array.from({ length: 8 }, (_, n) => `assembly-${c}-${n + 1}`),
@@ -556,22 +558,19 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           ]);
         expect(ledger.item("gap").state).toBe("raised");
 
-        // The orchestrator wrote the plan and its cl notes from the plan, and each status: never a finding.
+        // The orchestrator wrote the plan and its cl notes from the plan, never a finding. It writes no note's status.
         const note = (name: string) =>
           readFileSync(join(notes, `${name}.md`), "utf8");
-        expect(note("is")).toMatch(/^status: done$/m);
         for (const n of ["is", "is-value", "is-double", "gap"])
           expect(note(n)).not.toMatch(
             /^## (Plan review|Acceptance|Tests|Code|Review|Raise)$/m,
           );
-        expect(note("is-plan")).toMatch(/^status: done$/m);
         expect(note("is-plan")).toContain(
           "- Phase 2: double, once value has landed\n\t- [[is-double]]",
         );
         expect(note("is-double")).toContain(
           'checkout: ["src/double.mjs","test/double.test.mjs","README","src/value.mjs"]',
         );
-        expect(note("is-value")).toMatch(/^status: done$/m);
 
         // Main, on the land target, holds both cls, in order: each one's test, then its code. No issue branch is made.
         expect(git(bare, "show", "main:src/double.mjs")).toContain("value * 2");
@@ -832,6 +831,118 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             "utf8",
           ).match(/^set up in/gm),
         ).toHaveLength(1);
+      },
+    );
+
+    it(
+      "escalates a submitted issue to Matt with the findings of a cl that raised, and builds no further",
+      { timeout: 300_000 },
+      async () => {
+        const at = join(dir, "raise");
+        mkdirSync(join(at, "work"), { recursive: true });
+        for (const n of ["one", "two"])
+          writeFileSync(
+            join(at, "work", `rz-${n}.md`),
+            `---\ntype: cl\nstatus: new\n---\nThe cut ${n} of rz.\n\n---\n## Check\n\n- given ${n}, when read, then 2\n`,
+          );
+
+        // da-nail cannot meet the cut as it stands: it hands back two findings about the cl.
+        const models = createModels();
+        const faux = fauxProvider({ provider: "faux-raise" });
+        models.setProvider(faux.provider);
+        faux.setResponses(
+          scripted(() =>
+            submit({
+              word: "back",
+              findings: [
+                {
+                  about: "cl",
+                  what: "the promise names a file the checkout lacks",
+                  where: "Check 1",
+                },
+                {
+                  about: "cl",
+                  what: "the seam contradicts the intent",
+                  where: "Seam",
+                },
+              ],
+            }),
+          ),
+        );
+        const nailModel = `${faux.getModel().provider}:${faux.getModel().id}`;
+        const f = compose({
+          home: at,
+          agents: { make: { "da-nail": daNail }, modelFor: () => nailModel },
+          models,
+          steps: [nail],
+          timeoutMs: 120_000,
+        });
+        const ledger = f.ledger;
+        // The issue enters as submit enters it: Matt's spec, his two passes, two cls in two phases.
+        ledger.addIssue({
+          name: "rz",
+          path: join(at, "work", "rz.md"),
+          repo,
+          image,
+          test: suite,
+          setup,
+        });
+        const pass = { word: "pass" as const, reason: "Matt", findings: [] };
+        ledger.apply("rz", pass, "matt");
+        ledger.keepSpec(
+          "rz",
+          {
+            cls: [
+              cl("one", "one is 2", "given one, when read, then 2", 1),
+              cl("two", "two is 2", "given two, when read, then 2", 2),
+            ],
+          },
+          "matt",
+        );
+        ledger.apply("rz", pass, "matt");
+
+        const l = await f.loop();
+        for (let i = 0; i < 10; i++) {
+          await l.tick();
+          await l.settled();
+          if (ledger.item("rz").state === "escalated") break;
+        }
+        const attempts = () =>
+          ["rz", "rz-one", "rz-two"].map((n) => ledger.attemptsOf(n).length);
+        const after = attempts();
+        // more ticks: nothing starts
+        for (let i = 0; i < 3; i++) {
+          await l.tick();
+          await l.settled();
+        }
+        await l.close();
+
+        // The issue is Matt's, with the cl's findings in its message.
+        expect(ledger.item("rz").state).toBe("escalated");
+        expect(ledger.item("rz-one").state).toBe("raised");
+        expect(ledger.inbox("rz", "escalated")).toMatchObject([
+          {
+            word: "escalate",
+            findings: [
+              { about: "cl", where: "Check 1" },
+              { about: "cl", where: "Seam" },
+            ],
+          },
+        ]);
+        const line = blocked(ledger).find((x) => x.startsWith("rz  "));
+        expect(line).toMatch(/^rz {2}escalated/);
+        expect(line).toContain("rz-one raised");
+        expect(explain(ledger, join(at, "runs"), "rz")).toContain(
+          "     cl: the promise names a file the checkout lacks (Check 1)",
+        );
+
+        // Nothing is built after it: the phase 2 cl is never ready, and no attempt starts.
+        expect(ledger.item("rz-two").state).toBe("waiting");
+        expect(
+          ledger.events("rz-two").filter((e) => e["to_state"] === "ready"),
+        ).toEqual([]);
+        expect(ledger.open()).toEqual([]);
+        expect(attempts()).toEqual(after);
       },
     );
 

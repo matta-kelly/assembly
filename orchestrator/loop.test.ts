@@ -806,6 +806,70 @@ describe("a message with no move", () => {
   });
 });
 
+describe("an issue escalated to Matt", () => {
+  /** The issue "i" escalated; its cls: e ready (the raised cl's phase), l landed, w waiting for l's phase. */
+  function escalated() {
+    const add = (name: string, seq: number, phase: number, to: string) => {
+      ledger.addCl(
+        {
+          name,
+          issue: "i",
+          seq,
+          phase,
+          path: join(dir, "cl.md"),
+          repo: "/repo",
+          image: "img",
+          test: "t",
+        },
+        "waiting",
+      );
+      const db = new DatabaseSync(join(dir, "ledger.db"));
+      db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
+      db.close();
+    };
+    add("l", 2, 1, "landed");
+    add("e", 3, 1, "ready");
+    add("w", 4, 2, "waiting");
+    // "c", the setup's cl, is out of the way: dropped.
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
+    db.close();
+    ledger.apply(
+      "i",
+      { word: "escalate", reason: "a cl raised", findings: [] },
+      "orchestrator",
+    );
+  }
+
+  it("starts no attempt on any of its cls, one of the raised cl's own phase too, and each stays in its state", async () => {
+    escalated();
+    const run = vi.fn(gives(done("x")));
+    const l = await make(run);
+    await l.tick();
+    await l.tick();
+    await l.settled();
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.open()).toEqual([]);
+    expect(ledger.attemptsOf("e")).toEqual([]);
+    expect(["l", "e", "w"].map((n) => [n, ledger.item(n).state])).toEqual([
+      ["l", "landed"],
+      ["e", "ready"],
+      ["w", "waiting"],
+    ]);
+  });
+
+  it("lets an attempt already open run to its end, and starts no other", async () => {
+    escalated();
+    ledger.begin("e");
+    const run = vi.fn(gives(done("x")));
+    await once(make(run));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(ledger.open()).toEqual([]);
+    expect(ledger.attemptsOf("e")).toHaveLength(1);
+    expect(ledger.item("w").state).toBe("waiting");
+  });
+});
+
 describe("a review's send-back", () => {
   it("moves the cl back to its code, commits nothing, and gives da-hammer's next attempt the findings", async () => {
     const review: Step<{ word: "done"; text: string }> = {

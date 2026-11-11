@@ -194,6 +194,37 @@ describe("advance", () => {
     expect(state("is")).toBe("raised");
   });
 
+  it("makes no cl of a later phase ready while a cl of an earlier phase has raised, on Matt's spec or the planner's", async () => {
+    // The planner's spec: the raise is relayed, and the later cl is never ready on the way.
+    await advance(ledger);
+    raise("is-value", "plan");
+    await advance(ledger);
+    expect(
+      ledger.events("is-double").filter((e) => e["to_state"] === "ready"),
+    ).toEqual([]);
+
+    // Matt's spec: the issue is his, and the later cl stays waiting.
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("DELETE FROM attempts").run();
+    db.prepare("DELETE FROM items WHERE name LIKE 'is-%'").run();
+    db.prepare("UPDATE items SET state = 'building' WHERE name = 'is'").run();
+    db.close();
+    ledger.keepSpec("is", { plan: plan.plan, cls: plan.cls }, "matt");
+    writeFileSync(
+      join(dir, "is-value.md"),
+      "---\ntype: cl\nstatus: new\n---\nv\n",
+    );
+    await advance(ledger);
+    raise("is-value", "cl");
+    await advance(ledger);
+    expect(state("is")).toBe("escalated");
+    expect(state("is-value")).toBe("raised");
+    expect(state("is-double")).toBe("waiting");
+    expect(
+      ledger.events("is-double").filter((e) => e["to_state"] === "ready"),
+    ).toEqual([]);
+  });
+
   it("sends the issue back to the planner when its last cl raises, not on as built", async () => {
     await advance(ledger);
     force("is-value", "approved");
