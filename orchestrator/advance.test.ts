@@ -434,6 +434,21 @@ describe("advance across repos", () => {
     expect(state("x-b")).toBe("waiting");
   });
 
+  it("says a reason again when it comes back after another: A, B, A", async () => {
+    across();
+    const registry = registryOf(false);
+    let tags = ["v1.2.0"];
+    const world = worldOf(files, async () => tags, registry);
+    await advance(ledger, world);
+    tags = ["v1.3.0"];
+    await advance(ledger, world);
+    tags = ["v1.2.0"];
+    await advance(ledger, world);
+    expect(said("x-b")).toHaveLength(3);
+    expect(said("x-b")[2]).toMatch(/1\.2\.0/);
+    expect(ledger.events("x-b").at(-1)?.reason).toMatch(/1\.2\.0/);
+  });
+
   it("reads the version from the tag of the package's folder, and a dev dependency counts", async () => {
     across();
     const registry = registryOf(false);
@@ -603,6 +618,113 @@ describe("advance across repos", () => {
       vi.setSystemTime(at(11));
       await advance(ledger, world);
       expect(state("x")).toBe("escalated");
+    });
+
+    describe("of a failed ask", () => {
+      it.each([
+        {
+          fails: "the registry",
+          message: /npm answered 500/,
+          world: (limitMs: number) =>
+            worldOf(
+              files,
+              ["v1.2.0"],
+              {
+                published: async () => {
+                  throw new Error("npm answered 500");
+                },
+              },
+              limitMs,
+            ),
+        },
+        {
+          fails: "the land target",
+          message: /land target not reached/,
+          world: (limitMs: number) =>
+            worldOf(
+              files,
+              async () => {
+                throw new Error("land target not reached");
+              },
+              registryOf(true),
+              limitMs,
+            ),
+        },
+        {
+          fails: "a package.json that is not JSON",
+          message: /JSON/,
+          world: (limitMs: number) =>
+            worldOf(
+              { ...files, "/b:package.json": "not json" },
+              ["v1.2.0"],
+              registryOf(true),
+              limitMs,
+            ),
+        },
+      ])(
+        "escalates the issue once, naming the failure and the wait, when $fails keeps failing past the limit",
+        async ({ world, message }) => {
+          landedAtNoon();
+          const w = world(10 * minute);
+          await advance(ledger, w);
+          expect(state("x")).toBe("open");
+          vi.setSystemTime(at(31));
+          await advance(ledger, w);
+          expect(state("x")).toBe("escalated");
+          expect(state("x-b")).toBe("waiting");
+          const escalation = ledger.events("x").at(-1);
+          expect(escalation).toMatchObject({
+            by: "orchestrator",
+            word: "escalate",
+          });
+          expect(escalation?.reason).toMatch(message);
+          expect(escalation?.reason).toMatch(/31 min/);
+          const before = ledger.events("x").length;
+          vi.setSystemTime(at(40));
+          await advance(ledger, w);
+          expect(ledger.events("x")).toHaveLength(before);
+        },
+      );
+
+      it("counts from the last land of the phases before the cl", async () => {
+        landedAtNoon();
+        ledger.addCl(
+          {
+            name: "x-a2",
+            issue: "x",
+            seq: 3,
+            phase: 1,
+            path: join(dir, "x-a2.md"),
+            repo: "/a",
+            image: "img",
+            test: "t",
+          },
+          "approved",
+        );
+        vi.setSystemTime(at(20));
+        ledger.apply(
+          "x-a2",
+          { word: "pass", reason: "landed", findings: [] },
+          "orchestrator",
+        );
+        const world = worldOf(
+          files,
+          ["v1.2.0"],
+          {
+            published: async () => {
+              throw new Error("npm answered 500");
+            },
+          },
+          10 * minute,
+        );
+        vi.setSystemTime(at(25));
+        await advance(ledger, world);
+        expect(state("x")).toBe("open");
+        vi.setSystemTime(at(31));
+        await advance(ledger, world);
+        expect(state("x")).toBe("escalated");
+        expect(ledger.events("x").at(-1)?.reason).toMatch(/11 min/);
+      });
     });
 
     it("escalates once: the next tick adds no second escalation", async () => {

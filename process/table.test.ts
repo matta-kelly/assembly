@@ -38,8 +38,7 @@ describe("next", () => {
     ).toBe("escalated");
   });
 
-  it("keeps a waiting cl waiting on retry, however often, and starts it on pass", () => {
-    expect(() => next("waiting", "cl", "retry", [], once)).not.toThrow();
+  it("keeps a waiting cl waiting on retry, and starts it on pass", () => {
     expect(next("waiting", "cl", "retry", [], once)).toBe("waiting");
     expect(next("waiting", "cl", "retry", [], { attempts: 0, rounds: 0 })).toBe(
       "waiting",

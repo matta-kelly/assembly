@@ -263,6 +263,29 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("a landed cl's tags", () => {
     ]);
   });
 
+  it("are the bare name, once, for an annotated version tag beside a light one", async () => {
+    const took = land("annotated.ts");
+    git(repo, "branch", branchOf("is-ann"), took);
+    git(
+      bare,
+      "-c",
+      "user.email=e2e@assembly",
+      "-c",
+      "user.name=e2e",
+      "tag",
+      "-a",
+      "-m",
+      "release",
+      "v3.1.0",
+      took,
+    );
+    git(bare, "tag", "lib-v0.5.0", took);
+    expect((await landedTags(repo, "is-ann")).sort()).toEqual([
+      "lib-v0.5.0",
+      "v3.1.0",
+    ]);
+  });
+
   it("fail, not empty, for a landed cl whose branch is not there", async () => {
     await expect(landedTags(repo, "is-nobranch")).rejects.toThrow();
   });
