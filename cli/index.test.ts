@@ -1,5 +1,6 @@
 import {
   existsSync,
+  readFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -9,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
+import type { Reader } from "../effects/repo.ts";
 import { homeOf, main } from "./index.ts";
 
 let home: string;
@@ -27,22 +29,40 @@ describe("the factory's home", () => {
   });
 });
 
+/** A repo on crate: its image and its full suite. */
+function onCrate(at: string, image: string) {
+  mkdirSync(join(at, ".git"), { recursive: true });
+  mkdirSync(join(at, "scripts"), { recursive: true });
+  writeFileSync(join(at, "crate.toml"), `image = "${image}"\n`);
+  writeFileSync(join(at, "scripts", "check.sh"), "#!/bin/sh\n");
+}
+
+/** The repo as a test has it: its files on disk are its main's, and it is on crate when it has a crate.toml. */
+const read: Reader = {
+  file: (path, file) =>
+    existsSync(join(path, file))
+      ? readFileSync(join(path, file), "utf8")
+      : undefined,
+  onCrate: (path) => existsSync(join(path, "crate.toml")),
+};
+
 describe("the command line", () => {
   const add = (note: string, repo: string) =>
-    main(["add", note, "--repo", repo], {
-      ASSEMBLY_HOME: home,
-      ASSEMBLY_DEV_IMAGES: "repo=ghcr.io/x/repo-dev:abc",
-    });
+    main(
+      ["add", note, "--repo", repo],
+      {
+        ASSEMBLY_HOME: home,
+        ASSEMBLY_DEV_IMAGES: "repo=ghcr.io/x/repo-dev:abc",
+      },
+      read,
+    );
 
   it("adds an issue by its note, named by the file", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const note = join(home, "my-issue.md");
     writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
     const repo = join(home, "repo");
-    mkdirSync(join(repo, ".git"), { recursive: true });
-    mkdirSync(join(repo, "scripts"));
-    writeFileSync(join(repo, "crate.toml"), 'image = "dev"\n');
-    writeFileSync(join(repo, "scripts", "check.sh"), "#!/bin/sh\n");
+    onCrate(repo, "dev");
     expect(await add(note, repo)).toBe(0);
     expect(log).toHaveBeenCalledWith("added my-issue, open, in repo");
     expect(compose({ home }).ledger.item("my-issue")).toMatchObject({
@@ -67,11 +87,9 @@ describe("the command line", () => {
     mkdirSync(join(repo, ".git"), { recursive: true });
     expect(await add(note, repo)).toBe(1);
     expect(err).toHaveBeenLastCalledWith(
-      `${repo} has no crate.toml: the factory runs repos on crate`,
+      `${repo} is not on crate: its server/main has no crate.toml`,
     );
-    mkdirSync(join(repo, "scripts"));
-    writeFileSync(join(repo, "crate.toml"), 'image = "img"\n');
-    writeFileSync(join(repo, "scripts", "check.sh"), "#!/bin/sh\n");
+    onCrate(repo, "img");
     expect(await add(note, repo)).toBe(0);
     expect(await add(note, repo)).toBe(1);
     expect(err).toHaveBeenLastCalledWith("is is in the ledger already");
@@ -102,7 +120,7 @@ describe("the command line", () => {
     writeFileSync(note, "---\ntype: issue\n---\n");
     expect(await main(["add", note], env)).toBe(2);
     expect(err).toHaveBeenLastCalledWith(
-      expect.stringMatching(/^an issue needs --repo\nfactory add/),
+      expect.stringMatching(/^an issue needs its repos: --repo, or a root/),
     );
     expect(existsSync(join(home, "ledger.db"))).toBe(false);
   });

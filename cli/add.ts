@@ -14,7 +14,12 @@ import type { Built } from "../main.ts";
 import { read, setStatus } from "../effects/notes.ts";
 import { kebab, readSpec, specLint, typeOf } from "../process/plan.ts";
 import type { Message, Repo } from "../process/step.ts";
-import { readerImage, settingsOf } from "../effects/repo.ts";
+import {
+  type Reader,
+  readerImage,
+  reposOn,
+  settingsOf,
+} from "../effects/repo.ts";
 
 /** What a command gives back: an exit code, and the lines it prints (to stderr when it refuses). */
 export type Done = { code: number; lines: string[] };
@@ -28,12 +33,15 @@ const said = (word: Message["word"], reason: string): Message => ({
 });
 
 /**
- * What add and submit are given: the repos the issue changes, each by its path, and the tags of the dev images the host
- * put on this machine, by repo name. Each repo's image, full suite and setup are read from it (effects/repo.ts).
+ * What add and submit are given: the repos the issue may change, each by its path, or none, for every repo on crate
+ * under `root`, among which its planner picks; and the tags of the dev images the host put on this machine, by repo
+ * name. Each repo's image, full suite and setup are read from its main (effects/repo.ts).
  */
 export interface Options {
   repos: string[];
+  root?: string | undefined;
   dev?: Record<string, string> | undefined;
+  read?: Reader | undefined;
 }
 
 type At = { path: string; name: string; repos: Repo[]; done?: never };
@@ -45,7 +53,19 @@ function issueAt(
   o: Options,
 ): At | { done: Done } {
   const no = (done: Done) => ({ done });
-  if (!o.repos.length) return no(misused("an issue needs --repo"));
+  const given = o.repos.length
+    ? o.repos
+    : o.root
+      ? reposOn(o.root, o.read)
+      : [];
+  if (!given.length)
+    return no(
+      misused(
+        o.root
+          ? `no repo on crate under ${o.root}`
+          : "an issue needs its repos: --repo, or a root to find every repo on crate under",
+      ),
+    );
   const path = resolve(note);
   const doc = read(path);
   if (!doc)
@@ -67,11 +87,11 @@ function issueAt(
   if (!kebab.test(name))
     return no(refused(`${name}: an issue's name is kebab-case, from its note`));
   const repos: Repo[] = [];
-  for (const given of o.repos) {
-    const repo = resolve(given);
+  for (const each of given) {
+    const repo = resolve(each);
     if (!existsSync(join(repo, ".git")))
       return no(refused(`${repo} is not a git repo`));
-    const s = settingsOf(repo, o.dev);
+    const s = settingsOf(repo, o.dev, o.read);
     if (!s.ok) return no(refused(s.error));
     if (repos.some((r) => r.name === s.repo.name))
       return no(

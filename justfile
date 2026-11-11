@@ -45,18 +45,29 @@ factory +args:
     key=()
     [ "$1" = run ] && key=(rbw-run -f "{{root}}/secrets.toml" --)
     # A repo checked in its dev image: put the image on this machine, from the repo's own script, and pass its tag in.
+    # The repos are the ones given, or, with none, every repo on crate under lot (a git repo with a `server` remote).
     dev=()
     if [ "$1" = add ] || [ "$1" = submit ]; then
+      repos=()
       prev=""
       for a in "$@"; do
-        if [ "$prev" = --repo ] && grep -qE '^[[:space:]]*image[[:space:]]*=[[:space:]]*"dev"' "$a/crate.toml" 2>/dev/null; then
-          dev+=("$(basename "$(realpath "$a")")=$(cd "$a" && scripts/dev-image.sh local | tail -1)")
-        fi
+        [ "$prev" = --repo ] && repos+=("$(realpath "$a")")
         prev=$a
+      done
+      if [ "${#repos[@]}" -eq 0 ]; then
+        while IFS= read -r g; do
+          r=$(dirname "$g")
+          git -C "$r" remote get-url server >/dev/null 2>&1 && repos+=("$r")
+        done < <(find "{{lot}}" -maxdepth 4 -name .git -not -path '*/node_modules/*' -not -path '*/.*/.git')
+      fi
+      for r in "${repos[@]}"; do
+        if git -C "$r" show server/main:crate.toml 2>/dev/null | grep -qE '^[[:space:]]*image[[:space:]]*=[[:space:]]*"dev"'; then
+          dev+=("$(basename "$r")=$(cd "$r" && scripts/dev-image.sh local | tail -1)")
+        fi
       done
     fi
     export ASSEMBLY_DEV_IMAGES=$(IFS=,; echo "${dev[*]}")
-    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_DEV_IMAGES {{as_matt}} -e ASSEMBLY_HOME="$home" -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/cli/index.ts" "$@"
+    "${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_DEV_IMAGES -e ASSEMBLY_REPOS="{{lot}}" {{as_matt}} -e ASSEMBLY_HOME="$home" -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{lot}}:{{lot}}" -v "$home:$home" -w "{{invocation_directory()}}" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "{{root}}/cli/index.ts" "$@"
 
 # Run a command in the Node image: `just run npm install zod`
 run +command:
