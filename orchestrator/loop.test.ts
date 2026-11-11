@@ -728,7 +728,7 @@ describe("a land", () => {
       files,
     });
 
-  it("lands an approved cl with no agent: it is landed, its note done, and the files it changed kept", async () => {
+  it("lands an approved cl with no agent: it is landed, its note as it was, and the files it changed kept", async () => {
     const path = approved("e");
     landed(["src/e.ts"]);
     const run = vi.fn<Run1>(gives(done("x")));
@@ -747,7 +747,9 @@ describe("a land", () => {
       step: "approved",
       word: "pass",
     });
-    expect(readFileSync(path, "utf8")).toMatch(/^status: done$/m);
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\ntype: cl\nstatus: in-progress\n---\nIt.\n",
+    );
     const db = new DatabaseSync(join(dir, "ledger.db"));
     expect(db.prepare("SELECT path FROM paths WHERE name = 'e'").all()).toEqual(
       [{ path: "src/e.ts" }],

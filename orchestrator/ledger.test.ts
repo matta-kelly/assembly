@@ -356,10 +356,23 @@ describe("ledger", () => {
     const l = open(file);
     l.addIssue(issue);
     expect(l.spec("is")).toBeUndefined();
-    l.keepSpec("is", { cls: [] }, "matt");
-    expect(l.spec("is")).toEqual({ spec: { cls: [] }, by: "matt" });
+    l.keepSpec("is", { cls: [] }, "matt", "a".repeat(40));
+    expect(l.spec("is")).toEqual({
+      spec: { cls: [] },
+      by: "matt",
+      commit: "a".repeat(40),
+    });
     l.dropSpec("is");
     expect(l.spec("is")).toBeUndefined();
+  });
+
+  it("keeps the commit a spec was read at, in place of the one before, and it survives a reopen", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    l.keepSpec("is", { cls: [] }, "matt", "1".repeat(40));
+    l.keepSpec("is", { cls: [] }, "matt", "2".repeat(40));
+    expect(l.spec("is")?.commit).toBe("2".repeat(40));
+    expect(open(file).spec("is")?.commit).toBe("2".repeat(40));
   });
 
   it("keeps a cl's phase, and a lone cl's is 1", () => {

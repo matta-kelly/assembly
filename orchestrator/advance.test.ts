@@ -93,7 +93,7 @@ describe("advance", () => {
     expect(section(join(dir, "is-value.md"), "Check").trim()).toBe(
       "- given value, when read, then right",
     );
-    expect(read("is")).toMatch(/status: in-progress/);
+    expect(read("is")).toBe(issueNote);
   });
 
   it("starts every cl of a phase together, and the next phase once all of them land", async () => {
@@ -182,8 +182,9 @@ describe("advance", () => {
         findings: [{ about: "plan", what: "the seam is not there" }],
       },
     ]);
-    expect(read("is")).not.toMatch(/## Raise/);
-    expect(read("is-double")).toMatch(/status: dropped/);
+    expect(read("is")).toBe(issueNote);
+    expect(read("is-double")).toMatch(/^status: new$/m);
+    expect(read("is-value")).toMatch(/^status: new$/m);
   });
 
   it("relays a cl's raise about the issue to Matt", async () => {
@@ -278,13 +279,15 @@ describe("advance", () => {
     expect(state("is")).toBe("escalated");
   });
 
-  it("marks an accepted issue's notes done", async () => {
+  it("leaves an accepted issue's notes as they are: the ledger says it is accepted", async () => {
     await advance(ledger);
+    const before = ["is", "is-plan", "is-value", "is-double"].map(read);
     force("is", "accepted");
     await advance(ledger);
-    expect(read("is")).toMatch(/status: done/);
-    expect(read("is-plan")).toMatch(/status: done/);
-    expect(existsSync(join(dir, "is-double.md"))).toBe(true);
+    expect(["is", "is-plan", "is-value", "is-double"].map(read)).toEqual(before);
+    expect(read("is")).toBe(issueNote);
+    expect(read("is-plan")).toMatch(/^status: active$/m);
+    expect(state("is")).toBe("accepted");
   });
 
   it("builds a spec Matt made from his notes, writing none, and escalates a raise about its plan to him", async () => {

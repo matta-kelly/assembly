@@ -527,7 +527,9 @@ export function open(file: string) {
     },
 
     /** The spec Matt submitted for an issue, kept with who made it, or undefined. */
-    spec(issue: string): { spec: unknown; by: string } | undefined {
+    spec(
+      issue: string,
+    ): { spec: unknown; by: string; commit?: string } | undefined {
       const row = db
         .prepare("SELECT spec, by FROM specs WHERE issue = ?")
         .get(issue) as { spec: string; by: string } | undefined;
@@ -535,7 +537,8 @@ export function open(file: string) {
     },
 
     /** Keeps an issue's spec, and who made it, in place of any before. */
-    keepSpec(issue: string, spec: unknown, by: string) {
+    keepSpec(issue: string, spec: unknown, by: string, commit?: string) {
+      void commit;
       db.prepare(
         "INSERT INTO specs (issue, spec, by) VALUES (?, ?, ?) ON CONFLICT(issue) DO UPDATE SET spec = excluded.spec, by = excluded.by",
       ).run(issue, JSON.stringify(spec), by);

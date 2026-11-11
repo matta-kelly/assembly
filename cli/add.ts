@@ -42,6 +42,7 @@ export interface Options {
   root?: string | undefined;
   dev?: Record<string, string> | undefined;
   read?: Reader | undefined;
+  at?: string | undefined;
 }
 
 type At = { path: string; name: string; repos: Repo[]; done?: never };

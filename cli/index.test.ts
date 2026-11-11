@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   readFileSync,
@@ -72,6 +73,83 @@ describe("the command line", () => {
       test: "scripts/check.sh all",
       state: "open",
     });
+  });
+
+  it("submits an issue by its name at the commit --at gives, and refuses a name with no note there", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repo = join(home, "repo");
+    const kinetic = join(home, "kinetic");
+    onCrate(repo, "img");
+    mkdirSync(kinetic);
+    const git = (...args: string[]) =>
+      execFileSync(
+        "git",
+        ["-c", "user.name=t", "-c", "user.email=t@t", "-C", kinetic, ...args],
+        { encoding: "utf8" },
+      ).trim();
+    git("init", "-q", "-b", "main");
+    onCrate(kinetic, "img");
+    mkdirSync(join(kinetic, "_well"));
+    git("add", "-A");
+    git("commit", "-q", "-m", "before the issue");
+    const before = git("rev-parse", "HEAD");
+    writeFileSync(
+      join(kinetic, "_well", "fx.md"),
+      "---\ntype: issue\nstatus: new\n---\nfx.\n\n---\n## Done\n\n- a is 2\n",
+    );
+    writeFileSync(
+      join(kinetic, "_well", "fx-a.md"),
+      `---
+type: cl
+description: "A cut of fx."
+belongsTo: "[[fx]]"
+status: new
+repo: repo
+shape:
+  change: behavior
+  checked: repo
+checkout:
+  - src/a.ts
+  - test/a.test.ts
+test: npx vitest run test/a.test.ts
+---
+src/a.ts exports a, which is 2.
+
+---
+## Check
+
+- given a, when imported, then it is 2
+
+## Seam
+
+a's name and type.
+
+## Checkout
+
+- test/a.test.ts: the test
+`,
+    );
+    git("add", "-A");
+    git("commit", "-q", "-m", "the spec");
+    const at = git("rev-parse", "HEAD");
+    const env = { ASSEMBLY_HOME: home };
+    const submit = (c: string) =>
+      main(
+        ["submit", "fx", "--repo", repo, "--repo", kinetic, "--at", c],
+        env,
+        read,
+      );
+    expect(await submit(before)).toBe(1);
+    expect(err).toHaveBeenLastCalledWith(
+      expect.stringContaining("_well/fx.md"),
+    );
+    expect(compose({ home }).ledger.items()).toEqual([]);
+    expect(await submit(at)).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/^submitted fx, building, with 1 cl:/),
+    );
+    expect(compose({ home }).ledger.spec("fx")?.commit).toBe(at);
   });
 
   it("refuses an issue with no note, a repo that is not one, or a name it has", async () => {

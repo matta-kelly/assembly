@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -46,7 +47,8 @@ type: cl
 description: "A cut of fx."
 belongsTo: "[[${belongsTo}]]"
 status: new
-${phase === undefined ? "" : `phase: ${phase}\n`}shape:
+${phase === undefined ? "" : `phase: ${phase}\n`}repo: repo
+shape:
   change: behavior
   checked: repo
 checkout:
@@ -93,6 +95,7 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "add-"));
   notes = join(home, "notes");
   repo = join(home, "repo");
+  kinetic = join(home, "kinetic");
   mkdirSync(notes);
   writeFileSync(join(notes, "fx.md"), issue);
   onCrate(repo);
@@ -101,13 +104,59 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
+let kinetic: string;
+/** The kinetic repo: a real git repo, which submit reads with git. A test of submit has it, and add's have none. */
+const initKinetic = () => {
+  mkdirSync(kinetic);
+  git("init", "-q", "-b", "main");
+  onCrate(kinetic);
+  mkdirSync(join(kinetic, "_well"));
+};
+const git = (...args: string[]) =>
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "commit.gpgsign=false",
+      "-C",
+      kinetic,
+      ...args,
+    ],
+    { encoding: "utf8" },
+  ).trim();
+/** The repos a submit is given: the repo its cls change, and the kinetic repo, which holds the spec. */
+const runK = () => ({ repos: [repo, kinetic], read });
+const put = (name: string) => join(kinetic, "_well", `${name}.md`);
+const note = (name: string, text: string) => writeFileSync(put(name), text);
+/** Commits the kinetic repo's tree as it is, and gives the commit. */
+const commit = (message: string) => {
+  git("add", "-A");
+  git("commit", "-q", "--allow-empty", "-m", message);
+  return git("rev-parse", "HEAD");
+};
+/** Commits, and makes the commit the kinetic repo's server/main. */
+const publish = (message: string) => {
+  const sha = commit(message);
+  git("update-ref", "refs/remotes/server/main", sha);
+  return sha;
+};
+
 const twoPhases = () => {
-  writeFileSync(
-    join(notes, "fx-plan.md"),
+  note(
+    "fx-plan",
     plan("- Phase 1: a first\n\t- [[fx-a]]\n- Phase 2: then c\n\t- [[fx-c]]"),
   );
-  writeFileSync(join(notes, "fx-a.md"), cl("a", 1));
-  writeFileSync(join(notes, "fx-c.md"), cl("c", 2));
+  note("fx-a", cl("a", 1));
+  note("fx-c", cl("c", 2));
+};
+/** The issue, its plan and its two cls in the kinetic repo's tree. */
+const specNotes = () => {
+  note("fx", issue);
+  twoPhases();
 };
 
 describe("add", () => {
@@ -187,7 +236,10 @@ describe("add", () => {
   });
 
   it("refuses a plan or a cl: its issue is submitted, which brings them", () => {
-    twoPhases();
+    writeFileSync(
+      join(notes, "fx-plan.md"),
+      plan("- Phase 1: a first\n\t- [[fx-a]]"),
+    );
     expect(add(factory, join(notes, "fx-plan.md"), run()).lines[0]).toMatch(
       /is a plan: submit its issue/,
     );
@@ -208,10 +260,12 @@ describe("add", () => {
 });
 
 describe("submit", () => {
+  beforeEach(initKinetic);
+
   it("puts an issue with Matt's spec at building, by his two passes, and the engine builds it by phase from his notes", async () => {
-    twoPhases();
-    const before = readFileSync(join(notes, "fx-plan.md"), "utf8");
-    expect(submit(factory, join(notes, "fx.md"), run())).toEqual({
+    specNotes();
+    const sha = publish("the spec");
+    expect(submit(factory, "fx", runK())).toEqual({
       code: 0,
       lines: [
         "submitted fx, building, with 2 cls:",
@@ -227,7 +281,8 @@ describe("submit", () => {
       ["matt", "pass", "building"],
     ]);
     expect(ledger.attemptsOf("fx")).toEqual([]);
-    expect(ledger.spec("fx")?.by).toBe("matt");
+    expect(ledger.item("fx").path).toMatch(/_well\/fx\.md$/);
+    expect(ledger.spec("fx")).toMatchObject({ by: "matt", commit: sha });
     await advance(ledger);
     expect(ledger.cls("fx").map((c) => [c.name, c.phase, c.state])).toEqual([
       ["fx-a", 1, "ready"],
@@ -235,12 +290,71 @@ describe("submit", () => {
     ]);
     const a = clOf(ledger, { name: "fx-a", issue: "fx" });
     expect(a.checkout).toEqual(["src/a.ts", "test/a.test.ts", "src/b.ts"]);
-    expect(readFileSync(join(notes, "fx-plan.md"), "utf8")).toBe(before);
+    // no step wrote a note: kinetic's tree is as committed
+    expect(git("status", "--porcelain")).toBe("");
+  });
+
+  /**
+   * A kinetic repo with three states of one spec: C, where fx-a changes src/a.ts and fx-c is a cl (C is server/main, and
+   * the tag spec-1); D, committed after, where fx-a changes src/d.ts; and the tree after D, edited and not committed,
+   * where fx-a changes src/w.ts and fx-c is gone. Gives C.
+   */
+  const history = () => {
+    specNotes();
+    const c = publish("C");
+    git("tag", "spec-1", c);
+    note("fx-a", cl("a", 1).replaceAll("src/a.ts", "src/d.ts"));
+    commit("D");
+    note("fx-a", cl("a", 1).replaceAll("src/a.ts", "src/w.ts"));
+    rmSync(put("fx-c"));
+    return c;
+  };
+
+  it.each([
+    ["a commit", (c: string) => c],
+    ["a ref", () => "spec-1"],
+    ["none: the kinetic repo's server/main", () => undefined],
+  ])(
+    "reads the spec at the commit it is given, %s, with git and not from the working tree, and keeps the commit",
+    (_, at) => {
+      const c = history();
+      const done = submit(factory, "fx", { ...runK(), at: at(c) });
+      expect(done.code).toBe(0);
+      const { ledger } = factory();
+      expect(ledger.spec("fx")?.commit).toBe(c);
+      expect(ledger.spec("fx")?.commit).toMatch(/^[0-9a-f]{40}$/);
+      expect(
+        clOf(ledger, { name: "fx-a", issue: "fx" }).checkout,
+      ).toEqual(["src/a.ts", "test/a.test.ts", "src/b.ts"]);
+      expect(
+        clOf(ledger, { name: "fx-c", issue: "fx" }).checkout,
+      ).toEqual(["src/c.ts", "test/c.test.ts", "src/b.ts"]);
+    },
+  );
+
+  it("refuses an issue whose note is not at the commit, naming the note and the commit, and leaves the ledger as it was", () => {
+    const before = publish("before the issue");
+    git("tag", "before", before);
+    specNotes();
+    publish("the spec");
+    for (const [issueName, at, named] of [
+      ["fx", before, before],
+      ["fx", "before", "before"],
+      ["nope", undefined, "server/main"],
+    ] as const) {
+      const done = submit(factory, issueName, { ...runK(), at });
+      expect(done.code).toBe(1);
+      expect(done.lines.join("\n")).toContain(`_well/${issueName}.md`);
+      expect(done.lines.join("\n")).toContain(named);
+      expect(factory().ledger.items()).toEqual([]);
+    }
   });
 
   it("takes the lone cl of an issue that takes one, with no plan", async () => {
-    writeFileSync(join(notes, "fx-a.md"), cl("a", undefined, "fx"));
-    expect(submit(factory, join(notes, "fx.md"), run()).code).toBe(0);
+    note("fx", issue);
+    note("fx-a", cl("a", undefined, "fx"));
+    publish("the spec");
+    expect(submit(factory, "fx", runK()).code).toBe(0);
     const { ledger } = factory();
     await advance(ledger);
     expect(ledger.cls("fx").map((c) => [c.name, c.phase, c.state])).toEqual([
@@ -249,18 +363,17 @@ describe("submit", () => {
   });
 
   it("refuses a spec its notes can't make whole, or that does not lint, and writes nothing", () => {
-    twoPhases();
-    writeFileSync(join(notes, "fx-c.md"), cl("c", 1));
-    expect(submit(factory, join(notes, "fx.md"), run()).lines).toEqual([
+    specNotes();
+    note("fx-c", cl("c", 1));
+    publish("a phase that disagrees");
+    expect(submit(factory, "fx", runK()).lines).toEqual([
       expect.stringMatching(
         /list puts fx-c in phase 2, and the cl says phase 1/,
       ),
     ]);
-    writeFileSync(
-      join(notes, "fx-c.md"),
-      cl("c", 2).replace("src/b.ts", "../b.ts"),
-    );
-    expect(submit(factory, join(notes, "fx.md"), run()).lines).toEqual([
+    note("fx-c", cl("c", 2).replace("src/b.ts", "../b.ts"));
+    publish("a path outside the repo");
+    expect(submit(factory, "fx", runK()).lines).toEqual([
       expect.stringMatching(
         /cl c: files outside the repo, or its root: ..\/b.ts/,
       ),
@@ -269,8 +382,9 @@ describe("submit", () => {
   });
 
   it("sends its issue to Matt, escalated, on a raise about its plan, never to the factory's planner", async () => {
-    twoPhases();
-    submit(factory, join(notes, "fx.md"), run());
+    specNotes();
+    publish("the spec");
+    expect(submit(factory, "fx", runK()).code).toBe(0);
     const { ledger } = factory();
     await advance(ledger);
     ledger.apply(
@@ -292,6 +406,8 @@ describe("submit", () => {
 });
 
 describe("approve and replan", () => {
+  beforeEach(initKinetic);
+
   it("approve is Matt's pass at plan review, and refuses any other state", () => {
     add(factory, join(notes, "fx.md"), run());
     expect(approve(factory, "fx").lines[0]).toMatch(
@@ -326,8 +442,9 @@ describe("approve and replan", () => {
   });
 
   it("replan sends an escalated issue back to open, drops its cls not landed, and lets go of Matt's spec", async () => {
-    twoPhases();
-    submit(factory, join(notes, "fx.md"), run());
+    specNotes();
+    publish("the spec");
+    expect(submit(factory, "fx", runK()).code).toBe(0);
     const { ledger } = factory();
     await advance(ledger);
     expect(replan(factory, "fx").lines[0]).toMatch(
@@ -345,8 +462,9 @@ describe("approve and replan", () => {
       "dropped",
     ]);
     expect(ledger.spec("fx")).toBeUndefined();
-    expect(readFileSync(join(notes, "fx-a.md"), "utf8")).toMatch(
-      /status: dropped/,
-    );
+    // the dropped cls' notes are as they were: the ledger says they are dropped
+    expect(readFileSync(put("fx-a"), "utf8")).toMatch(/^status: new$/m);
+    expect(readFileSync(put("fx-c"), "utf8")).toMatch(/^status: new$/m);
+    expect(git("status", "--porcelain")).toBe("");
   });
 });

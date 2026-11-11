@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { items, section, setStatus, writeNote } from "./notes.ts";
+import { items, section, writeNote } from "./notes.ts";
 
 const note =
   "---\ntype: cl\nstatus: new\n---\nIntent.\n\n## Check\n\n- b1\n\t- not an item\n- b2\n\n## Tests\n\nold\n";
@@ -15,18 +15,12 @@ beforeEach(() => {
   writeFileSync(file, note);
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
-const doc = () => readFileSync(file, "utf8");
 
 describe("notes", () => {
   it("read a section, and its top-level items", () => {
     expect(section(file, "Tests").trim()).toBe("old");
     expect(items(file, "Check")).toEqual(["- b1", "- b2"]);
     expect(section(file, "Seam")).toBe("");
-  });
-
-  it("set a note's status in its frontmatter only", () => {
-    setStatus(file, "done");
-    expect(doc()).toMatch(/^---\ntype: cl\nstatus: done\n---/);
   });
 
   it("write a new note, quoting a value that needs it, and refuse one that is there unless told", () => {
