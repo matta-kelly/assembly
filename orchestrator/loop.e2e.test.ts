@@ -544,11 +544,11 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(
           db
             .prepare(
-              "SELECT kind, path FROM paths WHERE name = 'is-double' ORDER BY kind, path",
+              "SELECT path FROM paths WHERE name = 'is-double' ORDER BY path",
             )
             .all()
-            .map((p) => `${p["kind"] as string} ${p["path"] as string}`),
-        ).toEqual(["actual src/double.mjs", "actual test/double.test.mjs"]);
+            .map((p) => p["path"]),
+        ).toEqual(["src/double.mjs", "test/double.test.mjs"]);
         // Each check's test run is recorded with its attempt: the cl's red, green and review checks, on real trees.
         const checks = db
           .prepare(

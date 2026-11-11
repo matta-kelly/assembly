@@ -117,8 +117,7 @@ const tables = `
   CREATE INDEX IF NOT EXISTS check_runs_input ON check_runs (input_hash);
   CREATE TABLE IF NOT EXISTS paths (
     name TEXT NOT NULL REFERENCES items(name), path TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('planned', 'actual')),
-    PRIMARY KEY (name, path, kind)
+    PRIMARY KEY (name, path)
   );
 `;
 
@@ -512,13 +511,13 @@ export function open(file: string) {
       return row?.result ? JSON.parse(row.result) : undefined;
     },
 
-    /** Records the files a cl changed, when merged. */
-    paths(name: string, kind: "actual", paths: string[]) {
+    /** Records the files a cl changed, once landed. */
+    paths(name: string, paths: string[]) {
       tx(() => {
         for (const path of paths)
           db.prepare(
-            "INSERT OR IGNORE INTO paths (name, path, kind) VALUES (?, ?, ?)",
-          ).run(name, path, kind);
+            "INSERT OR IGNORE INTO paths (name, path) VALUES (?, ?)",
+          ).run(name, path);
       });
     },
 

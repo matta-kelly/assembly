@@ -238,7 +238,7 @@ describe("approve and replan", () => {
     expect(approve(factory, "fx").lines[0]).toMatch(/attempt open/);
   });
 
-  it("replan sends an escalated issue back to open, drops its cls not merged, and lets go of Matt's spec", async () => {
+  it("replan sends an escalated issue back to open, drops its cls not landed, and lets go of Matt's spec", async () => {
     twoPhases();
     submit(factory, join(notes, "fx.md"), run());
     const { ledger } = factory();

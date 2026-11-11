@@ -62,7 +62,7 @@ function writeNotes(ledger: Ledger, issue: Item, s: Spec) {
 
 /**
  * Puts a spec's cls in the ledger, at their notes beside the issue's, after every cl of the plans before it, each with
- * its phase and its planned paths: phase 1 ready, the rest waiting. A cl the ledger has already is left as it is.
+ * its phase: phase 1 ready, the rest waiting. A cl the ledger has already is left as it is.
  */
 function addCls(ledger: Ledger, issue: Item, s: Spec) {
   const names = new Set(s.cls.map((c) => `${issue.name}-${c.name}`));

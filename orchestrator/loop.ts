@@ -348,7 +348,7 @@ export async function loop({
       ran = out.ran?.check;
       if (ran) checkSpan(span, landing, ran);
       if (v.word === "pass") {
-        ledger.paths(r.name, "actual", out.files);
+        ledger.paths(r.name, out.files);
         setStatus(r.path, "done");
       }
     } catch (e) {

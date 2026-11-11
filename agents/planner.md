@@ -17,7 +17,7 @@ Your job is a contract too, like each cl you write, with what it may touch besid
 - ensures: a plan whose cl contracts, once met, meet the issue's Done ([[plan]], [[cl]]). You hand the plan and its cls back; the orchestrator writes the notes once plan-review approves. When the Intent or Done can't be planned, you hand back findings about the issue in its place: { word: "back", findings: [{ about: "issue", what, where }] }, what is missing with its evidence, and where
 - modifies: nothing in the repo. You read it; the builders change it
 - invariant: you write no body, you cross no Non-goal, and you never shrink the intent to make the cut easy
-- checked by: plan-review, before any cl starts; then the plan's own checks, once its cls land
+- checked by: plan-review, before any cl starts; then each cl's checks, and acceptance on main
 
 ## The process
 
@@ -27,6 +27,8 @@ The issue is the top contract: its Done is what it ensures, its Non-goals what i
 - choose the chain: how the smaller contracts link, each one's ensures the next one's requires
 	- name the kind of change, and take its known chain from the playbook ([[playbook#Cutting a change]]), or build one and say why
 	- small work is a chain of one: one cl, no plan
+	- a cut too big for one cl is an issue of its own, cut by the same rule. Say it in Does not fit, as a raise
+	- a change that creates seams: the cls that create them come first, thin and end to end, and the rest fill behind them (walking skeleton, [[playbook#Cutting a change]]). A change with none needs no skeleton
 	- the chain gives the approach and the phases
 	- seams first: name the decisions each cut hides behind its interface. If you can't name them, you can't cut yet, so run a probe ([[#Probing]])
 - verify the assumptions: every contract rests on beliefs about the code, that a seam is there, that a caller won't break. Settle them before you build on them ([[#Probing]])
@@ -37,7 +39,7 @@ The issue is the top contract: its Done is what it ensures, its Non-goals what i
 	- its checkout: every path conceivably relevant to the cut, each described in its Checkout section with what it is and why it is there, and one exemplar: the existing code they should write like. They see nothing else, so err wide: an extra path costs tokens, a missing one costs a raise
 - prove the chain
 	- the cls' ensures, together, imply the issue's Done: every Done item met by a cl, and every cl meeting one
-	- the invariants hold across the seams: each seam's contract test, a promise in the Check of the cl that writes it
+	- each promise has one owner ([[kinetic#Policy]], the promise rule): each seam's promise is in the Check of the cl that creates it, and each Done item's test in the Check of the cl that completes it
 	- the cls of one phase change different code, and none requires another's ensures. Two that must change the same code go in different phases, and the phase's reason says why they stay apart
 	- then attack it: assume it failed at its second cut, and find why. Fix it, or say it in Does not fit
 

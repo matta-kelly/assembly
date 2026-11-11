@@ -20,8 +20,8 @@ import type { Artifact, State, Word } from "./table.ts";
  * - budget_exceeded: the run went past its time limit
  * - missing_dependency: the attempt's setup could not install the repo's dependencies (an image older than the
  *   lockfile), so no agent ran
- * The other causes on the list name parts not built yet: untestable_as_specified, flaky_check,
- * restack_conflict, escape.
+ * - restack_conflict: a land's rebase onto main conflicts
+ * The other causes on the list name parts not built yet: untestable_as_specified, flaky_check, escape.
  */
 export const causes = [
   "contract_invalid",

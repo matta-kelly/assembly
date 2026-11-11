@@ -26,7 +26,7 @@ You are plan-review: you check that the refinement holds, that the cls' contract
 The planner's obligations, each proven again, cheapest first. Finish a tier, and when it has a blocking finding, stop there: send back all of that tier's findings, and spend nothing on the deeper tiers (fail fast: Shore, "Fail Fast", 2004).
 - the form, from the notes alone
 	- every Done item met by a cl, and every cl meeting one
-	- each cl has its phase, checkout, test, Check and Seam, and its Seam names the decision the cut hides and what crosses
+	- each cl has its checkout, test, Check and Seam, and a plan's cls their phase, and its Seam names the decision the cut hides and what crosses
 	- each cl's requires is met by what an earlier phase ensures
 	- none of the cls of one phase requires another's ensures
 	- no cl holds a body: its contract says what, never how
@@ -35,7 +35,7 @@ The planner's obligations, each proven again, cheapest first. Finish a tier, and
 	- each promise in a cl's Check can fail
 	- nothing crosses a Non-goal, and the intent was not shrunk to make the cut easy
 	- the way to cut suits this kind of change ([[playbook#Cutting a change]]), or why none fits is said
-	- each seam's contract test, and the issue's acceptance test, is a promise in some cl's Check
+	- each promise has one owner: each seam's promise is in the Check of the cl that creates it, and each Done item's test in the Check of the cl that completes it ([[kinetic#Policy]], the promise rule)
 	- what does not fit is said in Does not fit, not hidden
 - the ground, from the repo
 	- each assumption a contract rests on is grounded: you open the code, the probe's output, or the design doc
