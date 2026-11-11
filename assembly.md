@@ -85,7 +85,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
 	- the lands: `loop.ts` too. One per approved cl, as an attempt, and the lands of one repo one at a time, each after the one before it
-	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed, the issue built, the relay of a raise
+	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `effects/registry.ts`), the issue built, the relay of a raise
 - effects: how it touches the world (`effects/`), each behind a small seam
 	- `git.ts`: branches, worktrees and commits, and main as the land target has it
 	- `land.ts`: the land, an approved cl onto main: a push that crate checks, or `git land` for a repo not on crate
@@ -201,7 +201,7 @@ What it keeps.
 - the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default
 - the dev image's tag per lockfile: an issue takes its repo's dev image tag once, at `factory add`, so a lockfile that changes while it runs fails setup
-- the order across repos: a cl that needs another repo's new version does not wait for it to be published ([[landing-flow]])
+- the wait for a published version in the running loop: `advance` takes a `World` (registry, reader, the tags of a landed cl), but `compose` does not build one yet, since the ledger keeps no landed commit to read tags from ([[landing-flow]])
 - a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate
 - check reuse: runs are recorded with their input hash, and never skipped on it

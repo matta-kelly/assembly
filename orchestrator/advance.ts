@@ -135,10 +135,51 @@ export interface World {
 /** A waiting cl's name, and why it still waits for a published version. */
 export type Waiting = Record<string, string>;
 
-export async function advance(
+/** A version tag crate puts on a commit: `v<version>` for the package at `.`, `<folder>-v<version>` for one in a folder. */
+const versionTag = /^(?:(.+)-)?v(\d+\.\d+\.\d+\S*)$/;
+
+/** The package names a repo's `package.json` depends on, runtime or dev. */
+function dependsOn(reader: Reader, repo: string): Set<string> {
+  const json = reader.file(repo, "package.json");
+  if (json === undefined) return new Set();
+  const p = JSON.parse(json) as Record<string, Record<string, string>>;
+  return new Set([
+    ...Object.keys(p.dependencies ?? {}),
+    ...Object.keys(p.devDependencies ?? {}),
+  ]);
+}
+
+/**
+ * Why a waiting cl cannot start yet: a package its repo depends on, made by a landed cl of its issue, has a version not
+ * on npm. Undefined when nothing holds it. A landed commit with no version tag makes no wait.
+ */
+async function unpublished(
   ledger: Ledger,
-  _world?: World,
-): Promise<Waiting> {
+  cl: Item,
+  world: World,
+): Promise<string | undefined> {
+  const needs = dependsOn(world.reader, cl.repo);
+  for (const landed of ledger.cls(cl.issue)) {
+    if (landed.state !== "landed" || landed.repo === cl.repo) continue;
+    for (const tag of await world.tags(landed.repo, landed.name)) {
+      const [, folder, version] = versionTag.exec(tag) ?? [];
+      if (!version) continue;
+      const json = world.reader.file(
+        landed.repo,
+        folder ? `${folder}/package.json` : "package.json",
+      );
+      if (json === undefined) continue;
+      const name = (JSON.parse(json) as { name?: string }).name;
+      if (!name || !needs.has(name)) continue;
+      if (!(await world.registry.published(name, version)))
+        return `${name}@${version}, made by ${landed.name}, is not on npm yet`;
+    }
+  }
+  return undefined;
+}
+
+export async function advance(ledger: Ledger, world?: World): Promise<Waiting> {
+  const waiting: Waiting = {};
   for (const issue of ledger.inState("building"))
     await guarded(ledger, issue, () => {
       const made = specOf(ledger, issue.name);
@@ -166,7 +207,10 @@ export async function advance(
         (c) =>
           live(c) && (c.phase ?? 1) < (cl.phase ?? 1) && c.state !== "landed",
       );
-    if (!before.length)
+    if (before.length) continue;
+    const why = world && (await unpublished(ledger, cl, world));
+    if (why) waiting[cl.name] = why;
+    else
       ledger.apply(
         cl.name,
         say(
@@ -246,5 +290,5 @@ export async function advance(
         ),
         "orchestrator",
       );
-  return {};
+  return waiting;
 }
