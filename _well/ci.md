@@ -12,7 +12,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 - [[#Every workflow]] rules every workflow file keeps
 
 - [[kinetic#The checks]]: the map, a cl to main; [[assembly#The dock]]: how a cl reaches it
-- [[assembly-on-server]]: the queue, postsubmit and release, as built next
+- [[assembly-on-server]]: the factory on the server, which lands through these stations, and the cross-repo wait
 - [[tests]]: what the checks run
 - [[ci-throughput]]: why CI speed is a product under agent volume
 
