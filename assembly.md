@@ -3,7 +3,7 @@ type: moc
 description: "Root of assembly, the software factory: a deployment of que-pasa that moves an issue through its plan and its cls to accepted. Read for how the factory works as a system, where it meets other systems, what it records, and what is built."
 status: active
 ---
-assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through [[kinetic]]'s process, its plan and its cls, one cl at a time, to accepted, then to main. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
+assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through [[kinetic]]'s process, its plan and its cls, phase by phase, to accepted, then to main. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
 - [[software-factory-v2-design]]: the design it follows
@@ -32,14 +32,18 @@ The model: the four things that travel with a job, each with its rules in the pr
 
 - spec: the notes that say what must be true: the issue, the plan and its cls, in kinetic
 	- shapes: held by the process. `effects/notes.ts` reads them by path
-	- writes: the engine writes only the factory's own plan and cl notes, and each item's `status`. A finding is never written into a note
+	- writes: the engine writes only the notes of a spec the factory's planner made, in kinetic's format, and each item's `status`. A finding is never written into a note
+	- Matt's spec: his own notes, which the engine reads and never writes, except their `status`
+	- the kept spec: the ledger keeps each issue's spec with who made it, the planner's passed result or the one Matt submitted (`specs`)
 - product: the files a cl's builders make, its tests and its code, in git
 	- judged by: the process's checks. Red at an assertion, no test changed, green
 	- held by: `effects/git.ts`. The engine commits and merges it
 - role: the instructions one agent works from (`agents/*.md`)
 	- run by: `effects/runner.ts`, from the agent and the bin its step names
 - message: the record a step ends with, saying what it concluded and who acts next (`process/step.ts`'s `Message`)
-	- its parts: a word (pass, retry or back), why in one line, a failure's cause, its findings, and notes for the next step. It is from the attempt it ends
+	- its parts: a word, why in one line, a failure's cause, its findings, and notes for the next step
+	- its words: pass, retry or back from a step; pass, drop, escalate or replan from the orchestrator or Matt
+	- its sender: on its event. An attempt as it ends, the orchestrator, or Matt
 	- finding: a fault in one artifact (the issue, the plan, a cl, its tests or its code), with what fails, its evidence and where
 	- pass: moves the item on
 	- retry: runs its step again
@@ -49,6 +53,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 		- raise: a back about a spec (a cl, the plan or the issue). A cl's raise goes to its issue, relayed by the orchestrator (`advance.ts`)
 		- escalation: the item goes to Matt, on its third retry at one state, its third round back, or a move the table has no row for
 	- routing: `process/table.ts`, as data
+	- the one door: `ledger.apply`, which every message goes through, whoever sends it
 	- the record: the ledger's events, one per message, appended and never edited. An item's state is their projection, moved in the same transaction
 	- an agent's input: its spec, then its messages, the one that brought the item to its state and each since (`ledger.inbox`). Its product it reads in the worktree
 
@@ -58,21 +63,24 @@ The machine: what moves jobs from station to station, in four layers put togethe
 
 - process: what the work is (`process/`, `agents/`). It decides, and touches only its own notes
 	- the path: the states an item moves through on messages, held as data in `process/table.ts`
-		- an issue: open → planned (the planner cuts it) → building (plan-review approves) → built (each cl merged into the issue's branch, in plan order) → accepted (issue-review, and the full suite green). A review or a cl's raise can send it back to the planner
-		- a cl: waiting (for the cl before it) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → merged. A review can send it back to its tests or its code
+		- an issue: open → planned (the planner cuts it) → building (plan-review approves, or Matt does) → built (each cl merged into the issue's branch, phase by phase) → accepted (issue-review, and the full suite green). A review or a cl's raise can send it back to the planner. An issue Matt submits passes open and planned by his passes
+		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → merged. A review can send it back to its tests or its code
 	- a step: one per state, with its agent, its result's shape and its check (`process/*.ts`, listed in `process/index.ts`)
-		- the steps: plan (the plan lints), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
+		- the steps: plan (the issue has Done items, and the spec lints: kinetic's rules, and the repo's), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
-		- a view: the files of a step's cut (`process/plan.ts`'s `viewOf`). Nail's and hammer's tools read those, write only the ones they change, and see nothing else. The planner explored, so they do not
-			- a file outside the view: a raise
-			- a worktree that changed any other file: a retry (`scope_exceeds_change`). Only the change files are committed
+		- a bound step: nail's and hammer's. The attempt's worktree is a sparse checkout of the cl's checkout (`effects/git.ts`), so only its paths are on disk, and to them nothing else exists. The planner explored, so they do not
+			- a file outside the checkout: a raise
+			- a path of the checkout: a file or a folder, a plain path from the repo's root
+			- the commit: every change the attempt made. The checkout fences exploration, not edits
 			- hammer: changes no test file, none da-nail wrote and none its test command runs
-			- the test command: runs the cut's new test files and the existing ones that test the code it changes
+			- a test run: one op (`effects/tests.ts`'s `runTests`), for the agent's `test` tool and the step's check alike
+				- the cl's full worktree: `runs/<issue>/cl/<cut>/full`, made once and set up once, where every test run happens
+				- the tree: the attempt's HEAD with its change is put there first, so the tree a test sees is the tree a pass commits
 	- an agent: its instructions in its role note beside it, and the bin it names (plan, implement, review), never a model
 - engine: what moves it (`orchestrator/`)
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
-	- the orchestrator's own moves: `advance.ts`. An approved plan's cls, each cl in turn, the merges
+	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before is merged, the merges, the relay of a raise
 - effects: how it touches the world (`effects/`), each behind a small seam
 	- `git.ts`: branches, worktrees, commits and merges
 	- `sandbox.ts`: what each container is given. que-pasa's `podman()` makes it
@@ -84,8 +92,8 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- `tools.ts`: the run's context, and `test`, the cl's test command, for nail and hammer
 		- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
 		- for every agent: `ls`, `read_file`, `glob`, `grep`
-		- for nail and hammer: `write_file`, `edit_file`, over que-pasa's `view` of their cut
-		- for the planner and the reviews: `execute`, a shell. They have no view, and only read
+		- for nail and hammer: `write_file`, `edit_file`, in their sparse checkout
+		- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
 	- `notes.ts`: the issue and cl notes. `trace.ts`: the record of each attempt
 - wiring: `main.ts`. `compose` builds the factory from the other three, under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
 - the command line: `cli/`, one module per command, on what `compose` builds (`just factory`)
@@ -97,11 +105,12 @@ An attempt: one step on one item, at one bench. Its run, its sandbox and its wor
 - begin: the ledger opens it, with its trace's ids
 - setup: the issue's `--setup` installs the repo's dependencies into the new worktree from the [[repo#Dev image|dev image]]'s cache, with no network, in a container of its own, inside the attempt's task, so a tick never waits on it
 	- once per worktree: `setup.done` in the attempt's folder, forgotten when the worktree is made again
+	- a bound attempt: its sparse worktree holds no install. The cl's full worktree, where its tests run, is set up once in its place (`full.setup/setup.done`)
 	- what it installs: ignored by git
 	- a failure: a retry with `missing_dependency`, before any agent. It names an image older than the lockfile (npm's ENOTCACHED), or the files it left unignored
 - sandbox: a container with no network, the worktree mounted (read-only for a review), up on its tools' first call. The agent's loop runs in the orchestrator and holds the key (LangChain's "sandbox as tool")
 - run: que-pasa's, with the attempt's id, under the attempt's span, on the bin's model
-- check: the step's, on the worktree. Its test run in a container of its own
+- check: the step's, on the worktree. Its test run in a container of its own, on the cl's full worktree for a bound attempt
 - commit: a pass of a step that edits, as `<agent>(<item>)`, which moves the item's branch. No note is written
 - end: the attempt span is written, then the ledger moves the item, in one transaction with one event, its message
 - across a stop
@@ -135,10 +144,11 @@ Where it meets other systems, and what crosses each.
 What it keeps.
 
 - the ledger (`ledger.db`)
-	- items
+	- items: with a cl's phase
 	- attempts: state, word, reason, cause, duration, tokens in, out and cached, cost, the result, trace ids, times taken up
-	- events: one per message, with its word, reason, cause, findings and notes, and the move it made
-	- each cl's planned and actual paths
+	- events: one per message, with who sent it, its word, reason, cause, findings and notes, and the move it made
+	- specs: an issue's spec, and who made it
+	- paths: the files each cl changed, once merged
 	- check runs: command, image, tree, input hash, exit code, duration
 - pi's store (`pi.db`): que-pasa's runs, so a run goes on after a stop
 - a run folder: per attempt, by issue (`runs/<issue>/issue/<n>/`, `runs/<issue>/cl/<cut>/<n>/`), with its worktree, its log and its trace
@@ -151,7 +161,14 @@ What it keeps.
 
 - the machine: an issue from open to accepted, proven end to end on scripted models, with an attempt taken up after a stop (`just e2e`)
 - the command line: `just factory`, its home `$XDG_STATE_HOME/assembly`
-	- `add`: a note, by its kinetic type. An issue enters at open, for the planner. A plan made outside the factory, or an issue's lone cl, enters with its cls ready, checked as the factory's own plan is; a raise or a send-back on it goes to Matt, never to the planner
+	- each command: a message through the one door, as Matt
+	- `add`: an issue, which enters at open, for the planner
+	- `submit`: an issue with the spec Matt made, its cls and its plan beside it in kinetic's format
+		- where it enters: building, by his passes at open and plan review. Only the inner loop and acceptance run it, and they write only its notes' status
+		- its notes: read whole, each cl's fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is
+		- a raise or a send-back on it: goes to Matt, escalated, never to the planner
+	- `approve`: an issue at planned, his pass in place of plan-review's
+	- `replan`: an issue he holds, raised or escalated, back to open, its cls not merged dropped
 	- `run`: the loop, until a signal stops it. Its attempts stay open
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's messages, attempts, costs and traces)
 - the dependencies in an attempt: an offline install from the dev image's cache, once per worktree, proven on a que-pasa worktree (setup in 11 s, then its tests pass, no network)
@@ -159,13 +176,13 @@ What it keeps.
 
 ## Not built
 
-- the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass. Its tools fence by the cut's file list, not a sparse checkout of its checkout
-- the planner's role as written: its result is still the old cut (files, grounds copied in, Check items by number), and its envelope does not inline the [[plan]] and [[cl]] type notes
-- the cl as kinetic defines it: assembly reads a cl's files and test command from the planner's cut or the cl's Files. kinetic's cl holds `checkout`, `scope`, `shape` and `test` in its frontmatter, for a sparse checkout of its checkout
+- the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
+- the planner's envelope: its input does not inline the [[plan]] and [[cl]] type notes its role points to
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
-- the command line's `retry`, `replan` and `ask`
+- the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default
 - the dev image's tag per lockfile: `--image` names one tag for every attempt, so a newer lockfile fails setup. The exact tag (`dev-image.sh local`) needs skopeo or a build in the orchestrator's image
-- parallel cls, or a plan across repos: one cl at a time, in one repo
+- a phase of two or more cls: the second to merge can't fast-forward the issue's branch, so the move escalates
+- a plan across repos: a plan's cls run in one repo
 - landing: Matt lands an accepted issue's branch ([[#The dock]])
 - check reuse: runs are recorded with their input hash, and never skipped on it
