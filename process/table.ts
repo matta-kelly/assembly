@@ -6,7 +6,7 @@
  * - a cl: waiting (for the phases before its own), ready (da-nail's step), red (da-hammer's), green (cl-review's),
  *   approved (the land's), landed on main. A cl of a plan that went back to the planner is dropped
  * A retry stays in its state: the third failed attempt at one state is escalated to Matt, and so is the third
- * send-back for another round.
+ * send-back for another round. A waiting cl's retry is no attempt: it records why the cl waits, however often.
  */
 
 /** Where an item stands: its label in the ledger. Only the orchestrator moves it. */
@@ -57,7 +57,7 @@ export const table: Partial<
   planned: { pass: "building", retry: "planned" },
   building: { pass: "built" },
   built: { pass: "accepted", retry: "built" },
-  waiting: { pass: "ready" },
+  waiting: { pass: "ready", retry: "waiting" },
   ready: { pass: "red", retry: "ready" },
   red: { pass: "green", retry: "red" },
   green: { pass: "approved", retry: "green" },
@@ -124,6 +124,8 @@ export function next(
   }
   const to = table[state]?.[word as "pass" | "retry"];
   if (!to) throw new Error(`no transition from ${state} on ${word}`);
-  if (word === "retry" && c.attempts >= retryLimit) return "escalated";
+  // A waiting cl's retry is the orchestrator saying why it waits: no attempt, so it never runs out.
+  if (word === "retry" && state !== "waiting" && c.attempts >= retryLimit)
+    return "escalated";
   return to;
 }

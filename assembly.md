@@ -85,7 +85,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
 	- the lands: `loop.ts` too. One per approved cl, as an attempt, and the lands of one repo one at a time, each after the one before it
-	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `effects/registry.ts`), the issue built, the relay of a raise
+	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `effects/registry.ts`: the cl stays waiting with the reason as a retry, written once per reason, a failed ask is a reason too, and a wait past the factory's `waitLimitMs` (30 minutes when not set) escalates the issue), the issue built, the relay of a raise
 - effects: how it touches the world (`effects/`), each behind a small seam
 	- `git.ts`: branches, worktrees and commits, and main as the land target has it
 	- `land.ts`: the land, an approved cl onto main: a push that crate checks, or `git land` for a repo not on crate

@@ -3,7 +3,9 @@
  * the ledger's one door (apply), as the orchestrator.
  * - an issue just building: its cls go into the ledger, from its spec, each with its phase. A spec the factory's
  *   planner made is written as notes first, the plan note and a cl note per cut; one Matt made is his notes already
- * - a phase starts once every cl of the phases before it has landed on main, and all its cls start together
+ * - a phase starts once every cl of the phases before it has landed on main, and all its cls start together. A cl
+ *   whose repo depends on a package a landed cl made waits until that version is on npm, with why as its last message;
+ *   a wait past its limit escalates the issue
  * - an issue whose cls have all landed is built, and its acceptance starts
  * - a cl that raised relays its message to its issue: findings about the cl or the plan send it to the planner, and
  *   about the issue to Matt; its cls not landed are dropped. A cl escalated escalates its issue. An issue whose spec
@@ -134,8 +136,16 @@ export interface World {
   limitMs?: number;
 }
 
-/** A waiting cl's name, and why it still waits for a published version. */
-export type Waiting = Record<string, string>;
+/** The wait limit when the factory sets none. */
+const defaultLimitMs = 30 * 60_000;
+
+/** Why a cl still waits for a version, and what it waits for: its package and version, and when the land made it. */
+interface Hold {
+  reason: string;
+  package?: string;
+  version?: string;
+  since?: number;
+}
 
 /** A version tag crate puts on a commit: `v<version>` for the package at `.`, `<folder>-v<version>` for one in a folder. */
 const versionTag = /^(?:(.+)-)?v(\d+\.\d+\.\d+\S*)$/;
@@ -159,8 +169,9 @@ async function unpublished(
   ledger: Ledger,
   cl: Item,
   world: World,
-): Promise<string | undefined> {
+): Promise<Hold | undefined> {
   const needs = dependsOn(world.reader, cl.repo);
+  if (!needs.size) return undefined;
   for (const landed of ledger.cls(cl.issue)) {
     if (landed.state !== "landed" || landed.repo === cl.repo) continue;
     for (const tag of await world.tags(landed.repo, landed.name)) {
@@ -173,15 +184,45 @@ async function unpublished(
       if (json === undefined) continue;
       const name = (JSON.parse(json) as { name?: string }).name;
       if (!name || !needs.has(name)) continue;
-      if (!(await world.registry.published(name, version)))
-        return `${name}@${version}, made by ${landed.name}, is not on npm yet`;
+      if (!(await world.registry.published(name, version))) {
+        const land = ledger
+          .events(landed.name)
+          .findLast((e) => e.to_state === "landed");
+        return {
+          reason: `${name}@${version}, made by ${landed.name}, is not on npm yet`,
+          package: name,
+          version,
+          ...(land ? { since: Date.parse(land.at) } : {}),
+        };
+      }
     }
   }
   return undefined;
 }
 
-export async function advance(ledger: Ledger, world?: World): Promise<Waiting> {
-  const waiting: Waiting = {};
+/**
+ * Keeps a waiting cl waiting, with why. The reason is written when it differs from the last one written, so many ticks
+ * for one reason leave one message. A wait past its limit escalates the cl's issue, once.
+ */
+function hold(ledger: Ledger, cl: Item, h: Hold, world: World) {
+  const last = ledger.events(cl.name).findLast((e) => e.word === "retry");
+  if (last?.reason !== h.reason)
+    ledger.apply(cl.name, say("retry", h.reason), "orchestrator");
+  if (h.since === undefined) return;
+  const waited = Date.now() - h.since;
+  if (waited <= (world.limitMs ?? defaultLimitMs)) return;
+  if (ledger.item(cl.issue).state === "escalated") return;
+  ledger.apply(
+    cl.issue,
+    say(
+      "escalate",
+      `${cl.name} waits for ${h.package}@${h.version} to be on npm: ${Math.floor(waited / 60_000)} min, past its limit`,
+    ),
+    "orchestrator",
+  );
+}
+
+export async function advance(ledger: Ledger, world?: World) {
   for (const issue of ledger.inState("building"))
     await guarded(ledger, issue, () => {
       const made = specOf(ledger, issue.name);
@@ -210,8 +251,13 @@ export async function advance(ledger: Ledger, world?: World): Promise<Waiting> {
           live(c) && (c.phase ?? 1) < (cl.phase ?? 1) && c.state !== "landed",
       );
     if (before.length) continue;
-    const why = world && (await unpublished(ledger, cl, world));
-    if (why) waiting[cl.name] = why;
+    // A failed ask is a reason too: the cl waits and the others go on.
+    const held =
+      world &&
+      (await unpublished(ledger, cl, world).catch((e: Error): Hold => ({
+        reason: e.message.slice(0, 400),
+      })));
+    if (held && world) hold(ledger, cl, held, world);
     else
       ledger.apply(
         cl.name,
@@ -292,5 +338,4 @@ export async function advance(ledger: Ledger, world?: World): Promise<Waiting> {
         ),
         "orchestrator",
       );
-  return waiting;
 }

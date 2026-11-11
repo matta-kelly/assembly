@@ -71,6 +71,7 @@ export function compose(f: Factory) {
           registry: npmRegistry(),
           reader: gitReader,
           tags: landedTags,
+          ...(f.waitLimitMs !== undefined ? { limitMs: f.waitLimitMs } : {}),
         },
         ...(f.concurrent !== undefined ? { concurrent: f.concurrent } : {}),
         ...(f.timeoutMs !== undefined ? { timeoutMs: f.timeoutMs } : {}),
