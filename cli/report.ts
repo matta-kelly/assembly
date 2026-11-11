@@ -37,13 +37,15 @@ export function blocked(ledger: Ledger): string[] {
   });
 }
 
-/** An item's whole record: its messages, each with its findings, and each attempt with what it did, what it cost and where its trace is. */
+/** An item's whole record: the commit its spec was read at (a submitted issue), its messages, each with its findings, and each attempt with what it did, what it cost and where its trace is. */
 export function explain(ledger: Ledger, runs: string, name: string): string[] {
   const item = ledger.item(name);
   const moves = ledger.events(name);
+  const commit = item.kind === "issue" ? ledger.spec(name)?.commit : undefined;
   return [
     `${item.name} (${item.kind}${item.kind === "cl" ? ` of ${item.issue}` : ""})  ${item.state}`,
     `note: ${item.path}`,
+    ...(commit ? [`spec read at commit: ${commit}`] : []),
     "",
     "messages:",
     ...moves.flatMap((e) => [
