@@ -296,17 +296,17 @@ describe("submit", () => {
 
   /**
    * A kinetic repo with three states of one spec: C, where fx-a changes src/a.ts and fx-c is a cl (C is server/main, and
-   * the tag spec-1); D, committed after, where fx-a changes src/d.ts; and the tree after D, edited and not committed,
-   * where fx-a changes src/w.ts and fx-c is gone. Gives C.
+   * the tag spec-1); D, committed after, where fx-a changes src/d.ts and fx-c is gone; and the tree after D, edited and not committed,
+   * where fx-a changes src/w.ts. Gives C.
    */
   const history = () => {
     specNotes();
     const c = publish("C");
     git("tag", "spec-1", c);
     note("fx-a", cl("a", 1).replaceAll("src/a.ts", "src/d.ts"));
+    rmSync(put("fx-c"));
     commit("D");
     note("fx-a", cl("a", 1).replaceAll("src/a.ts", "src/w.ts"));
-    rmSync(put("fx-c"));
     return c;
   };
 
@@ -316,13 +316,15 @@ describe("submit", () => {
     ["none: the kinetic repo's server/main", () => undefined],
   ])(
     "reads the spec at the commit it is given, %s, with git and not from the working tree, and keeps the commit",
-    (_, at) => {
+    async (_, at) => {
       const c = history();
       const done = submit(factory, "fx", { ...runK(), at: at(c) });
       expect(done.code).toBe(0);
       const { ledger } = factory();
       expect(ledger.spec("fx")?.commit).toBe(c);
       expect(ledger.spec("fx")?.commit).toMatch(/^[0-9a-f]{40}$/);
+      await advance(ledger);
+      expect(ledger.cls("fx").map((c) => c.name)).toEqual(["fx-a", "fx-c"]);
       expect(clOf(ledger, { name: "fx-a", issue: "fx" }).checkout).toEqual([
         "src/a.ts",
         "test/a.test.ts",
