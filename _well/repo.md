@@ -4,7 +4,7 @@ description: "A repo: one per project, and the convention all its scaffolding ha
 status: active
 ---
 A repo: one per project, and the convention all its scaffolding hangs off. Every place its code runs (a workspace, CI, an attempt, a node) runs what the repo defines, on what the platform shares.
-- [[#Platform]] the shared, versioned source every repo calls
+- [[#Platform]] crate: the shared, versioned source every repo runs
 - [[#Environment]] the repo's own layer on the platform: its dev image, services and check
 - [[workspace]] one running instance of the environment, for one change
 - [[ci]] the stations from a change to a released version
@@ -19,15 +19,15 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 ---
 ## Platform
 
-*One source every repo calls at a version, so a fix reaches every repo with no change in it*
+*crate: one source every repo runs at a version, so a fix reaches every repo with no change in it ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))*
 
 - the parts, by where they run
-	- in CI: the reusable workflows, checks, dev-image and release. A repo calls each at `@v1`, and the workflow checks out the platform at its tag, so no repo holds a copy
-	- on the machine: the host scripts, `dev-image.sh` and `workspace.sh`, as one tool installed at a version, as `git-land` is ([[deeotee]]). They run before any container exists, from `initializeCommand` and on a CI runner, so no container can carry them
-	- in the container: the base dev image, upstream `devcontainers/javascript-node:22` with the shared tools (`just`, `gh`, `git-land`). Every repo's dev image is `FROM` it
-- the versions: semver. A consumer takes a major: a workflow at `@v1`, the tool at its major, and the base image by digest, so a dev image's hash still names all its inputs. A breaking change is a new major, and Renovate opens the bump in each repo ([[dependency-updates]])
-- the rule: a part the same in every repo is the platform's; a part that differs per repo is the repo's ([[#Environment]])
-- Not built: the platform repo. Its parts are copies: kinetic's `templates/repo/scripts/`, kept byte-identical in each repo, and basis's workflows, copied and drifted, so only basis's `checks.yml` matches. The base image does not exist: each Containerfile starts from upstream ([[landing-flow]])
+	- on the server: crate's git hooks on each repo's bare repo, which hold main, check every push to it, and copy it to GitHub ([[ci#Merge queue]]). `crate init` makes a bare repo, and `crate apply` makes a server match its declaration in [[dazoo]]
+	- on the machine: the host scripts, `dev-image.sh` and `workspace.sh`, as one tool at a version. They run before any container exists, so no container can carry them. Not built: still copies in each repo
+	- in the container: the base dev image, upstream `devcontainers/javascript-node:22` with the shared tools. Every repo's dev image is `FROM` it. Not built: each Containerfile starts from upstream
+- a repo on crate: its `crate.toml` names the crate version and its check's image (`dev`, or a pinned ref), and its checkouts land on the remote `server`
+- the versions: semver. A server runs crate at its major tag (`v1`), moved by a release (`just release` in crate). crate's own change stays outside the gate it ships, so a broken hook never blocks its own fix
+- the rule: a part the same in every repo is crate's; a part that differs per repo is the repo's ([[#Environment]])
 
 ## Environment
 
@@ -39,7 +39,8 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 		- the app under test: a repo with a UI runs its runtime image as one more service, `site`, on the same network as its tests, and its tests reach it by name (`http://site:3000`): on the workspace's network on a machine, on the job's own network in CI. Never `--network host`. Held by: publicpersona's check, the first; every repo with a UI follows it
 	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]])
 	- the ship kind: what a land to main releases, a package, an image, or nothing ([[ci#Release]])
-- the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and copies its `.devcontainer/Containerfile` and `.github/workflows/` from basis, with `<repo>` filled in. The platform replaces the copies ([[#Platform]])
+- `crate.toml`: the crate version the repo runs, its check's image (`dev`, or a pinned ref), and its check's time limit ([[#Platform]])
+- the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and its `.devcontainer/Containerfile` from basis, with `<repo>` filled in. crate replaces the copies as it takes each part ([[#Platform]])
 - lot, kinetic and dazoo have none: their lint runs in a pinned Node image
 
 ### Dev image

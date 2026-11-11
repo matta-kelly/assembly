@@ -1,11 +1,11 @@
 ---
 type: doc
-description: "CI: the stations a change passes, from its workspace to a released version: local, presubmit, the merge queue (git land, the gate and its ruleset), postsubmit and release, and the rules every workflow keeps. Use when landing a change, or setting up or changing a repo's checks or release."
+description: "CI: the stations a change passes, from its workspace to a released version: local, presubmit, the merge queue (crate's hooks on the server, git land, the gate and its ruleset), postsubmit and release, and the rules every workflow keeps. Use when landing a change, or setting up or changing a repo's checks or release."
 status: active
 ---
-CI: the line of stations a change passes, from its workspace to a released version. Each station is the platform's shared code running a part the repo owns ([[repo#Platform]]). Off the line, the dev image is built when its inputs change ([[repo#Dev image]]); after it, [[cd]] runs the version.
+CI: the line of stations a change passes, from its workspace to a released version. Each station is crate's shared code, run on the server that holds main, running a part the repo owns ([[repo#Platform]]). A repo not on crate yet runs its stations in GitHub Actions. Off the line, the dev image is built when its inputs change ([[repo#Dev image]]); after it, [[cd]] runs the version.
 - [[#Local]] the check, by the change's author, in its workspace
-- [[#Presubmit]] the same check, on the change's branch, in GitHub Actions
+- [[#Presubmit]] the same check, on the change, before main takes it
 - [[#Merge queue]] the gate: main moves only to a commit checked on the tree it becomes
 - [[#Postsubmit]] the checks too slow for the queue, on main
 - [[#Release]] a new version from main, by the repo's ship kind
@@ -50,11 +50,12 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 *The same check, on the change's branch, so the commit main takes is the commit that was checked*
 
-- today only dazoo keeps it as a required check. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
+- on crate: presubmit and the merge queue are one run, crate's pre-receive hook on the server ([[#Merge queue]]). On crate: que-pasa, basis, kinetic, lot, assembly, homepage, media-stack and deeotee
+- not on crate: `checks.yml` in GitHub Actions, below. dazoo keeps it as a required check. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
 
 ### checks.yml
 
-*One job, `checks`, on every push, runs the repo's one check command*
+*For a repo not on crate: one job, `checks`, on every push, runs the repo's one check command*
 
 - the source: basis's `checks.yml`, copied as it is, until the platform's reusable workflow replaces the copies ([[repo#Platform]]). In `scripts/check.sh`, fill in the sets, their commands and the path rules. Not every repo uses it yet
 
@@ -79,12 +80,21 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 *Main moves only to a commit whose check passed on the exact tree it becomes, and a change reaches main by no other way*
 
-- today: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards main. Not built: a queue that tests main with the change and returns a red change to its author ([[landing-flow]])
+- crate: each repo on crate keeps main in a bare repo on monkeybusiness (`~/git/<repo>.git`), and crate's pre-receive hook checks every push to it ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))
+	- the queue: one push per repo at a time, under the repo's lock
+	- the tree: git takes only a fast-forward of main, so the tree checked is the tree main becomes. A push that waited while main moved is sent back to rebase
+	- the check: the repo's `scripts/check.sh`, in the image its `crate.toml` names, as `node`, with `CHECK_BASE` the old main, so only the sets a change touched run. Its checkout, packages and image stay warm between pushes. Past its time limit (`timeout` in `crate.toml`, 900 s by default) it is stopped
+	- red: git refuses the push, and the pusher gets the check's output. Main has not moved
+	- after: crate's post-receive copies main to GitHub, with the repo's own deploy key
+	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`
+- a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
 
 ### Land a change
 
 *Commit, then `git land`. It is `~/.local/bin/git-land`, from deeotee, so it works in every repo*
 
+- a repo with a remote named `server`, every repo on crate: `git land` fetches `server/main`, rebases onto it, and pushes there, where crate checks it. A refusal prints the check's output; fix it, commit, and `git land` again. Main moved during the push: it rebases and goes again, three times at most. After a land it fast-forwards the repo's main checkout to `server/main`
+	- by hand: `git push server HEAD:main`
 - a repo with a remote named `local`, a bare repo on this machine: `git land` takes the repo's lock, rebases onto `local/main` and pushes there, with no check and no call to GitHub. No repo has one today. A rebase conflict stops it: resolve it and `git land` again
 	- no check runs, so run `just check` yourself before a land that matters, and on main before a release tag
 	- GitHub's main is behind until a sync pushes `local/main` to it. It is a script, not a built step yet
@@ -119,6 +129,7 @@ The rest of this section is the path through the gate, as dazoo runs it.
 - the pattern: trunk-based development under the Not Rocket Science Rule (Graydon Hoare, 2014). Main only ever points at a commit that passed the full check. Rust (bors), Gerrit (fast-forward only, Verified) and Google's presubmit run it
 - the rule: main never takes a change that fails the check. Main moves to a change only when it passed, by fast-forward, so the commit on main is the commit that was checked
 - the mechanism: a ruleset on main, and no pull requests
+	- on crate: the ruleset restricts every update of main, and only deploy keys bypass it, so only the server's copy reaches GitHub's main ([[#The ruleset]])
 	- the ruleset requires `checks` on the exact commit, and also holds a direct push: "commits must first be pushed to another ref where the checks pass" (GitHub's `RequiredStatusChecksParameters`)
 	- pull requests are off in each repo: a merge there would make a new commit that no check ran on
 	- a ruleset on a private repo needs GitHub Pro; on a public repo it is free
@@ -127,7 +138,19 @@ The rest of this section is the path through the gate, as dazoo runs it.
 
 #### The ruleset
 
-One JSON for every repo.
+Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
+- on crate: `deletion` and `non_fast_forward` keep main's history, and `update` refuses every push to main but a deploy key's, the server's copy
+	```json
+	{
+	  "name": "main",
+	  "target": "branch",
+	  "enforcement": "active",
+	  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+	  "bypass_actors": [ { "actor_type": "DeployKey", "bypass_mode": "always" } ],
+	  "rules": [ { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" } ]
+	}
+	```
+- gated by GitHub Actions: the rest of this section
 - apply it: POST it (`gh api -X POST repos/{owner}/{repo}/rulesets --input <file>`), or PUT it to the existing ruleset when the repo has one named `main` (`gh api -X PUT repos/{owner}/{repo}/rulesets/{id} --input <file>`). Turn pull requests off with it (`gh api -X PATCH repos/{owner}/{repo} -F has_pull_requests=false`)
 - `deletion` and `non_fast_forward` keep main's history
 - `integration_id` 15368 is GitHub Actions, so only an Actions run can set `checks`
