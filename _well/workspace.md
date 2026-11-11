@@ -12,7 +12,7 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 - [[#Run]] make, use and remove one
 - [[#Agents]] the rules for an agent that runs a container
 
-- [[repo]]: the environment it runs
+- [[repo]]: the environment it runs, and the platform under it
 - [[changelist]]: a CL is made in a workspace
 - [[ci]]: the check it runs, and how its change lands
 - [[assembly]]: makes one per attempt
@@ -20,11 +20,16 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 ---
 ## Parts
 
+*Each part is the platform's shared piece, filled by the repo's own, under the workspace's name ([[repo#Platform]])*
+
 - branch: one per change, a short branch from main
 - worktree: its own checkout on disk, in `~/worktrees`. Parallel changes never share files
-- container: one, made from the repo's dev image with the worktree mounted in. Everyone on the change works in it: they differ by permission, not by box
-- services: what runs beside the container, its database first ([[#Services]])
-- an attempt: the same parts, on a network with no way out ([[assembly]])
+- container: one, made from the repo's dev image by its `devcontainer.json`, with the worktree mounted in. Everyone on the change works in it: they differ by permission, not by box
+- network: its own, `<repo>-<folder>`, isolated from every other workspace ([[#Services]])
+- services: the repo's `pod.yaml`, played on the network, its database first ([[#Services]])
+- route: `<name>.localhost`, to the app port the repo names in `forwardPorts` ([[#Services]])
+- setup: the install, from the dev image's cache into the workspace's own `node_modules` volume ([[repo#devcontainer.json]])
+- an attempt: the same parts, on an internal network with no route ([[assembly]])
 
 ## Bar
 
@@ -38,14 +43,14 @@ Workspace: the place one change (CL) is made, so that many changes can be made a
 
 ## Services
 
-`scripts/workspace.sh`: what a workspace runs beside its container, made by `up` and removed by `down` (from kinetic's template, [[repo#Environment]]).
+`scripts/workspace.sh`: what a workspace runs beside its container, made by `up` and removed by `down`. A platform part, copied today from kinetic's template ([[repo#Platform]]).
 
 - the name: `<repo>-<folder>`, a DNS label. It names the network, the pod, its volumes and the URL. A folder that is not one is refused
 - the network: the workspace's own, `--opt isolate=strict`, so no workspace reaches another. Podman 5.4 isolates none by default
 - the pod: the repo's `pod.yaml`, played on the network. The app reaches its database by the alias `postgres`, the same in every workspace, and the database runs the branch's migrations at start
 - the router: one Caddy container per machine, `workspace-router`, started on demand at `127.0.0.1:80`. It joins each workspace's network and routes `<name>.localhost` to `<name>-app`, the dev container's alias. A container cannot reach a port published on the host's loopback, so it proxies by name
 - an attempt: `up --attempt`. Its network is `--internal`, so its services are reachable and the outside is not, and it gets no route, so it cannot reach another workspace through the router
-- in use: basis, que-pasa and landl call it, for their network. Not built: a repo with a `pod.yaml` or a route, and publicpersona, whose check still runs on the host's network ([[workspace-services]])
+- in use: basis, que-pasa, landl and publicpersona call it, for their network. Not built: a repo with a `pod.yaml` or a route ([[workspace-services]])
 
 ## Machine
 

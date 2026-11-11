@@ -1,23 +1,87 @@
 ---
 type: doc
-description: "CI: how a change lands on main (git land), the presubmit gate that holds it, checks.yml and its check set, the ruleset, and the rules all three workflows share. Use when landing a change, or setting up or changing a repo's checks."
+description: "CI: the stations a change passes, from its workspace to a released version: local, presubmit, the merge queue (git land, the gate and its ruleset), postsubmit and release, and the rules every workflow keeps. Use when landing a change, or setting up or changing a repo's checks or release."
 status: active
 ---
-CI: how a change is checked before it lands, on the dev side. GitHub Actions runs three workflows from `.github/workflows/` (it reads no other folder): `checks.yml` is CI, `dev-image.yml` builds the dev image the checks run in ([[repo#Dev image]]), and `ship.yml` is CD ([[cd]]).
-
-Today only dazoo keeps the gate: `checks.yml` on every push, and the required check in its ruleset. landl-db and lotus-dash have no gate, and run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing. [[#The gate]] says the gate as dazoo runs it. The image is still built on main by `ship.yml`, not in `checks.yml` ([[#The check set]]).
-- [[#Land a change]] how a change reaches main: `git land`
-- [[#The gate]] why main holds only checked commits
-- [[#checks.yml]] the workflow: when it runs, and what it runs
-- [[#All three workflows]] rules for checks.yml, dev-image.yml and ship.yml
+CI: the line of stations a change passes, from its workspace to a released version. Each station is the platform's shared code running a part the repo owns ([[repo#Platform]]). Off the line, the dev image is built when its inputs change ([[repo#Dev image]]); after it, [[cd]] runs the version.
+- [[#Local]] the check, by the change's author, in its workspace
+- [[#Presubmit]] the same check, on the change's branch, in GitHub Actions
+- [[#Merge queue]] the gate: main moves only to a commit checked on the tree it becomes
+- [[#Postsubmit]] the checks too slow for the queue, on main
+- [[#Release]] a new version from main, by the repo's ship kind
+- [[#Every workflow]] rules every workflow file keeps
 
 - [[kinetic#The checks]]: the map, a cl to main; [[assembly#The dock]]: how a cl reaches it
-- [[cd]]: the other workflow
+- [[landing-flow]]: the queue, postsubmit and release, as built next
 - [[tests]]: what the checks run
 - [[ci-throughput]]: why CI speed is a product under agent volume
 
 ---
-## Land a change
+## Local
+
+*The check, run by its author in the change's workspace before it lands: `scripts/check.sh` (`just check`), the command every station runs*
+
+- while working: the change's own tests. The full check runs once, before the land ([[workspace#Run]])
+- shared: nothing but the runner. The repo owns the sets, their commands and the path rules
+
+### The check set
+
+- cheapest first, and the first failure ends the run
+	- format, lint, types
+		- notes: one linter (basis), from each root of the repo, each root alone
+		- each root lints alone: no repo lints lot's graph, and lot lints only its own notes
+	- unit [[tests#Kinds|tests]], then integration tests
+	- build: the aim is that the image is built once, here, and pushed to the registry named by its commit (`sha-<short commit>`). Nothing builds it again: CD deploys this image ([[cd]])
+		- only this job writes to the registry, with the run's own short-lived token
+	- end to end and contract tests, on what was just built
+- a repo runs the steps it has: a repo of config and images has no tests, and its lint is validation
+- each check sits at the cheapest step that can catch its fault
+- only what the change needs, read from the files it changed against origin/main
+	- a change to notes and docs alone ends after format and lint
+	- the skip is the same on a machine and in the pipeline
+	- a file no rule names runs every set, and so does an answer git cannot give, so a missing rule runs more, never less
+	- on main, the pipeline runs every set: the full run catches what a skip missed
+- under ten minutes
+	- a step that cannot meet it is a run of its own, with a budget of its own
+	- a run over its budget is a defect: [[speed-up-ci]]
+	- the levers: faster lint and type tools, shards for a long test set, a shallow checkout on a job that reads no history, and no check run again on inputs it passed
+
+## Presubmit
+
+*The same check, on the change's branch, so the commit main takes is the commit that was checked*
+
+- today only dazoo keeps it as a required check. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
+
+### checks.yml
+
+*One job, `checks`, on every push, runs the repo's one check command*
+
+- the source: basis's `checks.yml`, copied as it is, until the platform's reusable workflow replaces the copies ([[repo#Platform]]). In `scripts/check.sh`, fill in the sets, their commands and the path rules. Not every repo uses it yet
+
+#### When it runs
+
+- every push to any branch, main included
+	- a newer push to a branch other than main cancels the older run. On main a running run is not cancelled; GitHub keeps one waiting run per group, so a newer push replaces a waiting one
+	- a run looked for in the first seconds after a push is not there yet
+- it always starts: no path filter on the trigger. A required check whose workflow a path filter skips stays pending and blocks main (a job skipped by a condition reports success). So the command skips what a change does not need, not the trigger
+- the job is named `checks`. The ruleset requires it by that name, so renaming it unhooks the rule
+
+#### One command
+
+- the job calls the repo's check command, the same one a person or an agent runs before landing. Green means the same in both places: the pipeline confirms, it does not discover
+- it adds no check of its own, and sets up no toolchain: it runs in the repo's dev image ([[repo#Dev image]]), the same environment as every workspace
+	- a job `image` gives the image by digest, so every job of the run uses one image. que's runs `scripts/dev-image.sh ensure`, which builds the image of a commit whose inputs ghcr lacks; basis's, landl's, publicpersona's and que-pasa's run `scripts/dev-image.sh ref`, the commit's image if ghcr has it, else `:main`, so a branch that changes an input runs on `:main` until it lands
+	- each check job runs in it (`jobs.<id>.container`), and runs the check as the image's `node`, over a checkout `node` owns: `chown -R node:node "$GITHUB_WORKSPACE" && runuser -u node -- env HOME=/home/node scripts/check.sh`. A job container runs as root, which reads every file (a test of a file it may not open passes) and owns none of the checkout (git refuses it)
+	- publicpersona's check drives its runtime image, so its steps run in the dev image by `docker run` on the job's own network, `publicpersona-ci` (its `IN` prefix), and reach the site by name ([[repo#Environment]])
+	- a test that stands in for an engine pins its own `ENGINE`: the job sets `ENGINE` for the check's own containers
+
+## Merge queue
+
+*Main moves only to a commit whose check passed on the exact tree it becomes, and a change reaches main by no other way*
+
+- today: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards main. Not built: a queue that tests main with the change and returns a red change to its author ([[landing-flow]])
+
+### Land a change
 
 *Commit, then `git land`. It is `~/.local/bin/git-land`, from deeotee, so it works in every repo*
 
@@ -48,7 +112,7 @@ The rest of this section is the path through the gate, as dazoo runs it.
 	- `git push origin <sha>:main`, then `git push origin --delete <branch>`
 - an agent lands the same way, with `git land`, and so does [[assembly#The dock|assembly]]: each approved cl, as Matt
 
-## The gate
+### The gate
 
 *Every change joins main through the same gate, in small pieces, often*
 
@@ -58,9 +122,10 @@ The rest of this section is the path through the gate, as dazoo runs it.
 	- the ruleset requires `checks` on the exact commit, and also holds a direct push: "commits must first be pushed to another ref where the checks pass" (GitHub's `RequiredStatusChecksParameters`)
 	- pull requests are off in each repo: a merge there would make a new commit that no check ran on
 	- a ruleset on a private repo needs GitHub Pro; on a public repo it is free
+	- a private repo with no ruleset: a pre-push hook in `.githooks/` runs the check command, and refuses a push straight to main. The check command sets `core.hooksPath` to it. Not enforced past `--no-verify`
 - a red main is still possible: a check that passed once fails on a rerun (a flake, or a check that reads something outside the repo). `checks` runs on main too, so the failed run sends its notice to whoever pushed. The one sink for every alert is [[notification-sink]]
 
-### The ruleset
+#### The ruleset
 
 One JSON for every repo.
 - apply it: POST it (`gh api -X POST repos/{owner}/{repo}/rulesets --input <file>`), or PUT it to the existing ruleset when the repo has one named `main` (`gh api -X PUT repos/{owner}/{repo}/rulesets/{id} --input <file>`). Turn pull requests off with it (`gh api -X PATCH repos/{owner}/{repo} -F has_pull_requests=false`)
@@ -92,57 +157,29 @@ One JSON for every repo.
 	}
 	```
 
-## checks.yml
+## Postsubmit
 
-*One job, `checks`, on every push, runs the repo's one check command*
+*The checks too slow for the queue, run on each new commit of main. A red one is reverted first*
 
-- the template: `templates/repo/` in kinetic. Copy `.github/workflows/checks.yml` as it is. In `scripts/check.sh`, fill in the sets, their commands and the path rules. Not every repo uses it yet
+- Not built: `checks.yml` runs every set on main, and a red run only sends its notice ([[#The gate]], [[landing-flow]])
 
-### When it runs
+## Release
 
-- every push to any branch, main included
-	- a newer push to a branch other than main cancels the older run. On main a running run is not cancelled; GitHub keeps one waiting run per group, so a newer push replaces a waiting one
-	- a run looked for in the first seconds after a push is not there yet
-- it always starts: no path filter on the trigger. A required check whose workflow a path filter skips stays pending and blocks main (a job skipped by a condition reports success). So the command skips what a change does not need, not the trigger
-- the job is named `checks`. The ruleset requires it by that name, so renaming it unhooks the rule
+*A land to main makes a new version, and the repo's ship kind releases it, with no hand step*
 
-### One command
+- the version: semver, the next one read from the commits since the last (Conventional Commits; release-please or semantic-release)
+- the ship kinds
+	- a package: published to its registry (npm) by `publish.yml`
+	- an image: built once, in presubmit, tagged by its commit, and released by a tag ([[cd#ship.yml]])
+	- nothing: a semantic or config repo, whose land is its release
+- Not built: a version read from the commits. que-pasa, basis and que publish on a `v*` tag pushed by hand, and que's `ship.yml` builds its image on main, not in presubmit ([[landing-flow]])
 
-- the job calls the repo's check command, the same one a person or an agent runs before landing. Green means the same in both places: the pipeline confirms, it does not discover
-- it adds no check of its own, and sets up no toolchain: it runs in the repo's dev image ([[repo#Dev image]]), the same environment as every workspace
-	- a job `image` gives the image by digest, so every job of the run uses one image. que's runs `scripts/dev-image.sh ensure`, which builds the image of a commit whose inputs ghcr lacks; basis's, landl's, publicpersona's and que-pasa's run `scripts/dev-image.sh ref`, the commit's image if ghcr has it, else `:main`, so a branch that changes an input runs on `:main` until it lands
-	- each check job runs in it (`jobs.<id>.container`), and runs the check as the image's `node`, over a checkout `node` owns: `chown -R node:node "$GITHUB_WORKSPACE" && runuser -u node -- env HOME=/home/node scripts/check.sh`. A job container runs as root, which reads every file (a test of a file it may not open passes) and owns none of the checkout (git refuses it)
-	- publicpersona's check drives an image on the host's network, which a job container cannot join, so its pnpm steps run in the dev image by `docker run --network host` (its `IN` prefix)
-	- a test that stands in for an engine pins its own `ENGINE`: the job sets `ENGINE` for the check's own containers
+## Every workflow
 
-### The check set
-
-- cheapest first, and the first failure ends the run
-	- format, lint, types
-		- notes: one linter (basis), from each root of the repo, each root alone
-		- each root lints alone: no repo lints lot's graph, and lot lints only its own notes
-	- unit [[tests#Kinds|tests]], then integration tests
-	- build: the aim is that the image is built once, here, and pushed to the registry named by its commit (`sha-<short commit>`). Nothing builds it again: CD deploys this image ([[cd]])
-		- only this job writes to the registry, with the run's own short-lived token
-	- end to end and contract tests, on what was just built
-- a repo runs the steps it has: a repo of config and images has no tests, and its lint is validation
-- each check sits at the cheapest step that can catch its fault
-- only what the change needs, read from the files it changed against origin/main
-	- a change to notes and docs alone ends after format and lint
-	- the skip is the same on a machine and in the pipeline
-	- a file no rule names runs every set, and so does an answer git cannot give, so a missing rule runs more, never less
-	- on main, the pipeline runs every set: the full run catches what a skip missed
-- under ten minutes
-	- a step that cannot meet it is a run of its own, with a budget of its own
-	- a run over its budget is a defect: [[speed-up-ci]]
-	- the levers: faster lint and type tools, shards for a long test set, a shallow checkout on a job that reads no history, and no check run again on inputs it passed
-
-## All three workflows
-
-- a run of `ship.yml` starts only when a file it reads has changed; the file lists them, and so does `dev-image.yml`. `checks.yml` always starts ([[#When it runs]])
+- a run of any workflow but `checks.yml` starts only when a file it reads has changed, and the file lists them. `checks.yml` always starts ([[#When it runs]])
 - least rights
 	- a job reads the repo and nothing else, unless it says so
-	- only a job that pushes an image writes to the registry, with the run's own short-lived token: the runtime image's in `ship.yml`, the dev image's in `dev-image.yml` (and que's `image` job in `checks.yml`). No password is stored
+	- only a job that pushes an image writes to the registry, with the run's own short-lived token: the runtime image's in `ship.yml` or `publish.yml`, the dev image's in `dev-image.yml` (and que's `image` job in `checks.yml`). No password is stored
 - an action from someone else is pinned to a full commit hash; a tag can be moved to different code
 - every job has a time limit: one without its own runs for up to six hours ([[code#^waiting|waiting]])
 - runners: GitHub's own, so nothing to patch or keep registered. The check jobs run in the repo's dev image on them ([[#One command]])

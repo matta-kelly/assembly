@@ -1,29 +1,45 @@
 ---
 type: doc
-description: "A repo: one per project. The environment it defines (dev image, services, check), its GitHub settings and its conventions, by kind. Use when setting up a repo, changing its environment, or checking one."
+description: "A repo: one per project, and the convention all its scaffolding hangs off: the platform it calls, the environment it defines (dev image, services, check), the workspace, CI and CD that run it, its GitHub settings and its conventions, by kind. Use when setting up a repo, changing its environment, or finding where a part of CI, CD or a workspace is said."
 status: active
 ---
-A repo: one per project. What it carries, and the standards its parts follow.
-- [[#Environment]] the dev image, the services and the check: defined once, used by every workspace, CI and an attempt
-- [[#On GitHub]] settings, ruleset, remotes
+A repo: one per project, and the convention all its scaffolding hangs off. Every place its code runs (a workspace, CI, an attempt, a node) runs what the repo defines, on what the platform shares.
+- [[#Platform]] the shared, versioned source every repo calls
+- [[#Environment]] the repo's own layer on the platform: its dev image, services and check
+- [[workspace]] one running instance of the environment, for one change
+- [[ci]] the stations from a change to a released version
+- [[cd]] a released version, to running on a node
+- [[#On GitHub]] its settings and remotes
 - [[#Conventions]] what every repo has, and what each kind adds
 
+- [[operate]]: what runs, watched against its SLOs, after cd
 - [[kinetic#The checks]]: the map, where a cl lands
 - [[github]]: the account the repos belong to
-- [[ci]]: what the check command runs, and how a change lands
-- [[workspace]]: one instance of this environment, for one change
-- [[cd]]: the same services on a node, with the runtime image
 
 ---
+## Platform
+
+*One source every repo calls at a version, so a fix reaches every repo with no change in it*
+
+- the parts, by where they run
+	- in CI: the reusable workflows, checks, dev-image and release. A repo calls each at `@v1`, and the workflow checks out the platform at its tag, so no repo holds a copy
+	- on the machine: the host scripts, `dev-image.sh` and `workspace.sh`, as one tool installed at a version, as `git-land` is ([[deeotee]]). They run before any container exists, from `initializeCommand` and on a CI runner, so no container can carry them
+	- in the container: the base dev image, upstream `devcontainers/javascript-node:22` with the shared tools (`just`, `gh`, `git-land`). Every repo's dev image is `FROM` it
+- the versions: semver. A consumer takes a major: a workflow at `@v1`, the tool at its major, and the base image by digest, so a dev image's hash still names all its inputs. A breaking change is a new major, and Renovate opens the bump in each repo ([[dependency-updates]])
+- the rule: a part the same in every repo is the platform's; a part that differs per repo is the repo's ([[#Environment]])
+- Not built: the platform repo. Its parts are copies: kinetic's `templates/repo/scripts/`, kept byte-identical in each repo, and basis's workflows, copied and drifted, so only basis's `checks.yml` matches. The base image does not exist: each Containerfile starts from upstream ([[landing-flow]])
+
 ## Environment
 
 *A repo defines its environment once. A workspace, CI and an attempt all run that one definition*
 
-- three parts, all in the repo
-	- the dev image: the toolchain and the package cache, from `.devcontainer/Containerfile`
+- four parts, all in the repo, each the repo's own
+	- the dev image: its Containerfile layer, with its system libraries and the package cache of its lockfile, from `.devcontainer/Containerfile` ([[#Dev image]])
 	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml` (kube YAML, `WORKSPACE` standing for the workspace's name), played by `scripts/workspace.sh` ([[workspace#Services]]). A repo with no services has no file. Not built: no repo has one yet
-	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#One command]])
-- the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and copies its `.devcontainer/Containerfile` and `.github/workflows/` from basis, with `<repo>` filled in
+		- the app under test: a repo with a UI runs its runtime image as one more service, `site`, on the same network as its tests, and its tests reach it by name (`http://site:3000`): on the workspace's network on a machine, on the job's own network in CI. Never `--network host`. Held by: publicpersona's check, the first; every repo with a UI follows it
+	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]])
+	- the ship kind: what a land to main releases, a package, an image, or nothing ([[ci#Release]])
+- the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and copies its `.devcontainer/Containerfile` and `.github/workflows/` from basis, with `<repo>` filled in. The platform replaces the copies ([[#Platform]])
 - lot, kinetic and dazoo have none: their lint runs in a pinned Node image
 
 ### Dev image
@@ -88,13 +104,9 @@ How a workspace makes its container from the image ([[workspace]]):
 
 ## On GitHub
 
-- main: always releasable. Every commit on it passed presubmit, and its image is built ([[ci]])
-- a change: one commit, or a short stack of them, pushed to its own branch. No pull request: what one carried goes in the commit message ([[changelist#Parts]])
-- landing: main moves to the change only when presubmit passes, and only by fast-forward. The branch is deleted after
-	- open: the mechanism, and so the ruleset that holds it ([[ci]])
-- ruleset on main: no force push, no deletion, and nothing lands but by the presubmit path
-	- enforced only on a public repo (free plan)
-	- a private repo: a pre-push hook in `.githooks/` runs the check command, and refuses a push straight to main. The check command sets `core.hooksPath` to it. Not enforced past `--no-verify`
+- main: always releasable. Main moves only through the gate ([[ci#Merge queue]])
+- a change: one commit, or a short stack of them, pushed to its own branch. No pull request: what one carried goes in the commit message ([[changelist#Parts]]). The branch is deleted after it lands
+- settings: pull requests off, and the ruleset on main ([[ci#The ruleset]])
 - review: before the push, on the local diff ([[daworks/assembly/agents/cl-review|review]]). Not a GitHub approval, so approvals stay at zero
 - a person's review: none by default. The plan is checked before any CL, and the build is trusted. A person reviews a CL only when the reviewer can't tell whether it meets the issue's intent ([[daworks/assembly/agents/cl-review|cl-review]])
 - remotes: `origin` is GitHub, in every project
@@ -111,6 +123,7 @@ The target. Not every repo meets it yet.
 	- lint: runs in a pinned Node image, or the repo's dev image when it has one
 	- own root and schema ([[basis-graph]])
 	- depends on others only by published version
+	- versioned: semver, bumped on each land to main from its commits, and released by its ship kind ([[ci#Release]])
 	- one landing path ([[ci]])
 - semantic repo
 	- notes and their types
