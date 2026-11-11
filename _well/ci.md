@@ -12,7 +12,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 - [[#Every workflow]] rules every workflow file keeps
 
 - [[kinetic#The checks]]: the map, a cl to main; [[assembly#The dock]]: how a cl reaches it
-- [[landing-flow]]: the queue, postsubmit and release, as built next
+- [[assembly-on-server]]: the queue, postsubmit and release, as built next
 - [[tests]]: what the checks run
 - [[ci-throughput]]: why CI speed is a product under agent volume
 
@@ -192,7 +192,7 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 	- the failure, kept: its last lines in the revert's message, all of it in the server's `<repo>.git/crate/postsubmit/<sha>.log`
 	- the revert passes postsubmit with no run, since its tree is the last green's
 	- a revert that does not apply leaves main as it is, and the log says it needs a hand
-- Not built: no repo names a postsubmit set yet. assembly's `just e2e`, the first, needs the engine's socket in the check's container. The dock is not told when its landed cl is reverted ([[landing-flow]])
+- Not built: no repo names a postsubmit set yet. assembly's `just e2e`, the first, needs the engine's socket in the check's container. The dock is not told when its landed cl is reverted ([[assembly-on-server]])
 
 ## Release
 
@@ -211,7 +211,7 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 	- a package (`npm`): published by the repo's `publish.yml` on the version tag, by npm's trusted publishing: no token, with provenance. It runs the check set, sets `package.json`'s version from the tag, and publishes. que-pasa and basis
 	- an image: built once, in presubmit, tagged by its commit, and released by a tag ([[cd#ship.yml]])
 	- nothing: no `ship`, no versions. A semantic or config repo, whose land is its release
-- Not built: the image kind on crate. que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[landing-flow]])
+- Not built: the image kind on crate. que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[assembly-on-server]])
 
 ## Every workflow
 

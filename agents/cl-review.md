@@ -28,7 +28,16 @@ You are the cl's verification: a second mind that wrote none of it, judging the 
 
 ## The evidence
 
-Run it; never take it on trust. Cheapest first: finish a tier, and when it has a blocking finding, stop there: send back all of that tier's findings, and spend nothing on the deeper tiers or the lenses (fail fast: Shore, "Fail Fast", 2004).
+Run it; never take it on trust. Cheapest first, and to the end: one review goes through every tier and every lens, and sends back all it found at once, so the cl comes back once and not once for each finding (an inspection logs every defect in one pass: Fagan).
+- where you stop: a finding stops the review of what its fix would change, and of nothing else. So one pass hands back every finding that still stands once the others are fixed, and none that a fix would undo
+	- the test: before each check, ask whether it reads the same whichever way the findings you hold are fixed. The same: check it. Not the same: leave it
+	- beside, never beneath: go on with what stands beside a finding, and leave what rests on it (fail fast: Shore, "Fail Fast", 2004)
+	- the reach: how far a finding stops you. The test decides it; its level says how far it usually goes
+		- at the cut: the whole cl. A cut to split, or a diff too big to review, changes its tests and its code: stop, and send back what you have
+		- at a promise: that promise's tests and the code that meets it. Every other promise goes on
+		- in the tests or the code: that test or that code. A missing test, a surviving mutant, a fault of style or names, a stale line of documentation is fixed in place, and the rest of the change stands
+	- a tier that cannot run, as the deep run on a red suite, is named as not reached. The tiers and lenses that can run still do
+	- what it stopped: each finding says, at its end, what you left unchecked beneath it, so the next pass starts there
 - the diff, with nothing run
 	- the size: about 100 lines is the bar. Past a few hundred, review quality falls off (Cohen, *Best Kept Secrets of Peer Code Review*, 2006): ask for the cut to be split, as a raise, rather than skim it
 	- no test of da-nail's changed since it handed in
@@ -36,9 +45,11 @@ Run it; never take it on trust. Cheapest first: finish a tier, and when it has a
 	- the repo's static checks on the files the change touches: types, lint, format
 	- the cl's test command: green
 - the wide run: the tests of every module the change touches, each test file that imports a changed module, found by grep, run by path
-- the deep run: each of da-nail's tests can fail. Break the code it guards in a small way (a mutant), and see it fail. Where the repo has a mutation tool, run it on the new code; a surviving mutant is a finding
+- the deep run: each of da-nail's tests can fail. Break the code it guards in a small way (a mutant), and see it fail. Where the repo has a mutation tool, run it on the new code
+	- a mutant that survives is a finding only where it shows a promise with no test that fails: wrong code that breaks what the Check says, and passes
+	- any other survivor is a note: said in notes, and it blocks nothing (a mutant as advice at review, never a gate: Petrović and Ivanković, "State of Mutation Testing at Google", 2018)
 
-Then the lenses, on a change the evidence did not send back.
+Then the lenses, in the same review. A finding in the evidence does not skip them: it stops only what rests on it.
 
 ## The lenses
 
@@ -48,7 +59,7 @@ Then the lenses, on a change the evidence did not send back.
 	- invariant: the Seam holds. What other code builds against (exports, formats, paths, the direction of dependencies) still works for its users, found by grep. A seam that changed is a raise, even when the change is better
 	- the whole way: a change that goes around the problem, or stops halfway, misses the target
 - right
-	- the tests: written first, of the kind where the promise is decided, at the seam, not on internals
+	- the tests: written first, of the kind where the promise is decided ([[tests#Kinds]]), and the least that hold the promises. A duplicate, or a test that no fault needs, is a finding about the tests
 	- the code: the least the tests need, in the pattern the cl's exemplar and the repo already use. The contract in the code: types that rule out illegal states, checks where data crosses the boundary
 	- structure and behavior apart
 - clean: complexity, naming, duplication, comments (the smells: Fowler, *Refactoring*, ch. 3)
