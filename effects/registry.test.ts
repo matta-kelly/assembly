@@ -28,4 +28,23 @@ describe("npmRegistry", () => {
       false,
     );
   });
+
+  it("throws an error naming the package and version when npm answers neither 200 nor 404", async () => {
+    await expect(
+      npmRegistry(answer(500)).published("left-pad", "1.3.0"),
+    ).rejects.toThrow(/left-pad.*1\.3\.0/);
+    await expect(
+      npmRegistry(answer(429)).published("@s/alpha", "2.0.1"),
+    ).rejects.toThrow(/@s\/alpha.*2\.0\.1/);
+  });
+
+  it("gives the call a time limit: a signal that has not fired yet", async () => {
+    const http = vi.fn<
+      (url: string | URL | Request, init?: RequestInit) => Promise<Response>
+    >(async () => new Response("{}", { status: 200 }));
+    await npmRegistry(http).published("left-pad", "1.3.0");
+    const signal = http.mock.calls[0]?.[1]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+  });
 });

@@ -316,6 +316,8 @@ describe("advance", () => {
 describe("advance across repos", () => {
   const pkg = (name: string, deps: Record<string, string> = {}) =>
     JSON.stringify({ name, version: "0.0.0", dependencies: deps });
+  const minute = 60_000;
+  const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 12, min));
 
   /** An issue "x" with a cl of repo /a landed in phase 1, and a cl of repo /b waiting in phase 2. */
   function across() {
@@ -347,52 +349,94 @@ describe("advance across repos", () => {
     force("x-a", "landed");
   }
 
+  /** The same, but x-a lands through the ledger at minute 0, so its land has a time. */
+  function landedAtNoon() {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at(0));
+    across();
+    force("x-a", "approved");
+    ledger.apply(
+      "x-a",
+      { word: "pass", reason: "landed", findings: [] },
+      "orchestrator",
+    );
+  }
+  afterEach(() => vi.useRealTimers());
+
   /** The world: repo files by "<repo>:<file>", the tags the land of x-a put on main, the registry. */
   const worldOf = (
     files: Record<string, string>,
-    tags: string[],
+    tags: string[] | (() => Promise<string[]>),
     registry: { published: (n: string, v: string) => Promise<boolean> },
+    limitMs?: number,
   ) => ({
     registry,
     reader: {
       file: (repo: string, file: string) => files[`${repo}:${file}`],
       onCrate: () => true,
     },
-    tags: async (_repo: string, cl: string) => (cl === "x-a" ? tags : []),
+    tags: async (_repo: string, cl: string) =>
+      cl !== "x-a" ? [] : typeof tags === "function" ? tags() : tags,
+    ...(limitMs === undefined ? {} : { limitMs }),
   });
+  const registryOf = (answer: boolean) => ({
+    published: vi.fn<(n: string, v: string) => Promise<boolean>>(
+      async () => answer,
+    ),
+  });
+  const files = {
+    "/a:package.json": pkg("@s/alpha"),
+    "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
+  };
+  /** What the orchestrator said on a cl while it waited: each retry's reason. */
+  const said = (name: string) =>
+    ledger
+      .events(name)
+      .filter((e) => e.word === "retry")
+      .map((e) => e.reason);
 
-  it("keeps a cl waiting, naming the package and version, until the landed version is on npm", async () => {
+  it("keeps a cl waiting until the landed version is on npm, and says why in the ledger: the package and version, once", async () => {
     across();
-    const registry = {
-      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
-        async () => false,
-      ),
-    };
-    const world = worldOf(
-      {
-        "/a:package.json": pkg("@s/alpha"),
-        "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
-      },
-      ["v1.2.0"],
-      registry,
-    );
-    const waiting = await advance(ledger, world);
+    const registry = registryOf(false);
+    const world = worldOf(files, ["v1.2.0"], registry);
+    await advance(ledger, world);
+    await advance(ledger, world);
+    await advance(ledger, world);
     expect(state("x-b")).toBe("waiting");
-    expect(waiting["x-b"]).toMatch(/@s\/alpha/);
-    expect(waiting["x-b"]).toMatch(/1\.2\.0/);
+    expect(said("x-b")).toHaveLength(1);
+    expect(said("x-b")[0]).toMatch(/@s\/alpha/);
+    expect(said("x-b")[0]).toMatch(/1\.2\.0/);
+    expect(ledger.events("x-b").at(-1)).toMatchObject({ by: "orchestrator" });
     expect(registry.published).toHaveBeenCalledWith("@s/alpha", "1.2.0");
     registry.published.mockImplementation(async () => true);
-    expect(await advance(ledger, world)).toEqual({});
+    await advance(ledger, world);
     expect(state("x-b")).toBe("ready");
+  });
+
+  it("says a new reason when the reason changes: another version, a failure, and the failure gone", async () => {
+    across();
+    const registry = registryOf(false);
+    let tags = ["v1.2.0"];
+    const world = worldOf(files, async () => tags, registry);
+    await advance(ledger, world);
+    tags = ["v1.3.0"];
+    await advance(ledger, world);
+    expect(said("x-b")).toHaveLength(2);
+    expect(said("x-b")[1]).toMatch(/1\.3\.0/);
+    registry.published.mockRejectedValue(new Error("npm answered 500"));
+    await advance(ledger, world);
+    expect(said("x-b")).toHaveLength(3);
+    expect(said("x-b")[2]).toMatch(/npm answered 500/);
+    registry.published.mockImplementation(async () => false);
+    await advance(ledger, world);
+    expect(said("x-b")).toHaveLength(4);
+    expect(said("x-b")[3]).toMatch(/1\.3\.0/);
+    expect(state("x-b")).toBe("waiting");
   });
 
   it("reads the version from the tag of the package's folder, and a dev dependency counts", async () => {
     across();
-    const registry = {
-      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
-        async () => false,
-      ),
-    };
+    const registry = registryOf(false);
     const world = worldOf(
       {
         "/a:crate.toml": 'crate = "1"\npackages = ["lib"]\n',
@@ -405,39 +449,24 @@ describe("advance across repos", () => {
       ["lib-v0.3.0"],
       registry,
     );
-    const waiting = await advance(ledger, world);
+    await advance(ledger, world);
     expect(state("x-b")).toBe("waiting");
-    expect(waiting["x-b"]).toMatch(/gamma.*0\.3\.0/);
+    expect(said("x-b")[0]).toMatch(/gamma.*0\.3\.0/);
     expect(registry.published).toHaveBeenCalledWith("gamma", "0.3.0");
   });
 
   it("makes no wait when the landed commit has no version tag", async () => {
     across();
-    const registry = {
-      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
-        async () => false,
-      ),
-    };
-    const world = worldOf(
-      {
-        "/a:package.json": pkg("@s/alpha"),
-        "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
-      },
-      [],
-      registry,
-    );
-    expect(await advance(ledger, world)).toEqual({});
+    const registry = registryOf(false);
+    await advance(ledger, worldOf(files, [], registry));
     expect(state("x-b")).toBe("ready");
+    expect(said("x-b")).toEqual([]);
     expect(registry.published).not.toHaveBeenCalled();
   });
 
   it("starts a cl whose repo does not depend on the landed package, without asking the registry", async () => {
     across();
-    const registry = {
-      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
-        async () => false,
-      ),
-    };
+    const registry = registryOf(false);
     const world = worldOf(
       {
         "/a:package.json": pkg("@s/alpha"),
@@ -446,28 +475,142 @@ describe("advance across repos", () => {
       ["v1.2.0"],
       registry,
     );
-    expect(await advance(ledger, world)).toEqual({});
+    await advance(ledger, world);
     expect(state("x-b")).toBe("ready");
+    expect(said("x-b")).toEqual([]);
     expect(registry.published).not.toHaveBeenCalled();
   });
 
   it("keeps a cl waiting for a phase before it that has not landed, though the registry has the version", async () => {
     across();
     force("x-a", "approved");
-    const registry = {
-      published: vi.fn<(n: string, v: string) => Promise<boolean>>(
-        async () => true,
-      ),
-    };
-    const world = worldOf(
-      {
-        "/a:package.json": pkg("@s/alpha"),
-        "/b:package.json": pkg("@s/beta", { "@s/alpha": "^1.2.0" }),
-      },
-      ["v1.2.0"],
-      registry,
-    );
-    await advance(ledger, world);
+    await advance(ledger, worldOf(files, ["v1.2.0"], registryOf(true)));
     expect(state("x-b")).toBe("waiting");
+  });
+
+  describe("a failed ask", () => {
+    /** A third cl, of a repo that depends on nothing, waiting in the same phase. */
+    const beside = () =>
+      ledger.addCl(
+        {
+          name: "x-c",
+          issue: "x",
+          seq: 3,
+          phase: 2,
+          path: join(dir, "x-c.md"),
+          repo: "/c",
+          image: "img",
+          test: "t",
+        },
+        "waiting",
+      );
+
+    it.each([
+      {
+        fails: "the registry",
+        message: /npm answered 500 for @s\/alpha@1\.2\.0/,
+        world: () =>
+          worldOf(files, ["v1.2.0"], {
+            published: async () => {
+              throw new Error("npm answered 500 for @s/alpha@1.2.0");
+            },
+          }),
+      },
+      {
+        fails: "the land target",
+        message: /land target not reached/,
+        world: () =>
+          worldOf(
+            files,
+            async () => {
+              throw new Error("land target not reached");
+            },
+            registryOf(true),
+          ),
+      },
+      {
+        fails: "a package.json that is not JSON",
+        message: /JSON/,
+        world: () =>
+          worldOf(
+            { ...files, "/b:package.json": "not json" },
+            ["v1.2.0"],
+            registryOf(true),
+          ),
+      },
+      {
+        fails: "the landed repo's package.json that is not JSON",
+        message: /JSON/,
+        world: () =>
+          worldOf(
+            { ...files, "/a:package.json": "{ nope" },
+            ["v1.2.0"],
+            registryOf(true),
+          ),
+      },
+    ])(
+      "keeps a cl waiting with the failure as its reason, and goes on with the others, when $fails fails",
+      async ({ world, message }) => {
+        across();
+        beside();
+        await expect(advance(ledger, world())).resolves.not.toThrow();
+        expect(state("x-b")).toBe("waiting");
+        expect(said("x-b")).toHaveLength(1);
+        expect(said("x-b")[0]).toMatch(message);
+        expect(state("x-c")).toBe("ready");
+        expect(state("x")).toBe("open");
+      },
+    );
+  });
+
+  describe("the limit", () => {
+    const wait = async (min: number, limitMs?: number) => {
+      landedAtNoon();
+      const world = worldOf(files, ["v1.2.0"], registryOf(false), limitMs);
+      await advance(ledger, world);
+      vi.setSystemTime(at(min));
+      await advance(ledger, world);
+      return world;
+    };
+
+    it("escalates the issue after 30 minutes when no limit is set, naming the package, the version and the wait", async () => {
+      await wait(31);
+      expect(state("x")).toBe("escalated");
+      expect(ledger.events("x").at(-1)).toMatchObject({
+        by: "orchestrator",
+        word: "escalate",
+        reason: expect.stringMatching(/@s\/alpha.*1\.2\.0.*31 min/),
+      });
+    });
+
+    it("does not escalate within the limit", async () => {
+      await wait(29);
+      expect(state("x")).toBe("open");
+      expect(state("x-b")).toBe("waiting");
+    });
+
+    it("uses the factory's limit when one is set", async () => {
+      await wait(12, 10 * minute);
+      expect(state("x")).toBe("escalated");
+      expect(ledger.events("x").at(-1)?.reason).toMatch(/12 min/);
+    });
+
+    it("counts from the land, not from the first time it looked", async () => {
+      landedAtNoon();
+      const world = worldOf(files, ["v1.2.0"], registryOf(false), 10 * minute);
+      vi.setSystemTime(at(8));
+      await advance(ledger, world);
+      vi.setSystemTime(at(11));
+      await advance(ledger, world);
+      expect(state("x")).toBe("escalated");
+    });
+
+    it("escalates once: the next tick adds no second escalation", async () => {
+      const world = await wait(31);
+      const before = ledger.events("x").length;
+      vi.setSystemTime(at(40));
+      await advance(ledger, world);
+      expect(ledger.events("x")).toHaveLength(before);
+    });
   });
 });

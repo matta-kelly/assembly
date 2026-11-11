@@ -70,6 +70,22 @@ describe("the factory's world", () => {
   });
 });
 
+describe("the factory's wait limit", () => {
+  const limit = (waitLimitMs?: number) => {
+    void compose({
+      home,
+      ...(waitLimitMs === undefined ? {} : { waitLimitMs }),
+    }).loop();
+    return (vi.mocked(loop).mock.calls.at(-1)?.[0] as Loop).world.limitMs;
+  };
+
+  it("is the world's limit when the factory sets one, and none when it does not", () => {
+    expect(limit(90_000)).toBe(90_000);
+    expect(limit(5_000)).toBe(5_000);
+    expect(limit()).toBeUndefined();
+  });
+});
+
 describe("the factory's home", () => {
   it("holds the ledger and the run folders", () => {
     const f = compose({ home });

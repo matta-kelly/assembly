@@ -38,6 +38,15 @@ describe("next", () => {
     ).toBe("escalated");
   });
 
+  it("keeps a waiting cl waiting on retry, however often, and starts it on pass", () => {
+    expect(() => next("waiting", "cl", "retry", [], once)).not.toThrow();
+    expect(next("waiting", "cl", "retry", [], once)).toBe("waiting");
+    expect(next("waiting", "cl", "retry", [], { attempts: 0, rounds: 0 })).toBe(
+      "waiting",
+    );
+    expect(next("waiting", "cl", "pass", [], once)).toBe("ready");
+  });
+
   it("sends a cl back to the owner of what its findings are about: the tests to ready, the code to red, the rest raised", () => {
     expect(next("green", "cl", "back", ["tests"], once)).toBe("ready");
     expect(next("green", "cl", "back", ["code"], once)).toBe("red");

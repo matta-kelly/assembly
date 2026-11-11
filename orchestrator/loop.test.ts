@@ -713,6 +713,56 @@ describe("the world", () => {
     expect(ledger.item("j-b").state).toBe("red");
   });
 
+  const saidOf = (name: string) =>
+    ledger
+      .events(name)
+      .filter((e) => e.word === "retry")
+      .map((e) => e.reason);
+
+  it("records why a cl waits where the ledger shows it: the package and version, once over many ticks", async () => {
+    const { world } = across(async () => false);
+    const l = await make(vi.fn<Run1>(gives(done("x"))), { world });
+    await once(l);
+    await once(l);
+    await once(l);
+    expect(saidOf("j-b")).toHaveLength(1);
+    expect(saidOf("j-b")[0]).toMatch(/@x\/a/);
+    expect(saidOf("j-b")[0]).toMatch(/1\.2\.0/);
+    expect(ledger.item("j-b").state).toBe("waiting");
+  });
+
+  it("survives a registry that fails: the cl waits with the failure as its reason, and other cls go on", async () => {
+    const { world } = across(async () => {
+      throw new Error("npm answered 503 for @x/a@1.2.0");
+    });
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner, { world });
+    await expect(once(l)).resolves.toBeUndefined();
+    expect(ledger.item("j-b").state).toBe("waiting");
+    expect(saidOf("j-b")).toHaveLength(1);
+    expect(saidOf("j-b")[0]).toMatch(/npm answered 503/);
+    expect(ranFor(runner, "c")).toBe(true);
+    // the next tick still runs
+    await expect(once(l)).resolves.toBeUndefined();
+  });
+
+  it("survives a land target that fails to answer: the cl waits, and the tick does not throw", async () => {
+    const { world } = across(async () => true);
+    const failing: World = {
+      ...world,
+      tags: async () => {
+        throw new Error("git ls-remote failed");
+      },
+    };
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await expect(
+      once(make(runner, { world: failing })),
+    ).resolves.toBeUndefined();
+    expect(ledger.item("j-b").state).toBe("waiting");
+    expect(saidOf("j-b")[0]).toMatch(/git ls-remote failed/);
+    expect(ranFor(runner, "c")).toBe(true);
+  });
+
   it("starts at once a cl that waits for nothing: its dependency's version is on npm already", async () => {
     const { world } = across(async () => true);
     const runner = vi.fn<Run1>(gives(done("x")));

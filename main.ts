@@ -31,6 +31,7 @@ export interface Factory {
   steps?: Step<{ word: "done" }>[]; // every step when left out
   concurrent?: number;
   timeoutMs?: number;
+  waitLimitMs?: number; // the longest a cl waits for a version on npm: 30 minutes when left out
 }
 
 /** The factory's agents on their bins: each attempt runs on its bin's default, and a retry on its fallback. */

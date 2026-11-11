@@ -130,6 +130,8 @@ export interface World {
   reader: Reader;
   /** The version tags the land target holds on the commit main took for the landed cl `cl`, of `repo`. */
   tags(repo: string, cl: string): Promise<string[]>;
+  /** The longest a cl waits for a version, counted from the land that made it: 30 minutes when not set. */
+  limitMs?: number;
 }
 
 /** A waiting cl's name, and why it still waits for a published version. */

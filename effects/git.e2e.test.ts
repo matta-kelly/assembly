@@ -263,6 +263,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("a landed cl's tags", () => {
     ]);
   });
 
+  it("fail, not empty, for a landed cl whose branch is not there", async () => {
+    await expect(landedTags(repo, "is-nobranch")).rejects.toThrow();
+  });
+
   it("are none for a commit crate put no version tag on", async () => {
     const took = land("z.ts");
     git(repo, "branch", branchOf("is-z"), took);
