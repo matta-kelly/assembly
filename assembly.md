@@ -57,7 +57,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 		- the owners: the tests are da-nail's, the code da-hammer's, a cl or the plan the planner's, the issue Matt's
 		- a sender: any step. An agent hands back findings in place of its done result; a check can too (a red suite at acceptance)
 		- raise: a back about a spec (a cl, the plan or the issue). A cl's raise goes to its issue, relayed by the orchestrator (`advance.ts`)
-		- escalation: the item goes to Matt, on its third retry at one state, its third round back, or a move the table has no row for
+		- escalation: the item goes to Matt, on its third retry at one state, its third round back, or a move the table has no row for. None of an escalated issue's cls starts an attempt, and a raised cl blocks the phases after it, until Matt answers
 	- routing: `process/table.ts`, as data
 	- the one door: `ledger.apply`, which every message goes through, whoever sends it
 	- the record: the ledger's events, one per message, appended and never edited. An item's state is their projection, moved in the same transaction

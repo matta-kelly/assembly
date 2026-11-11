@@ -249,13 +249,15 @@ export async function advance(ledger: Ledger, world?: World) {
         );
     });
 
-  // A phase starts once every live cl of the phases before it has landed.
+  // A phase starts once every cl of the phases before it has landed or been dropped: a raised cl has not landed.
   for (const cl of ledger.inState("waiting")) {
     const before = ledger
       .cls(cl.issue)
       .filter(
         (c) =>
-          live(c) && (c.phase ?? 1) < (cl.phase ?? 1) && c.state !== "landed",
+          c.state !== "dropped" &&
+          (c.phase ?? 1) < (cl.phase ?? 1) &&
+          c.state !== "landed",
       );
     if (before.length) continue;
     // A failed ask is a reason too: the cl waits and the others go on. Its limit counts from the last land before the cl.

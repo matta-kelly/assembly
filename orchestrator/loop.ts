@@ -12,7 +12,8 @@
  * then does two things:
  * - it makes the orchestrator's own moves (advance.ts): a building issue's cls, phase by phase, and their issue built.
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
- *   then a new one for each item waiting in a state that has a step. It does not wait for one: the run goes on as a
+ *   then a new one for each item waiting in a state that has a step, except the cls of an issue escalated to Matt: they
+ *   stay in their state until he answers. It does not wait for one: the run goes on as a
  *   task, under a time limit, and settles the attempt when it ends. Its result is checked against the step's shape,
  *   the step's check picks the word from the result and the attempt's worktree, which the loop answers for it
  *   (a test run, the changed files), the note is written, and the ledger moves the item.
@@ -546,8 +547,11 @@ export async function loop({
       log(r, `taken up by a new orchestrator`);
       launch(r, a.step, step);
     }
+    // An issue escalated waits for Matt: none of its cls starts an attempt, whatever its state.
+    const withMatt = new Set(ledger.inState("escalated").map((e) => e.name));
     for (const i of ledger.waiting([...steps.map((s) => s.from), landing])) {
       if (running.size >= concurrent) return;
+      if (i.kind === "cl" && withMatt.has(i.issue)) continue;
       const n = ledger.begin(i.name);
       if (i.state === landing) {
         launchLand(runOf(i, n, runs));
