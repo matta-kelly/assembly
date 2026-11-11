@@ -98,4 +98,22 @@ describe("the factory's reports", () => {
       `     trace: ${join(home, "runs", "is", "issue", "1", "trace.jsonl")}`,
     );
   });
+
+  it("explain: names the commit a submitted issue's spec was read at, and shows none for a spec the planner made", () => {
+    const f = compose({ home });
+    const a = "a".repeat(40);
+    const b = "0123456789abcdef".repeat(2) + "01234567";
+    f.ledger.addIssue(issue);
+    f.ledger.addIssue({ ...issue, name: "two" });
+    f.ledger.addIssue({ ...issue, name: "planned" });
+    f.ledger.keepSpec("is", { cls: [] }, "matt", a);
+    f.ledger.keepSpec("two", { cls: [] }, "matt", b);
+    const text = (name: string) => explain(f.ledger, f.runs, name).join("\n");
+    expect(text("is")).toContain(a);
+    expect(text("is")).not.toContain(b);
+    expect(text("two")).toContain(b);
+    expect(text("two")).not.toContain(a);
+    expect(text("planned")).not.toMatch(/[0-9a-f]{40}/);
+    expect(text("planned")).not.toMatch(/commit/i);
+  });
 });
