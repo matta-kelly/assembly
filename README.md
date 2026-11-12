@@ -23,4 +23,4 @@ Node runs in a pinned image, never on the host. You need `just` and `podman`, an
 
 ## Ship
 
-Nothing is published or deployed: the factory runs on this machine. A change lands on main through `git land`.
+Nothing is deployed: crate tags each move of main whose commits ask one (`v<x.y.z>`), and that tag is the release. A server checks the tag out under its home, with its repos cloned beside it, and runs the factory there. From this machine, `ASSEMBLY_SERVER=assembly@monkeybusiness just factory <verb>` runs the verb on the server over SSH. A change lands on main through `git land`.

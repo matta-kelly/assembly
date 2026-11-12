@@ -1,3 +1,5 @@
-# crate (github.com/matta-kelly/crate) checks every push to main on the server, in this image.
+# crate (github.com/matta-kelly/crate) checks every push to main on the server, in this image, and tags each move of
+# main whose commits ask one: the tag is the release, checked out on a server.
 crate = "1"
 image = "docker.io/library/node@sha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384"
+ship = "source"

@@ -69,7 +69,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 
 - process: what the work is (`process/`, `workspace/`). It decides, and touches only its own notes
 	- the path: the states an item moves through on messages, held as data in `process/table.ts`
-		- an issue's repos: the ones its cls may change. By default every repo on crate under lot (a git repo with a `server` remote), and the planner picks among them; `factory add --repo` narrows them. Each repo's image, full suite and setup are read from its main (`effects/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, put on the machine by the host (`just factory`) through the repo's `scripts/dev-image.sh local`; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile
+		- an issue's repos: the ones its cls may change. By default every repo on crate under `ASSEMBLY_REPOS` (lot when it is not set; a git repo with a `server` remote), and the planner picks among them; `factory add --repo` narrows them. Each repo's image, full suite and setup are read from its main (`effects/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, put on the machine by the host (`just factory`) through the repo's `scripts/dev-image.sh local`; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile
 			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
 			- the issue's own steps: each repo at `/work/<repo>`, in a plain Node image, since they only read; acceptance runs each repo's full suite
 		- an issue: open → planned (the planner cuts it) → building (plan-review approves, or Matt does) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review or a cl's raise can send it back to the planner. An issue Matt submits passes open and planned by his passes
@@ -167,6 +167,7 @@ Where it meets other systems, and what crosses each.
 - [[kinetic]]: the work. The spec is kinetic's, assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them from a commit, and writes only the notes of a spec its planner made
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, comes from the vault (`secrets.toml`, through rbw-run) into the orchestrator only, never a sandbox. `just smoke-model` makes one real call per model
+- the server: the machine the factory runs on, with its repos cloned under its home. `just factory` there runs the verb in place, over the clones under `ASSEMBLY_REPOS` and the home `ASSEMBLY_HOME`; a laptop reaches it over ssh when `ASSEMBLY_SERVER` is set (`assembly@monkeybusiness`). dazoo sets both, and checks out the release tag, the one crate makes (`v<x.y.z>`)
 - the host: git and podman
 	- branches: each cl's passed work on `assembly/<name>/head`, each attempt on `assembly/<name>/<n>`, made from a cl's own branch, else from main
 	- the orchestrator: its own image (`orchestrator/Containerfile`: node, git, gh, the podman client, and the host's git-land mounted read-only), starting containers through the host's podman socket, with host paths at the same path
@@ -192,7 +193,8 @@ What it keeps.
 ## Built
 
 - the machine: an issue from open to accepted, proven end to end on scripted models, with an attempt taken up after a stop (`just e2e`)
-- the command line: `just factory`, its home `$XDG_STATE_HOME/assembly`
+- the command line: `just factory`, its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, and its repos from `$ASSEMBLY_REPOS`, else lot
+	- on the laptop: `ASSEMBLY_SERVER` set runs the verb on the server over ssh, with its exit code and output. A note path is refused there: the server reads its notes from git, and `submit` takes an issue's name
 	- each command: a message through the one door, as Matt
 	- `add`: an issue, which enters at open, for the planner
 	- `submit <issue> [--at <ref>]`: an issue with the spec Matt made, its cls and its plan beside it in kinetic's format, as kinetic's repo holds them at one commit (its `server/main` when none is given)
