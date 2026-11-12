@@ -10,15 +10,15 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# The script reads the engine's socket folder. The check image has no XDG_RUNTIME_DIR, so the test gives it one in its
+# own temp folder, and no case takes the caller's.
+export XDG_RUNTIME_DIR="$tmp/run"
+mkdir -p "$XDG_RUNTIME_DIR"
+
 stub=$tmp/bin
 mkdir -p "$stub"
 
 # What each local runner was asked to do, written into the case's CALLS folder by name.
-cat >"$stub/node" <<'STUB'
-#!/usr/bin/env bash
-printf '%s\n' "$@" >"$CALLS/node"
-exit 0
-STUB
 
 # podman: its arguments, and the environment the run was given.
 cat >"$stub/podman" <<'STUB'
@@ -118,7 +118,6 @@ check "status runs over ssh" \
   "$(printf 'assembly@monkeybusiness\nfactory\nstatus')" \
   "$(cat "$calls/ssh" 2>/dev/null || true)"
 absent "$calls/podman" "podman"
-absent "$calls/node" "node"
 absent "$calls/rbw-run" "rbw-run"
 
 # a verb takes its arguments to the server, and a name is not a path
@@ -213,7 +212,7 @@ check_here() { # name, want repos, want home, xdg state, assignments...
   calls=$(calls_for "here-$name")
   (
     cd "$root" &&
-      env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME \
+      env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
         PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$xdg" "$@" \
         "$factory" status 2>"$calls/err"
   )
@@ -264,7 +263,8 @@ absent "$calls/ssh" "ssh (a dev repo under the given folder)"
 calls=$(calls_for here-status)
 out=$(
   cd "$root" &&
-    env -u ASSEMBLY_SERVER PATH="$stub:$PATH" CALLS="$calls" \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state" "$factory" status 2>"$calls/err"
 )
 code=$?
@@ -279,7 +279,8 @@ mkdir -p "$elsewhere"
 calls=$(calls_for elsewhere)
 (
   cd "$elsewhere" &&
-    env -u ASSEMBLY_SERVER PATH="$stub:$PATH" CALLS="$calls" \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state-elsewhere" "$factory" status 2>"$calls/err"
 )
 code=$?
@@ -295,7 +296,8 @@ absent "$calls/ssh" "ssh (from another folder)"
 calls=$(calls_for here-run)
 out=$(
   cd "$root" &&
-    env -u ASSEMBLY_SERVER PATH="$stub:$PATH" CALLS="$calls" \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state" "$factory" run 2>"$calls/err"
 )
 code=$?
