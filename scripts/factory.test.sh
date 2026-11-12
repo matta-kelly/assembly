@@ -238,6 +238,39 @@ check "the repo path and the issue go over ssh in order" \
 absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
+# a verb with no argument still reaches the server: its usage is the server's to print
+calls=$(calls_for bare)
+out=$(
+  cd "$root" &&
+    PATH="$stub:$PATH" CALLS="$calls" SAID="usage from the server" SAID_CODE=0 \
+      ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
+      "$factory" submit 2>"$calls/err"
+)
+code=$?
+check "submit with no argument gives back the server's exit code" 0 "$code"
+check "submit with no argument gives back the server's output" "usage from the server" "$out"
+check "submit with no argument runs over ssh" \
+  "$(printf 'assembly@monkeybusiness\nfactory\nsubmit')" \
+  "$(cat "$calls/ssh" 2>/dev/null || true)"
+absent "$calls/podman-count" "podman"
+absent "$calls/rbw-run" "rbw-run"
+
+# an option's value is not the issue: --at's ref, with a slash, goes to the server too
+calls=$(calls_for at)
+out=$(
+  cd "$root" &&
+    PATH="$stub:$PATH" CALLS="$calls" SAID="submitted" SAID_CODE=0 \
+      ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
+      "$factory" submit --at server/main fx 2>"$calls/err"
+)
+code=$?
+check "submit takes an --at ref to the server" 0 "$code"
+check "the --at ref and the issue go over ssh in order" \
+  "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\n--at\nserver/main\nfx')" \
+  "$(cat "$calls/ssh" 2>/dev/null || true)"
+absent "$calls/podman-count" "podman"
+absent "$calls/rbw-run" "rbw-run"
+
 # a failure on the server is the laptop's failure, with the same output
 calls=$(calls_for refused)
 out=$(
@@ -320,6 +353,24 @@ check_here home "$lot" "$given_home" "$tmp/state-home" \
   ASSEMBLY_HOME="$given_home"
 check_here neither "$lot" "$tmp/state-neither/assembly" "$tmp/state-neither"
 
+# with ASSEMBLY_HOME and XDG_STATE_HOME both unset, the home is the state folder under HOME
+calls=$(calls_for here-home-home)
+(
+  cd "$root" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      -u XDG_STATE_HOME PATH="$stub:$PATH" CALLS="$calls" "${git_identity[@]}" \
+      "$factory" status 2>"$calls/err"
+)
+code=$?
+check "with no ASSEMBLY_HOME or XDG_STATE_HOME, status runs here" 0 "$code"
+has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "home under HOME: the folder"
+has_env "$calls" 2 ASSEMBLY_HOME "$fake_home/.local/state/assembly" "home under HOME: the home"
+launch_args "$root" "$lot" "$fake_home/.local/state/assembly" status
+check "home under HOME: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "home under HOME: the build" "${build_args[@]}"
+exact_call "$calls" 2 "home under HOME: the run" "${run_args[@]}"
+absent "$calls/ssh" "ssh (home under HOME)"
+
 # the folder searched for the repos that need a dev image is ASSEMBLY_REPOS, not lot
 roots=$tmp/roots
 dev=$roots/devrepo
@@ -332,6 +383,17 @@ chmod +x "$dev/scripts/dev-image.sh"
 git -C "$dev" -c user.name=t -c user.email=t@t add -A
 git -C "$dev" -c user.name=t -c user.email=t@t commit -q -m main
 git -C "$dev" update-ref refs/remotes/server/main HEAD
+# a repo under the same folder whose image is not dev: it needs none, and its script must not run
+plain=$roots/plain
+mkdir -p "$plain/scripts"
+git -C "$plain" init -q -b main
+git -C "$plain" remote add server core@localhost:git/plain.git
+printf 'image = "img"\n' >"$plain/crate.toml"
+printf '#!/usr/bin/env bash\nprintf "localhost/plain:tag\\n"\n' >"$plain/scripts/dev-image.sh"
+chmod +x "$plain/scripts/dev-image.sh"
+git -C "$plain" -c user.name=t -c user.email=t@t add -A
+git -C "$plain" -c user.name=t -c user.email=t@t commit -q -m main
+git -C "$plain" update-ref refs/remotes/server/main HEAD
 calls=$(calls_for here-dev)
 (
   cd "$root" &&
@@ -351,6 +413,42 @@ check "a dev repo under the given folder: podman's two calls" 2 \
 exact_call "$calls" 1 "a dev repo under the given folder: the build" "${build_args[@]}"
 exact_call "$calls" 2 "a dev repo under the given folder: the run" "${run_args[@]}"
 absent "$calls/ssh" "ssh (a dev repo under the given folder)"
+
+# a repo given by --repo, outside ASSEMBLY_REPOS, is searched for its dev image
+outside=$tmp/outside
+outside_note=$tmp/outside-issue.md
+printf -- '---\ntype: issue\n---\n' >"$outside_note"
+mkdir -p "$outside/scripts"
+git -C "$outside" init -q -b main
+git -C "$outside" remote add server core@localhost:git/outside.git
+printf 'image = "dev"\n' >"$outside/crate.toml"
+printf '#!/usr/bin/env bash\nprintf "localhost/outside:tag\\n"\n' >"$outside/scripts/dev-image.sh"
+chmod +x "$outside/scripts/dev-image.sh"
+git -C "$outside" -c user.name=t -c user.email=t@t add -A
+git -C "$outside" -c user.name=t -c user.email=t@t commit -q -m main
+git -C "$outside" update-ref refs/remotes/server/main HEAD
+empty_repos=$tmp/empty-repos
+mkdir -p "$empty_repos"
+outside_home=$tmp/home-outside
+calls=$(calls_for here-repo-dev)
+(
+  cd "$root" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
+      CALLS="$calls" ASSEMBLY_REPOS="$empty_repos" ASSEMBLY_HOME="$outside_home" \
+      "${git_identity[@]}" "$factory" add "$outside_note" --repo "$outside" \
+      2>"$calls/err"
+)
+code=$?
+check "a dev repo given by --repo outside ASSEMBLY_REPOS, add runs here" 0 "$code"
+has_env "$calls" 2 ASSEMBLY_REPOS "$empty_repos" "the given --repo: the folder"
+has_env "$calls" 2 ASSEMBLY_DEV_IMAGES "outside=localhost/outside:tag" \
+  "the dev image of the repo given by --repo"
+launch_args "$root" "$empty_repos" "$outside_home" add "$outside_note" --repo "$outside"
+check "a dev repo given by --repo: podman's two calls" 2 \
+  "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "a dev repo given by --repo: the build" "${build_args[@]}"
+exact_call "$calls" 2 "a dev repo given by --repo: the run" "${run_args[@]}"
+absent "$calls/ssh" "ssh (a dev repo given by --repo)"
 
 # --- the server ---------------------------------------------------------------------------------------------------
 
