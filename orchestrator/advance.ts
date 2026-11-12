@@ -178,7 +178,7 @@ function landedAt(ledger: Ledger, cl: Item): number | undefined {
 
 /**
  * The versions a waiting cl's repo needs from landed cls of its issue: each landed version tag whose package the repo
- * depends on, runtime or dev. The first is the one a move takes.
+ * depends on, runtime or dev, in the order the lands and their tags come. Every one is moved.
  */
 async function wanted(
   ledger: Ledger,
@@ -213,20 +213,19 @@ async function wanted(
 }
 
 /**
- * The version a waiting cl's move takes, or why it still waits: one ask of the registry per version it needs. Its
- * first moved version is the one the move takes.
+ * Every version a waiting cl moves to, or why it still waits: one ask of the registry per version it needs, and no
+ * move until every one of them is on npm. The moves run in the order wanted gives them.
  */
 async function versionFor(
   ledger: Ledger,
   cl: Item,
   world: World,
-): Promise<{ moved?: Moved; held?: Hold }> {
-  let moved: Moved | undefined;
-  for (const m of await wanted(ledger, cl, world)) {
-    moved ??= m;
+): Promise<{ moved: Moved[]; held?: Hold }> {
+  const moved = await wanted(ledger, cl, world);
+  for (const m of moved) {
     if (!(await world.registry.published(m.package, m.version)))
       return {
-        ...(moved ? { moved } : {}),
+        moved,
         held: {
           reason: `${m.package}@${m.version}, made by ${m.landed}, is not on npm yet`,
           package: m.package,
@@ -235,7 +234,7 @@ async function versionFor(
         },
       };
   }
-  return moved ? { moved } : {};
+  return { moved };
 }
 
 /**
@@ -340,7 +339,7 @@ export async function advance(ledger: Ledger, world?: World) {
         .filter((c) => live(c) && (c.phase ?? 1) < (cl.phase ?? 1))
         .map((c) => landedAt(ledger, c) ?? -Infinity),
     );
-    let moved: Moved | undefined;
+    let moved: Moved[] = [];
     let held: Hold | undefined;
     try {
       if (world) ({ moved, held } = await versionFor(ledger, cl, world));
@@ -354,8 +353,16 @@ export async function advance(ledger: Ledger, world?: World) {
       hold(ledger, cl, held, world);
       continue;
     }
-    // Its repo takes the version it waited for, and the dev image of that commit, before its first attempt.
-    if (moved && world && !(await released(ledger, cl, moved, world))) continue;
+    // Its repo takes each version it needs, each its own commit, and the dev image of the last commit, before its
+    // first attempt. A move or an image that fails escalates the issue, and the cl waits.
+    let allMoved = true;
+    if (world)
+      for (const m of moved)
+        if (!(await released(ledger, cl, m, world))) {
+          allMoved = false;
+          break;
+        }
+    if (!allMoved) continue;
     ledger.apply(
       cl.name,
       say(

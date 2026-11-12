@@ -3,6 +3,7 @@
  * package at that version in the cl's repo, from `registry`, in a container with the network, and commits the changed
  * `package.json` and lockfile on the cl's branch as `build(deps): <package> to <version>`: a build commit asks no
  * version of its own (crate's bump reads the type). Its attempts' setup stays offline: the move alone has the network.
+ * One package per call; advance calls it for every version the cl's repo needs.
  *
  * The worktree is inside the repo, so the container reaches it at a host path, as every path the orchestrator hands
  * podman is one. It is removed when the move ends, and the branch stays.
