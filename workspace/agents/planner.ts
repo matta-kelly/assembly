@@ -8,6 +8,7 @@ import { plan } from "../../process/plan.ts";
 import { resultOf } from "../../process/step.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
+import { types } from "./types.ts";
 
 export const planner = (model: string) =>
   defineAgent({
@@ -15,5 +16,7 @@ export const planner = (model: string) =>
     model,
     instructions: instructions("./planner.md", import.meta.url),
     tools: [...readTools, execute],
+    // what a cl is and what its note holds, and the known ways to cut a change: always in its context
+    middleware: [types("changelist", "playbook")],
     output: z.object({ result: resultOf(plan) }),
   });

@@ -96,9 +96,10 @@ The machine: what moves jobs from station to station, in four layers put togethe
 			- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
 		- `types/`: the notes a role works to and is judged against
 			- in its context: que-pasa's memory middleware reads an agent's types once, when a run is made, keeps them with the run, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
-			- da-nail: [[tests]]. da-hammer: [[code]]. cl-review: [[code]] and [[tests]], the same text its builders have
+			- the builders: da-nail [[tests]], da-hammer [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have
+			- the planner and plan-review: [[changelist]], which holds what a cl note is, and [[playbook]]
 			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
-			- Not built: the planner's and plan-review's types. [[playbook]] is there to load; [[plan]] and [[cl]] are kinetic's type notes, outside the workspace
+			- Not built: the words of a plan. They are in [[plan]], kinetic's type note, outside the workspace. A cl's are in [[changelist]], and [[cl]] is its blank form
 - engine: what moves it (`orchestrator/`)
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
@@ -212,7 +213,7 @@ What it keeps.
 ## Not built
 
 - the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
-- the planner's envelope: its input does not inline the [[plan]] and [[cl]] type notes its role points to
+- the planner's envelope: its context does not hold the [[plan]] type note its role points to
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default

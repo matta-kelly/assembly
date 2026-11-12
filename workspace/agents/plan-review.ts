@@ -8,6 +8,7 @@ import { planReview } from "../../process/plan-review.ts";
 import { resultOf } from "../../process/step.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
+import { types } from "./types.ts";
 
 export const planReviewer = (model: string) =>
   defineAgent({
@@ -15,5 +16,7 @@ export const planReviewer = (model: string) =>
     model,
     instructions: instructions("./plan-review.md", import.meta.url),
     tools: [...readTools, execute],
+    // the bar it judges a plan against, the same notes the planner works to: always in its context
+    middleware: [types("changelist", "playbook")],
     output: z.object({ result: resultOf(planReview) }),
   });

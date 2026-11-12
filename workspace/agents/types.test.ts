@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { clReview } from "./cl-review.ts";
 import { daHammer } from "./da-hammer.ts";
 import { daNail } from "./da-nail.ts";
+import { planReviewer } from "./plan-review.ts";
+import { planner } from "./planner.ts";
 import { sourceOf } from "./types.ts";
 
 /** What an agent's memory loads for a run: each source that is there, by its path. */
@@ -19,7 +21,9 @@ describe("an agent's types", () => {
   it.each([
     ["da-nail", daNail, ["tests"]],
     ["da-hammer", daHammer, ["code"]],
-    ["cl-review", clReview, ["code", "tests"]],
+    ["cl-review", clReview, ["code", "tests", "changelist"]],
+    ["planner", planner, ["changelist", "playbook"]],
+    ["plan-review", planReviewer, ["changelist", "playbook"]],
   ] as const)(
     "%s has each of its types, whole, in this order",
     async (_name, make, names) => {
