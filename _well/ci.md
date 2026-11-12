@@ -51,7 +51,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 *The same check, on the change's branch, so the commit main takes is the commit that was checked*
 
 - on crate: presubmit and the merge queue are one run, crate's pre-receive hook on the server ([[#Merge queue]]). On crate: que-pasa, basis, kinetic, lot, assembly, homepage, media-stack and deeotee
-- not on crate: `checks.yml` in GitHub Actions, below. dazoo keeps it as a required check. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
+- not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
 
 ### checks.yml
 
