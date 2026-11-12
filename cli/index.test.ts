@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
-import type { Reader } from "../effects/repo.ts";
+import { gitReader, type Reader } from "../effects/repo.ts";
 import { homeOf, main } from "./index.ts";
 
 let home: string;
@@ -201,5 +201,97 @@ a's name and type.
       expect.stringMatching(/^an issue needs its repos: --repo, or a root/),
     );
     expect(existsSync(join(home, "ledger.db"))).toBe(false);
+  });
+});
+
+describe("the repos under ASSEMBLY_REPOS", () => {
+  it("finds the clones, and kinetic among them, when submit names none", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const root = join(home, "clones");
+    const git = (at: string, ...args: string[]) =>
+      execFileSync(
+        "git",
+        ["-c", "user.name=t", "-c", "user.email=t@t", "-C", at, ...args],
+        { encoding: "utf8" },
+      ).trim();
+    const clone = (name: string, onServer: boolean) => {
+      const at = join(root, name);
+      mkdirSync(at, { recursive: true });
+      git(at, "init", "-q", "-b", "main");
+      onCrate(at, "img");
+      if (onServer)
+        git(at, "remote", "add", "server", `core@localhost:git/${name}.git`);
+      return at;
+    };
+    const commit = (at: string, message: string) => {
+      git(at, "add", "-A");
+      git(at, "commit", "-q", "-m", message);
+    };
+    const kinetic = clone("kinetic", true);
+    const repo = clone("repo", true);
+    const loose = clone("loose", false);
+    mkdirSync(join(kinetic, "_well"));
+    writeFileSync(
+      join(kinetic, "_well", "fx.md"),
+      "---\ntype: issue\nstatus: new\n---\nfx.\n\n---\n## Done\n\n- a is 2\n",
+    );
+    writeFileSync(
+      join(kinetic, "_well", "fx-a.md"),
+      `---
+type: cl
+description: "A cut of fx."
+belongsTo: "[[fx]]"
+status: new
+repo: repo
+shape:
+  change: behavior
+  checked: repo
+checkout:
+  - src/a.ts
+  - test/a.test.ts
+test: npx vitest run test/a.test.ts
+---
+src/a.ts exports a, which is 2.
+
+---
+## Check
+
+- given a, when imported, then it is 2
+
+## Seam
+
+a's name and type.
+
+## Checkout
+
+- test/a.test.ts: the test
+`,
+    );
+    commit(kinetic, "the spec");
+    commit(repo, "main");
+    commit(loose, "main");
+    const at = git(kinetic, "rev-parse", "HEAD");
+    git(kinetic, "update-ref", "refs/remotes/server/main", at);
+    const read: Reader = {
+      file: (path, file) =>
+        existsSync(join(path, file))
+          ? readFileSync(join(path, file), "utf8")
+          : undefined,
+      onCrate: gitReader.onCrate,
+    };
+    expect(
+      await main(
+        ["submit", "fx"],
+        { ASSEMBLY_HOME: home, ASSEMBLY_REPOS: root },
+        read,
+      ),
+    ).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/^submitted fx, building, with 1 cl:/),
+    );
+    const item = compose({ home }).ledger.item("fx");
+    expect(item?.repos.map((r) => r.name).sort()).toEqual(["kinetic", "repo"]);
+    expect(item?.repos.find((r) => r.name === "kinetic")?.repo).toBe(kinetic);
+    expect(compose({ home }).ledger.spec("fx")?.commit).toBe(at);
   });
 });
