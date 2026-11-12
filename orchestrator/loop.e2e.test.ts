@@ -1329,13 +1329,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             }
           };
 
-          // A, the package: its index.js exports a, which its cl makes 2.
-          const ra = repoOf("ra");
           // A, the package repo: two packages, each its own folder, which its cl makes 2.
-          writeFileSync(
-            join(ra, "crate.toml"),
-            `crate = "1"\nimage = "${image}"\n`,
-          );
+          const ra = repoOf("ra");
           writeFileSync(
             join(ra, "package.json"),
             `${JSON.stringify({ name: "ra-root", version: "0.0.0", private: true }, null, 2)}\n`,
