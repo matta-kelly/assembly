@@ -16,7 +16,7 @@ import { models as hostModels } from "./effects/models.ts";
 import { agents } from "./workspace/agents/index.ts";
 import { modelOf } from "./effects/models.ts";
 import { landedTags } from "./effects/git.ts";
-import { npmRegistry } from "./effects/registry.ts";
+import { npmRegistry, type Registry } from "./effects/registry.ts";
 import { gitReader } from "./effects/repo.ts";
 import { type Agents, quePasa } from "./effects/runner.ts";
 import { steps as all } from "./process/index.ts";
@@ -32,6 +32,7 @@ export interface Factory {
   concurrent?: number;
   timeoutMs?: number;
   waitLimitMs?: number; // the longest a cl waits for a version on npm: 30 minutes when left out
+  registry?: Registry; // the registry a cl's package moves from: npm's when left out, a test's when stood in
 }
 
 /** The factory's agents on their bins: each attempt runs on its bin's default, and a retry on its fallback. */

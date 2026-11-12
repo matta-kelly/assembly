@@ -19,6 +19,9 @@ import {
   runSetup,
 } from "../effects/setup.ts";
 import { ran } from "../process/fake-worktree.ts";
+import { move } from "../effects/move.ts";
+import { devImage } from "../effects/repo.ts";
+import { npmRegistryUrl } from "../effects/registry.ts";
 
 // Podman and git are faked: git, the sandbox, the test runs and the land are the loop's only ways out. runOf is the
 // real one.
@@ -41,6 +44,11 @@ vi.mock("../effects/setup.ts", () => ({
   runSetup: vi.fn(),
   forgetSetup: vi.fn(),
   prepareFull: vi.fn(),
+}));
+vi.mock("../effects/move.ts", () => ({ move: vi.fn() }));
+vi.mock("../effects/repo.ts", async (original) => ({
+  ...(await original<typeof import("../effects/repo.ts")>()),
+  devImage: vi.fn(),
 }));
 
 const cl = "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
@@ -73,7 +81,7 @@ const runnerOf = (run: Run1) => async (): Promise<Runner> => ({
 
 /** A world with nothing to wait for: no repo has a file, no landed cl has a tag. */
 const idle: World = {
-  registry: { published: async () => true },
+  registry: { url: npmRegistryUrl, published: async () => true },
   reader: { file: () => undefined, onCrate: () => false },
   tags: async () => [],
 };
@@ -99,6 +107,8 @@ type L = Awaited<ReturnType<typeof make>>;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(move).mockResolvedValue("c0ffee");
+  vi.mocked(devImage).mockResolvedValue("localhost/b-dev:moved");
   dir = mkdtempSync(join(tmpdir(), "loop-"));
   writeFileSync(join(dir, "cl.md"), cl);
   ledger = openLedger(join(dir, "ledger.db"));
@@ -690,7 +700,7 @@ describe("the world", () => {
         dependencies: { "@x/a": "^1.0.0" },
       }),
     };
-    const registry = { published: vi.fn(published) };
+    const registry = { url: npmRegistryUrl, published: vi.fn(published) };
     const world: World = {
       registry,
       reader: { file: (r, f) => files[`${r}:${f}`], onCrate: () => true },
@@ -772,6 +782,41 @@ describe("the world", () => {
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner, { world }));
     expect(ranFor(runner, "j-b")).toBe(true);
+  });
+
+  it("moves a cl's package before its attempt, and runs the attempt in the dev image of the moved commit", async () => {
+    let on = false;
+    const { world } = across(async () => on);
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner, { world });
+    await once(l);
+    // it waited: nothing moved, and it stayed in its repo's image
+    expect(move).not.toHaveBeenCalled();
+    expect(ledger.item("j-b").image).toBe("img");
+    on = true;
+    await once(l);
+    expect(vi.mocked(move)).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "j-b", repo: "/b" }),
+      "@x/a",
+      "1.2.0",
+      npmRegistryUrl,
+    );
+    expect(vi.mocked(devImage)).toHaveBeenCalledWith("/b", "c0ffee");
+    // the item's repo took the moved commit's image, and its attempt ran in it
+    expect(ledger.item("j-b").image).toBe("localhost/b-dev:moved");
+    const attempt = runner.mock.calls.find((c) => c[2].run.name === "j-b");
+    expect(attempt?.[2].run.image).toBe("localhost/b-dev:moved");
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "j-b",
+        image: "localhost/b-dev:moved",
+      }),
+      { readOnly: false },
+    );
+    // the move is the orchestrator's, and it comes before the worktree the attempt starts from
+    expect(vi.mocked(move).mock.invocationCallOrder[0] as number).toBeLessThan(
+      Math.min(...vi.mocked(worktree).mock.invocationCallOrder),
+    );
   });
 
   it("is a world a loop cannot be built without", () => {

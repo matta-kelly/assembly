@@ -10,9 +10,19 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClSpec, Planned } from "../process/plan.ts";
+import { CrateError, devImage } from "../effects/repo.ts";
+import { move } from "../effects/move.ts";
+import { npmRegistryUrl } from "../effects/registry.ts";
 import { advance } from "./advance.ts";
 import { type Ledger, open } from "./ledger.ts";
 import { section } from "../effects/notes.ts";
+
+// The move and the dev image of the moved commit run containers and crate: the unit tests stand them in.
+vi.mock("../effects/move.ts", () => ({ move: vi.fn() }));
+vi.mock("../effects/repo.ts", async (original) => ({
+  ...(await original<typeof import("../effects/repo.ts")>()),
+  devImage: vi.fn(),
+}));
 
 const issueNote =
   "---\ntype: issue\nstatus: new\n---\nOne value.\n\n---\n## Done\n\n- value is 2\n- double is 4\n";
@@ -38,6 +48,8 @@ let ledger: Ledger;
 let path: string;
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(move).mockResolvedValue("c0ffee");
+  vi.mocked(devImage).mockResolvedValue("localhost/b-dev:moved");
   dir = mkdtempSync(join(tmpdir(), "advance-"));
   path = join(dir, "is.md");
   writeFileSync(path, issueNote);
@@ -396,7 +408,10 @@ describe("advance across repos", () => {
   const worldOf = (
     files: Record<string, string>,
     tags: string[] | (() => Promise<string[]>),
-    registry: { published: (n: string, v: string) => Promise<boolean> },
+    registry: {
+      url: string;
+      published: (n: string, v: string) => Promise<boolean>;
+    },
     limitMs?: number,
   ) => ({
     registry,
@@ -409,6 +424,7 @@ describe("advance across repos", () => {
     ...(limitMs === undefined ? {} : { limitMs }),
   });
   const registryOf = (answer: boolean) => ({
+    url: npmRegistryUrl,
     published: vi.fn<(n: string, v: string) => Promise<boolean>>(
       async () => answer,
     ),
@@ -555,6 +571,7 @@ describe("advance across repos", () => {
         message: /npm answered 500 for @s\/alpha@1\.2\.0/,
         world: () =>
           worldOf(files, ["v1.2.0"], {
+            url: npmRegistryUrl,
             published: async () => {
               throw new Error("npm answered 500 for @s/alpha@1.2.0");
             },
@@ -659,6 +676,7 @@ describe("advance across repos", () => {
               files,
               ["v1.2.0"],
               {
+                url: npmRegistryUrl,
                 published: async () => {
                   throw new Error("npm answered 500");
                 },
@@ -740,6 +758,7 @@ describe("advance across repos", () => {
           files,
           ["v1.2.0"],
           {
+            url: npmRegistryUrl,
             published: async () => {
               throw new Error("npm answered 500");
             },
@@ -762,6 +781,115 @@ describe("advance across repos", () => {
       vi.setSystemTime(at(40));
       await advance(ledger, world);
       expect(ledger.events("x")).toHaveLength(before);
+    });
+  });
+
+  describe("the move", () => {
+    it("moves the package its repo waited for to the landed version, and takes the dev image of that commit", async () => {
+      across();
+      await advance(ledger, worldOf(files, ["v1.2.0"], registryOf(true)));
+      expect(vi.mocked(move)).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "x-b", repo: "/b" }),
+        "@s/alpha",
+        "1.2.0",
+        npmRegistryUrl,
+      );
+      expect(vi.mocked(devImage)).toHaveBeenCalledWith("/b", "c0ffee");
+      expect(state("x-b")).toBe("ready");
+    });
+
+    it("moves the package its repo depends on in its dev dependencies, made in the landed package's folder", async () => {
+      across();
+      await advance(
+        ledger,
+        worldOf(
+          {
+            "/a:crate.toml": 'crate = "1"\npackages = ["lib"]\n',
+            "/a:lib/package.json": pkg("gamma"),
+            "/b:package.json": JSON.stringify({
+              name: "delta",
+              devDependencies: { gamma: "^0.3.0" },
+            }),
+          },
+          ["lib-v0.3.0"],
+          registryOf(true),
+        ),
+      );
+      expect(vi.mocked(move)).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "x-b", repo: "/b" }),
+        "gamma",
+        "0.3.0",
+        npmRegistryUrl,
+      );
+    });
+
+    it("moves nothing until the version it waited for is on the registry", async () => {
+      across();
+      const registry = registryOf(false);
+      const world = worldOf(files, ["v1.2.0"], registry);
+      await advance(ledger, world);
+      await advance(ledger, world);
+      expect(move).not.toHaveBeenCalled();
+      expect(devImage).not.toHaveBeenCalled();
+      expect(state("x-b")).toBe("waiting");
+      registry.published.mockImplementation(async () => true);
+      await advance(ledger, world);
+      expect(vi.mocked(move)).toHaveBeenCalledOnce();
+    });
+
+    describe("a failed move", () => {
+      const fails = [
+        {
+          what: "the install",
+          output: "npm error code E404: @s/alpha@1.2.0 is not in this registry",
+          arm: () =>
+            vi
+              .mocked(move)
+              .mockRejectedValue(
+                new Error(
+                  "npm error code E404: @s/alpha@1.2.0 is not in this registry",
+                ),
+              ),
+        },
+        {
+          what: "the dev image of the moved commit",
+          output: "crate dev-image ref: exit 1: its Containerfile has no bake",
+          arm: () =>
+            vi
+              .mocked(devImage)
+              .mockRejectedValue(
+                new CrateError(
+                  1,
+                  "crate dev-image ref: exit 1: its Containerfile has no bake",
+                ),
+              ),
+        },
+      ];
+
+      it.each(fails)(
+        "starts no attempt, and escalates its issue with the output, when $what fails",
+        async ({ arm, output }) => {
+          across();
+          const world = worldOf(files, ["v1.2.0"], registryOf(true));
+          arm();
+          await advance(ledger, world);
+          expect(state("x")).toBe("escalated");
+          const escalation = ledger.events("x").at(-1);
+          expect(escalation).toMatchObject({
+            by: "orchestrator",
+            word: "escalate",
+          });
+          expect(escalation?.reason).toContain(output);
+          expect(state("x-b")).toBe("waiting");
+          expect(ledger.attemptsOf("x-b")).toEqual([]);
+          // its issue is Matt's now: the next tick moves nothing more, and escalates it once
+          await advance(ledger, world);
+          expect(
+            ledger.events("x").filter((e) => e.word === "escalate"),
+          ).toHaveLength(1);
+          expect(state("x-b")).toBe("waiting");
+        },
+      );
     });
   });
 });

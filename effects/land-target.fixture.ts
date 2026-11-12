@@ -8,7 +8,10 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  execFileSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    timeout: 180_000,
+  });
 
 /** Gives `repo` its land target, a bare repo in `dir`, and gives back the target's path. */
 export function landTarget(repo: string, dir: string): string {
@@ -35,7 +38,9 @@ export function crateTarget(repo: string, dir: string): string {
   const crate = process.env["CRATE_ROOT"];
   if (!crate) throw new Error("CRATE_ROOT names no crate checkout");
   const bare = join(dir, "server.git");
-  execFileSync(join(crate, "bin", "crate"), ["init", bare]);
+  execFileSync(join(crate, "bin", "crate"), ["init", bare], {
+    timeout: 180_000,
+  });
   git(repo, "remote", "add", "server", bare);
   git(repo, "push", "-q", "server", "main");
   return bare;

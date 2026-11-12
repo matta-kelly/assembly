@@ -54,7 +54,10 @@ describe("the factory's world", () => {
   };
 
   it("gives the loop npm's registry and git's reader", () => {
-    const registry = { published: async () => true };
+    const registry = {
+      url: "https://registry.npmjs.org",
+      published: async () => true,
+    };
     vi.mocked(npmRegistry).mockReturnValue(registry);
     expect(world().registry).toBe(registry);
     expect(world().reader).toBe(gitReader);

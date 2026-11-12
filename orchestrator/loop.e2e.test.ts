@@ -15,6 +15,7 @@
 
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -39,7 +40,9 @@ import { daNail } from "../workspace/agents/da-nail.ts";
 import { issueReviewer } from "../workspace/agents/issue-review.ts";
 import { planReviewer } from "../workspace/agents/plan-review.ts";
 import { planner } from "../workspace/agents/planner.ts";
-import { landTarget } from "../effects/land-target.fixture.ts";
+import { crateTarget, landTarget } from "../effects/land-target.fixture.ts";
+import { containerfile, devcontainer } from "../effects/dev-image.fixture.ts";
+import { standInRegistry } from "../effects/registry.fixture.ts";
 import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";
 import { advance } from "./advance.ts";
@@ -337,8 +340,107 @@ const issueReviewScript = (_input: string, done: number, last: string) => {
   return submit({ word: "done" });
 };
 
+/** A plan of two repos, the second on the first's published version: a is the package, b depends on it. */
+const versionPlanner = (_input: string, done: number) => {
+  if (done === 0) return fauxToolCall("ls", {});
+  return submit({
+    word: "done",
+    plan: {
+      approach: "a is a package; b takes the version a publishes",
+      phases: ["a, the package", "b, on the version a published"],
+    },
+    cls: [
+      {
+        ...cl(
+          "a",
+          "ra's index.js exports a, which is 2",
+          "given index.js, when imported, then a is 2",
+          1,
+        ),
+        repo: "ra",
+        checkout: ["index.js", "test/a.test.mjs"],
+        test: "node --test test/a.test.mjs",
+        seam: "index.js's export, which b's version carries",
+        checkoutNotes: "- index.js: the export\n- test/a.test.mjs: the test",
+      },
+      {
+        ...cl(
+          "b",
+          "rb's src/b.mjs exports b, which is 2",
+          "given src/b.mjs, when imported, then b is 2",
+          2,
+        ),
+        repo: "rb",
+        checkout: ["src/b.mjs", "test/b.test.mjs", "package.json"],
+        test: "node --test test/b.test.mjs",
+        seam: "src/b.mjs's export",
+        checkoutNotes:
+          "- src/b.mjs: the code\n- test/b.test.mjs: the test\n- package.json: the dependency the move changes",
+      },
+    ],
+  });
+};
+
+/** da-nail writes its cut's failing test, a stub for b where its file is missing, runs it, and submits. */
+const cutNail = (input: string, done: number) => {
+  const cut = /The cut (a|b) of/.exec(input)?.[1] as "a" | "b" | undefined;
+  if (!cut) return submit({ word: "done", tests: [] });
+  if (cut === "a") {
+    if (done === 0)
+      return fauxToolCall("write_file", {
+        file_path: "test/a.test.mjs",
+        content: testOf(
+          "a",
+          'import { a } from "../index.js";',
+          "assert.strictEqual(a, 2)",
+        ),
+      });
+    if (done === 1) return fauxToolCall("test", {});
+    return submit({
+      word: "done",
+      tests: [{ behavior: 1, file: "test/a.test.mjs", name: "a" }],
+    });
+  }
+  if (done === 0)
+    return fauxToolCall("write_file", {
+      file_path: "test/b.test.mjs",
+      content: testOf(
+        "b",
+        'import { b } from "../src/b.mjs";',
+        "assert.strictEqual(b, 2)",
+      ),
+    });
+  if (done === 1)
+    return fauxToolCall("write_file", {
+      file_path: "src/b.mjs",
+      content: "export const b = 0;\n",
+    });
+  if (done === 2) return fauxToolCall("test", {});
+  return submit({
+    word: "done",
+    tests: [{ behavior: 1, file: "test/b.test.mjs", name: "b" }],
+  });
+};
+
+/** da-hammer makes its cut's test pass, in the file it wrote. */
+const cutHammer = (input: string, done: number) => {
+  const cut = /The cut (a|b) of/.exec(input)?.[1] as "a" | "b" | undefined;
+  if (!cut) return submit({ word: "done", changed: [] });
+  const file = cut === "a" ? "index.js" : "src/b.mjs";
+  if (done === 0)
+    return fauxToolCall("edit_file", {
+      file_path: file,
+      old_string: cut === "a" ? "a = 1" : "b = 0",
+      new_string: cut === "a" ? "a = 2" : "b = 2",
+    });
+  return submit({ word: "done", changed: [file] });
+};
+
 const git = (repo: string, ...args: string[]) =>
-  execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  execFileSync("git", ["-C", repo, ...args], {
+    encoding: "utf8",
+    timeout: 180_000,
+  }).trim();
 
 type Span = {
   name: string;
@@ -414,6 +516,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         "mr-alpha",
         "mr-beta",
         "rz-one",
+        "dp",
+        "dp-a",
+        "dp-b",
+        "assembly-e2e-registry",
       ];
       for (const name of names.flatMap((c) =>
         Array.from({ length: 8 }, (_, n) => `assembly-${c}-${n + 1}`),
@@ -1103,6 +1209,346 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(accepted.reason).toMatch(/full suite is green/);
         db.close();
         await l.close();
+      },
+    );
+
+    it(
+      "moves a waiting cl's repo onto the version its dependency published, and takes the issue to accepted",
+      { timeout: 300_000 },
+      async () => {
+        const at = join(dir, "versions");
+        mkdirSync(join(at, "work"), { recursive: true });
+        const registry = standInRegistry(join(at, "registry"));
+        try {
+          // A's previous release, which B's lockfile holds before the move.
+          const before = join(at, "a-1.0.0");
+          mkdirSync(before);
+          writeFileSync(
+            join(before, "package.json"),
+            `${JSON.stringify({ name: "@e2e/a", version: "1.0.0", type: "module", exports: "./index.js" }, null, 2)}\n`,
+          );
+          writeFileSync(join(before, "index.js"), "export const a = 1;\n");
+          const one = registry.add("@e2e/a", "1.0.0", before);
+
+          /** A repo on crate: its check, its suite, and the files crate makes a dev image from. */
+          const repoOf = (name: string) => {
+            const r = join(at, name);
+            mkdirSync(join(r, "scripts"), { recursive: true });
+            mkdirSync(join(r, "test"), { recursive: true });
+            mkdirSync(join(r, ".devcontainer"), { recursive: true });
+            git(r, "init", "-q", "-b", "main");
+            writeFileSync(
+              join(r, "crate.toml"),
+              `crate = "1"\nimage = "${image}"\n`,
+            );
+            writeFileSync(
+              join(r, "scripts", "check.sh"),
+              "#!/bin/sh\nnode --test test/*.test.mjs\n",
+            );
+            chmodSync(join(r, "scripts", "check.sh"), 0o755);
+            writeFileSync(join(r, ".gitignore"), "node_modules/\n");
+            writeFileSync(
+              join(r, ".devcontainer", "Containerfile"),
+              containerfile(name),
+            );
+            writeFileSync(
+              join(r, ".devcontainer", "devcontainer.json"),
+              devcontainer(name),
+            );
+            writeFileSync(
+              join(r, "test", "base.test.mjs"),
+              testOf("base", "", "assert.ok(true)"),
+            );
+            return r;
+          };
+          const target = (name: string) => {
+            const t = join(at, `${name}.target`);
+            mkdirSync(t);
+            return t;
+          };
+          /** A crate target, with crate's check output kept short enough to read in a failure. */
+          const onCrate = (repo: string, name: string) => {
+            try {
+              return crateTarget(repo, target(name));
+            } catch (e) {
+              const remote = (e as Error).message
+                .split("\n")
+                .filter((l) => l.startsWith("remote:"))
+                .slice(0, 12)
+                .join(" | ");
+              throw new Error(`${name}: crate refused main: ${remote}`, {
+                cause: e,
+              });
+            }
+          };
+
+          // A, the package: its index.js exports a, which its cl makes 2.
+          const ra = repoOf("ra");
+          writeFileSync(
+            join(ra, "package.json"),
+            `${JSON.stringify({ name: "@e2e/a", version: "1.2.0", type: "module", exports: "./index.js" }, null, 2)}\n`,
+          );
+          writeFileSync(join(ra, "index.js"), "export const a = 1;\n");
+          git(ra, "add", "-A");
+          git(ra, "commit", "-q", "-m", "feat: the package, with a is 1");
+          const raBare = onCrate(ra, "ra");
+          const raMain = git(raBare, "rev-parse", "main");
+          git(ra, "fetch", "-q", "server", "main");
+
+          // B, which depends on A: its lockfile holds ^1.0.0, from the stand-in registry.
+          const rb = repoOf("rb");
+          writeFileSync(
+            join(rb, "package.json"),
+            `${JSON.stringify({ name: "rb", version: "0.0.0", private: true, type: "module", dependencies: { "@e2e/a": "^1.0.0" } }, null, 2)}\n`,
+          );
+          // npm installs from the stand-in registry: the --registry the move is given.
+          writeFileSync(join(rb, ".npmrc"), `registry=${registry.url}\n`);
+          writeFileSync(
+            join(rb, "package-lock.json"),
+            `${JSON.stringify(
+              {
+                name: "rb",
+                version: "0.0.0",
+                lockfileVersion: 3,
+                requires: true,
+                packages: {
+                  "": {
+                    name: "rb",
+                    version: "0.0.0",
+                    dependencies: { "@e2e/a": "^1.0.0" },
+                  },
+                  "node_modules/@e2e/a": {
+                    version: "1.0.0",
+                    resolved: one.resolved,
+                    integrity: one.integrity,
+                  },
+                },
+              },
+              null,
+              2,
+            )}\n`,
+          );
+          git(rb, "add", "-A");
+          git(rb, "commit", "-q", "-m", "feat: b, on a");
+          const rbBare = onCrate(rb, "rb");
+          const rbStart = git(rbBare, "rev-parse", "main");
+          git(rb, "fetch", "-q", "server", "main");
+
+          writeFileSync(
+            join(at, "work", "dp.md"),
+            `---
+type: issue
+description: "One package in one repo, its dependent in the other. A fixture of the factory's end to end test."
+kind: task
+priority: P2
+status: new
+---
+ra is a package, and rb depends on it.
+
+---
+## Intent
+
+A and B, each exported, with B on the version A published.
+
+## Done
+
+- ra's index.js exports a, which is 2
+- rb's src/b.mjs exports b, which is 2, on the version rb depends on
+`,
+          );
+
+          // The factory, every step on scripted models, with the stand-in registry as its own.
+          const models = createModels();
+          const modelOf = (
+            provider: string,
+            script: Parameters<typeof scripted>[0],
+          ) => {
+            const faux = fauxProvider({ provider });
+            models.setProvider(faux.provider);
+            faux.setResponses(scripted(script));
+            const m = faux.getModel();
+            return `${m.provider}:${m.id}`;
+          };
+          const scripts = {
+            planner: modelOf("faux-vp-planner", versionPlanner),
+            "plan-review": modelOf("faux-vp-plan-review", planReviewScript),
+            "da-nail": modelOf("faux-vp-nail", cutNail),
+            "da-hammer": modelOf("faux-vp-hammer", cutHammer),
+            "cl-review": modelOf("faux-vp-cl-review", clReviewScript),
+            "issue-review": modelOf("faux-vp-issue-review", issueReviewScript),
+          };
+          const f = compose({
+            home: at,
+            agents: {
+              make: {
+                planner,
+                "plan-review": planReviewer,
+                "da-nail": daNail,
+                "da-hammer": daHammer,
+                "cl-review": clReview,
+                "issue-review": issueReviewer,
+              },
+              modelFor: (name: string) => scripts[name as keyof typeof scripts],
+            },
+            models,
+            registry: {
+              url: registry.url,
+              published: async (n, v) => registry.published(n, v),
+            },
+            timeoutMs: 180_000,
+          });
+          const ledger = f.ledger;
+          ledger.addIssueAcross({
+            name: "dp",
+            path: join(at, "work", "dp.md"),
+            image,
+            repos: [
+              {
+                name: "ra",
+                repo: ra,
+                image,
+                test: "scripts/check.sh all",
+                setup: "",
+              },
+              {
+                name: "rb",
+                repo: rb,
+                image,
+                test: "scripts/check.sh all",
+                setup: "",
+              },
+            ],
+          });
+
+          const l = await f.loop();
+          // The outside world, which the test plays: A's land is released as v1.2.0, and the next tick publishes it
+          // to the stand-in registry, so B waits for it in between, as it would for npm.
+          let tagged = false;
+          let published = false;
+          const release = () => {
+            git(raBare, "tag", "v1.2.0", git(raBare, "rev-parse", "main"));
+            tagged = true;
+          };
+          const publish = () => {
+            git(ra, "fetch", "-q", "server", "main");
+            const tree = join(at, "a-landed");
+            if (!existsSync(tree))
+              git(ra, "worktree", "add", "--detach", tree, "server/main");
+            registry.add("@e2e/a", "1.2.0", tree);
+            published = true;
+          };
+          const settled = ["accepted", "raised", "escalated"];
+          // Its own end, before the test's: a case that waits for a cl that never lands ends here, and fails.
+          const start = Date.now();
+          try {
+            for (let i = 0; i < 60 && Date.now() - start < 180_000; i++) {
+              await l.tick();
+              await l.settled();
+              if (!tagged && git(raBare, "rev-parse", "main") !== raMain)
+                release();
+              else if (tagged && !published) publish();
+              if (settled.includes(ledger.item("dp").state)) break;
+            }
+            await l.tick();
+          } finally {
+            await l.close();
+          }
+
+          // The issue is accepted: a landed in its repo, then b, on a's version.
+          const moves = (name: string) =>
+            ledger
+              .events(name)
+              .map(
+                (e) => `${String(e["from_state"])}>${String(e["to_state"])}`,
+              );
+          expect(
+            ledger.item("dp").state,
+            JSON.stringify({
+              dp: moves("dp"),
+              a: {
+                moves: moves("dp-a"),
+                events: ledger.events("dp-a").map((e) => [e.word, e.reason]),
+              },
+              b: {
+                moves: moves("dp-b"),
+                events: ledger.events("dp-b").map((e) => [e.word, e.reason]),
+              },
+              attempts: ledger
+                .items()
+                .filter((i) => i.kind === "cl")
+                .map((i) => [i.name, ledger.attemptsOf(i.name).length]),
+            }),
+          ).toBe("accepted");
+          expect(moves("dp")).toEqual([
+            "new>open",
+            "open>planned",
+            "planned>building",
+            "building>built",
+            "built>accepted",
+          ]);
+          expect(moves("dp-a")).toEqual([
+            "new>ready",
+            "ready>red",
+            "red>green",
+            "green>approved",
+            "approved>landed",
+          ]);
+          expect(moves("dp-b")).toEqual([
+            "new>waiting",
+            "waiting>ready",
+            "ready>red",
+            "red>green",
+            "green>approved",
+            "approved>landed",
+          ]);
+
+          // B waited for the version A released, before it started.
+          const b = ledger.events("dp-b");
+          const held = b.findIndex((e) => e.word === "retry");
+          expect(b[held]?.reason).toMatch(/@e2e\/a.*1\.2\.0.*not on npm yet/);
+          expect(held).toBeLessThan(b.findIndex((e) => e.to_state === "ready"));
+
+          // Its branch holds the move first, then its own work: the move's commit, and no version of its own.
+          expect(
+            git(rb, "log", "--format=%s", `${rbStart}..assembly/dp-b/head`)
+              .trim()
+              .split("\n")
+              .at(-1),
+          ).toBe("build(deps): @e2e/a to 1.2.0");
+          const manifest = JSON.parse(
+            git(rb, "show", "assembly/dp-b/head:package.json"),
+          ) as { dependencies: Record<string, string> };
+          expect(manifest.dependencies["@e2e/a"]).toBe("^1.2.0");
+          const lock = JSON.parse(
+            git(rb, "show", "assembly/dp-b/head:package-lock.json"),
+          ) as { packages: Record<string, { version?: string }> };
+          expect(lock.packages["node_modules/@e2e/a"]?.version).toBe("1.2.0");
+
+          // The item took the dev image of the moved commit, and its attempts ran in it.
+          const moved = ledger.item("dp-b").image;
+          expect(moved).not.toBe(image);
+          const db = new DatabaseSync(join(at, "ledger.db"));
+          expect(
+            db
+              .prepare(
+                "SELECT DISTINCT image FROM check_runs WHERE name = 'dp-b'",
+              )
+              .all()
+              .map((x) => x["image"]),
+          ).toEqual([moved]);
+          db.close();
+
+          // Each landed on its own repo's main, and only there.
+          expect(git(raBare, "show", "main:index.js")).toContain("a = 2");
+          expect(git(rbBare, "show", "main:src/b.mjs")).toContain("b = 2");
+          // The move's commit asks no version: b's repo is released by nothing the move did.
+          expect(git(rbBare, "tag", "--list")).toBe("");
+          expect(
+            git(raBare, "ls-tree", "-r", "--name-only", "main"),
+          ).not.toMatch(/src\/b\.mjs/);
+        } finally {
+          registry.close();
+        }
       },
     );
   },
