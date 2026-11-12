@@ -788,6 +788,23 @@ describe("advance across repos", () => {
     });
   });
 
+  /** The world: repo files by "<repo>:<file>", the tags each landed cl's land put on main, and the registry. */
+  const worldWith = (
+    files: Record<string, string>,
+    tags: Record<string, string[]>,
+    registry: {
+      url: string;
+      published: (n: string, v: string) => Promise<boolean>;
+    },
+  ) => ({
+    registry,
+    reader: {
+      file: (repo: string, file: string) => files[`${repo}:${file}`],
+      onCrate: () => true,
+    },
+    tags: async (_repo: string, cl: string) => tags[cl] ?? [],
+  });
+
   describe("the move", () => {
     it("moves the package its repo waited for to the landed version, and takes the dev image of that commit", async () => {
       across();
@@ -839,6 +856,94 @@ describe("advance across repos", () => {
       registry.published.mockImplementation(async () => true);
       await advance(ledger, world);
       expect(vi.mocked(move)).toHaveBeenCalledOnce();
+    });
+
+    /** An issue "y" of three cls: two landed, each in its own repo shipping a package its phase 2 cl needs. */
+    function twoReleased(registry: {
+      url: string;
+      published: (n: string, v: string) => Promise<boolean>;
+    }) {
+      writeFileSync(join(dir, "y.md"), issueNote);
+      ledger.addIssue({
+        name: "y",
+        path: join(dir, "y.md"),
+        repo: "/a",
+        image: "img",
+        test: "suite",
+      });
+      for (const [name, repo, seq, to] of [
+        ["y-a", "/a", 1, "landed"],
+        ["y-c", "/c", 2, "landed"],
+        ["y-b", "/b", 3, "waiting"],
+      ] as const) {
+        ledger.addCl(
+          {
+            name,
+            issue: "y",
+            seq,
+            phase: seq === 3 ? 2 : 1,
+            path: join(dir, `${name}.md`),
+            repo,
+            image: "img",
+            test: "t",
+          },
+          "waiting",
+        );
+        if (to !== "waiting") force(name, to);
+      }
+      return worldWith(
+        {
+          "/a:package.json": pkg("@s/alpha"),
+          "/c:package.json": pkg("@s/gamma"),
+          "/b:package.json": pkg("beta", {
+            "@s/alpha": "^1.0.0",
+            "@s/gamma": "^1.0.0",
+          }),
+        },
+        { "y-a": ["v1.2.0"], "y-c": ["v2.0.0"] },
+        registry,
+      );
+    }
+
+    it("moves every package its repo needs from its landed cls, each its own commit, and takes the last commit's image", async () => {
+      const world = twoReleased(registryOf(true));
+      vi.mocked(move).mockResolvedValueOnce("c1").mockResolvedValueOnce("c2");
+      vi.mocked(devImage)
+        .mockResolvedValueOnce("b-dev:1")
+        .mockResolvedValueOnce("b-dev:2");
+      await advance(ledger, world);
+      expect(vi.mocked(move).mock.calls).toEqual([
+        [
+          expect.objectContaining({ name: "y-b", repo: "/b" }),
+          "@s/alpha",
+          "1.2.0",
+          npmRegistryUrl,
+        ],
+        [
+          expect.objectContaining({ name: "y-b", repo: "/b" }),
+          "@s/gamma",
+          "2.0.0",
+          npmRegistryUrl,
+        ],
+      ]);
+      // each commit gets its own dev image, and the item takes the last one's
+      expect(vi.mocked(devImage).mock.calls).toEqual([
+        ["/b", "c1"],
+        ["/b", "c2"],
+      ]);
+      expect(ledger.item("y-b").image).toBe("b-dev:2");
+      expect(state("y-b")).toBe("ready");
+    });
+
+    it("moves none of them until every one of their versions is on the registry", async () => {
+      const world = twoReleased({
+        url: npmRegistryUrl,
+        published: async (n) => n === "@s/alpha",
+      });
+      await advance(ledger, world);
+      expect(move).not.toHaveBeenCalled();
+      expect(state("y-b")).toBe("waiting");
+      expect(said("y-b")[0]).toMatch(/@s\/gamma.*2\.0\.0/);
     });
 
     describe("a failed move", () => {
@@ -894,6 +999,103 @@ describe("advance across repos", () => {
           expect(state("x-b")).toBe("waiting");
         },
       );
+    });
+  });
+
+  describe("the issue after a move", () => {
+    it("takes the moved commit's dev image for its own steps, in an issue of one repo", async () => {
+      writeFileSync(join(dir, "z.md"), issueNote);
+      ledger.addIssue({
+        name: "z",
+        path: join(dir, "z.md"),
+        repo: "/z",
+        image: "img",
+        test: "suite",
+      });
+      for (const [name, phase, to] of [
+        ["z-a", 1, "landed"],
+        ["z-b", 2, "waiting"],
+      ] as const) {
+        ledger.addCl(
+          {
+            name,
+            issue: "z",
+            seq: phase,
+            phase,
+            path: join(dir, `${name}.md`),
+            repo: "/z",
+            image: "img",
+            test: "t",
+          },
+          "waiting",
+        );
+        if (to === "landed") force(name, to);
+      }
+      // the repo ships a package in a folder, which the cl its repo depends on moves
+      const world = worldWith(
+        {
+          "/z:lib/package.json": pkg("lib"),
+          "/z:package.json": pkg("z", { lib: "^1.0.0" }),
+        },
+        { "z-a": ["lib-v1.2.0"] },
+        registryOf(true),
+      );
+      await advance(ledger, world);
+      expect(vi.mocked(move)).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "z-b", repo: "/z" }),
+        "lib",
+        "1.2.0",
+        npmRegistryUrl,
+      );
+      // a one-repo issue's own image is its repo's: its own steps take the moved commit's image too
+      expect(ledger.item("z").image).toBe("localhost/b-dev:moved");
+      expect(ledger.item("z-b").image).toBe("localhost/b-dev:moved");
+      expect(state("z-b")).toBe("ready");
+    });
+
+    it("takes it for the repo it moved, and only that one, in an issue of two", async () => {
+      writeFileSync(join(dir, "w.md"), issueNote);
+      ledger.addIssueAcross({
+        name: "w",
+        path: join(dir, "w.md"),
+        image: "img",
+        repos: [
+          { name: "a", repo: "/a", image: "img-a", test: "t", setup: "" },
+          { name: "b", repo: "/b", image: "img-b", test: "t", setup: "" },
+        ],
+      });
+      for (const [name, repo, phase, to] of [
+        ["w-a", "/a", 1, "landed"],
+        ["w-b", "/b", 2, "waiting"],
+      ] as const) {
+        ledger.addCl(
+          {
+            name,
+            issue: "w",
+            seq: phase,
+            phase,
+            path: join(dir, `${name}.md`),
+            repo,
+            image: repo === "/a" ? "img-a" : "img-b",
+            test: "t",
+          },
+          "waiting",
+        );
+        if (to === "landed") force(name, to);
+      }
+      const world = worldWith(
+        {
+          "/a:package.json": pkg("@s/alpha"),
+          "/b:package.json": pkg("beta", { "@s/alpha": "^1.0.0" }),
+        },
+        { "w-a": ["v1.2.0"] },
+        registryOf(true),
+      );
+      await advance(ledger, world);
+      expect(ledger.item("w").repos.map((r) => [r.name, r.image])).toEqual([
+        ["a", "img-a"],
+        ["b", "localhost/b-dev:moved"],
+      ]);
     });
   });
 });

@@ -823,6 +823,81 @@ describe("the world", () => {
     );
   });
 
+  it("runs the issue's own step in the moved commit's dev image, so its setup installs the moved lockfile offline", async () => {
+    // an issue of one repo, whose cl waits on a package a landed cl of the issue released there
+    writeFileSync(join(dir, "k.md"), "## Check\n\n- b1\n");
+    ledger.addIssue({
+      name: "k",
+      path: join(dir, "k.md"),
+      repo: "/b",
+      image: "img",
+      test: "suite",
+      setup: "npm ci --offline",
+    });
+    for (const [name, phase, to] of [
+      ["k-a", 1, "landed"],
+      ["k-b", 2, "waiting"],
+    ] as const) {
+      ledger.addCl(
+        {
+          name,
+          issue: "k",
+          seq: phase,
+          phase,
+          path: join(dir, "k.md"),
+          repo: "/b",
+          image: "img",
+          test: "t",
+        },
+        "waiting",
+      );
+      if (to === "landed") {
+        const db = new DatabaseSync(join(dir, "ledger.db"));
+        db.prepare("UPDATE items SET state = 'landed' WHERE name = ?").run(
+          name,
+        );
+        db.close();
+      }
+    }
+    // the issue itself starts an attempt: its own steps, acceptance among them, are the ones a move must reach
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'ready' WHERE name = 'k'").run();
+    db.close();
+    const world: World = {
+      registry: { url: npmRegistryUrl, published: async () => true },
+      reader: {
+        file: (repo, file) => {
+          const files: Record<string, string> = {
+            "/b:lib/package.json": JSON.stringify({
+              name: "lib",
+              version: "0.0.0",
+            }),
+            "/b:package.json": JSON.stringify({
+              name: "k",
+              dependencies: { lib: "^1.0.0" },
+            }),
+          };
+          return files[`${repo}:${file}`];
+        },
+        onCrate: () => true,
+      },
+      tags: async (_repo, cl) => (cl === "k-a" ? ["lib-v1.2.0"] : []),
+    };
+    // the setup runs, so which image it is given is seen
+    vi.mocked(needsSetup).mockReturnValue(true);
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner, { world });
+    await once(l);
+    // the issue's own image is the moved commit's, so its offline setup finds the moved lockfile in that cache
+    expect(ledger.item("k").image).toBe("localhost/b-dev:moved");
+    const own = runner.mock.calls.find((c) => c[2].run.name === "k");
+    expect(own?.[2].run.image).toBe("localhost/b-dev:moved");
+    expect(runSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "k", image: "localhost/b-dev:moved" }),
+      expect.anything(),
+    );
+  });
+
   it("is a world a loop cannot be built without", () => {
     const withoutWorld = () =>
       // @ts-expect-error a loop is built with a world
