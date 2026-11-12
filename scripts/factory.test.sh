@@ -73,6 +73,12 @@ has_arg() { # file, argument, what
     fail=1
   fi
 }
+has_pair() { # file, flag, value, what
+  if ! grep -A1 -xF -- "$2" "$1" 2>/dev/null | grep -qxF -- "$3"; then
+    printf 'AssertionError: %s did not get [%s %s]\n' "$4" "$2" "$3" >&2
+    fail=1
+  fi
+}
 has_env() { # calls, variable, value, what: -e VAR=value, or -e VAR with the value in the run's environment
   local calls=$1 var=$2 value=$3 what=$4
   if grep -qxF -- "$var=$value" "$calls/podman" 2>/dev/null; then return; fi
@@ -266,6 +272,24 @@ check "with no ASSEMBLY_SERVER, status runs here" 0 "$code"
 present "$calls/podman" "podman"
 absent "$calls/ssh" "ssh"
 absent "$calls/rbw-run" "rbw-run (status takes no key)"
+
+# the command is called from another folder: the container's working directory is that folder, not the repo's root
+elsewhere=$tmp/elsewhere
+mkdir -p "$elsewhere"
+calls=$(calls_for elsewhere)
+(
+  cd "$elsewhere" &&
+    env -u ASSEMBLY_SERVER PATH="$stub:$PATH" CALLS="$calls" \
+      XDG_STATE_HOME="$tmp/state-elsewhere" "$factory" status 2>"$calls/err"
+)
+code=$?
+check "from another folder, status runs here" 0 "$code"
+has_pair "$calls/podman" -w "$elsewhere" "the folder the command is called from, as the working directory"
+if grep -A1 -xF -- -w "$calls/podman" 2>/dev/null | grep -qxF -- "$root"; then
+  printf 'AssertionError: the container got the repo root as its working directory\n' >&2
+  fail=1
+fi
+absent "$calls/ssh" "ssh (from another folder)"
 
 # run takes the model key through rbw-run, and only run
 calls=$(calls_for here-run)
