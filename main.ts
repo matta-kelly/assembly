@@ -69,7 +69,7 @@ export function compose(f: Factory) {
           ),
         runs,
         world: {
-          registry: npmRegistry(),
+          registry: f.registry ?? npmRegistry(),
           reader: gitReader,
           tags: landedTags,
           ...(f.waitLimitMs !== undefined ? { limitMs: f.waitLimitMs } : {}),

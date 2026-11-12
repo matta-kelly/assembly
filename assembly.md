@@ -103,10 +103,11 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
 	- the lands: `loop.ts` too. One per approved cl, as an attempt, and the lands of one repo one at a time, each after the one before it
-	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `effects/registry.ts`: the cl stays waiting with the reason as a retry, written once per reason, a failed ask is a reason too, and a wait past the factory's `waitLimitMs` (30 minutes when not set) escalates the issue), the issue built, the relay of a raise
+	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue's cls from its spec, each phase once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `effects/registry.ts`: the cl stays waiting with the reason as a retry, written once per reason, a failed ask is a reason too, and a wait past the factory's `waitLimitMs` (30 minutes when not set) escalates the issue). A released cl's repo is moved onto that version first (`effects/move.ts`, the one container with the network), and takes the dev image of the commit the move made, so its attempts run in an image of its new lockfile; a move or an image that fails escalates the issue, with the command's output, and the cl waits. Then the issue built, and the relay of a raise
 - effects: how it touches the world (`effects/`), each behind a small seam
 	- `git.ts`: branches, worktrees and commits, and main as the land target has it
 	- `land.ts`: the land, an approved cl onto main: a push that crate checks, or `git land` for a repo not on crate
+	- `move.ts`: a released cl's repo onto the version it waited for, in a container with the network, committed on its branch as `build(deps): <package> to <version>`
 	- `sandbox.ts`: what each container is given. que-pasa's `podman()` makes it
 	- `tests.ts`: a test run, in a container of its own
 	- `setup.ts`: a worktree's setup, the same way
@@ -114,7 +115,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- `runner.ts`: the run, on que-pasa's durable runtime, and the run's context, which its tools read
 	- `models.ts`: the bins, a default model and a fallback for a retry
 	- `notes.ts`: the issue and cl notes. `trace.ts`: the record of each attempt
-- wiring: `main.ts`. `compose` builds the factory from the other three, and the world the loop waits on (`npmRegistry`, `gitReader`, `landedTags`), under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
+- wiring: `main.ts`. `compose` builds the factory from the other three, and the world the loop waits on (`npmRegistry`, `gitReader`, `landedTags`; a test stands its registry in through `Factory.registry`), under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
 - the command line: `cli/`, one module per command, on what `compose` builds (`just factory`)
 
 ## One job
@@ -215,7 +216,6 @@ What it keeps.
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default
-- the dev image's tag per lockfile: an issue takes its repo's dev image tag once, at `factory add`, so a lockfile that changes while it runs fails setup
 - a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate
 - check reuse: runs are recorded with their input hash, and never skipped on it

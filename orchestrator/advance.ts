@@ -26,7 +26,9 @@ import type { Message } from "../process/step.ts";
 import type { Item, Ledger } from "./ledger.ts";
 import { writeNote } from "../effects/notes.ts";
 import type { Reader } from "../effects/repo.ts";
+import { devImage } from "../effects/repo.ts";
 import type { Registry } from "../effects/registry.ts";
+import { move } from "../effects/move.ts";
 import { top } from "../process/table.ts";
 
 const link = (name: string) => `[[${name}]]`;
@@ -147,6 +149,14 @@ interface Hold {
   since?: number;
 }
 
+/** A version a waiting cl's repo takes from a landed cl of its issue: the package, the version, and the land's time. */
+interface Moved {
+  package: string;
+  version: string;
+  landed: string;
+  since?: number;
+}
+
 /** A version tag crate puts on a commit: `v<version>` for the package at `.`, `<folder>-v<version>` for one in a folder. */
 const versionTag = /^(?:(.+)-)?v(\d+\.\d+\.\d+\S*)$/;
 
@@ -168,16 +178,17 @@ function landedAt(ledger: Ledger, cl: Item): number | undefined {
 }
 
 /**
- * Why a waiting cl cannot start yet: a package its repo depends on, made by a landed cl of its issue, has a version not
- * on npm. Undefined when nothing holds it. A landed commit with no version tag makes no wait.
+ * The versions a waiting cl's repo needs from landed cls of its issue: each landed version tag whose package the repo
+ * depends on, runtime or dev. The first is the one a move takes.
  */
-async function unpublished(
+async function wanted(
   ledger: Ledger,
   cl: Item,
   world: World,
-): Promise<Hold | undefined> {
+): Promise<Moved[]> {
   const needs = dependsOn(world.reader, cl.repo);
-  if (!needs.size) return undefined;
+  if (!needs.size) return [];
+  const moved: Moved[] = [];
   for (const landed of ledger.cls(cl.issue)) {
     if (landed.state !== "landed") continue;
     for (const tag of await world.tags(landed.repo, landed.name)) {
@@ -190,18 +201,77 @@ async function unpublished(
       if (json === undefined) continue;
       const name = (JSON.parse(json) as { name?: string }).name;
       if (!name || !needs.has(name)) continue;
-      if (!(await world.registry.published(name, version))) {
-        const since = landedAt(ledger, landed);
-        return {
-          reason: `${name}@${version}, made by ${landed.name}, is not on npm yet`,
-          package: name,
-          version,
-          ...(since === undefined ? {} : { since }),
-        };
-      }
+      const since = landedAt(ledger, landed);
+      moved.push({
+        package: name,
+        version,
+        landed: landed.name,
+        ...(since === undefined ? {} : { since }),
+      });
     }
   }
-  return undefined;
+  return moved;
+}
+
+/**
+ * The version a waiting cl's move takes, or why it still waits: one ask of the registry per version it needs. Its
+ * first moved version is the one the move takes.
+ */
+async function versionFor(
+  ledger: Ledger,
+  cl: Item,
+  world: World,
+): Promise<{ moved?: Moved; held?: Hold }> {
+  let moved: Moved | undefined;
+  for (const m of await wanted(ledger, cl, world)) {
+    moved ??= m;
+    if (!(await world.registry.published(m.package, m.version)))
+      return {
+        ...(moved ? { moved } : {}),
+        held: {
+          reason: `${m.package}@${m.version}, made by ${m.landed}, is not on npm yet`,
+          package: m.package,
+          version: m.version,
+          ...(m.since === undefined ? {} : { since: m.since }),
+        },
+      };
+  }
+  return moved ? { moved } : {};
+}
+
+/**
+ * Moves a released cl's repo onto the version it needs, and takes the dev image of the commit its move made, which the
+ * cl's attempts run in. A failure escalates its issue, with the command's output, and leaves the cl waiting. Gives back
+ * whether the cl may start.
+ */
+async function released(
+  ledger: Ledger,
+  cl: Item,
+  m: Moved,
+  world: World,
+): Promise<boolean> {
+  let image: string;
+  try {
+    const commit = await move(
+      { name: cl.name, repo: cl.repo },
+      m.package,
+      m.version,
+      world.registry.url,
+    );
+    image = await devImage(cl.repo, commit);
+  } catch (e) {
+    ledger.apply(
+      cl.issue,
+      say(
+        "escalate",
+        `${cl.name} could not move to ${m.package}@${m.version}: ${(e as Error).message.slice(0, 400)}`,
+      ),
+      "orchestrator",
+    );
+    return false;
+  }
+  ledger.reimage(cl.name, image);
+  return true;
 }
 
 /**
@@ -251,6 +321,8 @@ export async function advance(ledger: Ledger, world?: World) {
 
   // A phase starts once every cl of the phases before it has landed or been dropped: a raised cl has not landed.
   for (const cl of ledger.inState("waiting")) {
+    // An issue escalated waits for Matt: its waiting cls move nothing, and start nothing.
+    if (ledger.inState("escalated").some((e) => e.name === cl.issue)) continue;
     const before = ledger
       .cls(cl.issue)
       .filter(
@@ -267,22 +339,30 @@ export async function advance(ledger: Ledger, world?: World) {
         .filter((c) => live(c) && (c.phase ?? 1) < (cl.phase ?? 1))
         .map((c) => landedAt(ledger, c) ?? -Infinity),
     );
-    const held =
-      world &&
-      (await unpublished(ledger, cl, world).catch((e: Error): Hold => ({
-        reason: e.message.slice(0, 400),
+    let moved: Moved | undefined;
+    let held: Hold | undefined;
+    try {
+      if (world) ({ moved, held } = await versionFor(ledger, cl, world));
+    } catch (e) {
+      held = {
+        reason: (e as Error).message.slice(0, 400),
         ...(Number.isFinite(since) ? { since } : {}),
-      })));
-    if (held && world) hold(ledger, cl, held, world);
-    else
-      ledger.apply(
-        cl.name,
-        say(
-          "pass",
-          `phase ${cl.phase ?? 1} starts: the phases before it have landed`,
-        ),
-        "orchestrator",
-      );
+      };
+    }
+    if (held && world) {
+      hold(ledger, cl, held, world);
+      continue;
+    }
+    // Its repo takes the version it waited for, and the dev image of that commit, before its first attempt.
+    if (moved && world && !(await released(ledger, cl, moved, world))) continue;
+    ledger.apply(
+      cl.name,
+      say(
+        "pass",
+        `phase ${cl.phase ?? 1} starts: the phases before it have landed`,
+      ),
+      "orchestrator",
+    );
   }
 
   for (const cl of ledger.inState("raised")) {

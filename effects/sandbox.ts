@@ -42,6 +42,14 @@ export const offline = [
   ...limits.runArgs,
 ];
 
+/** The same limits without the network, for the move (effects/move.ts): the one container that has it, to install. */
+export const online = [
+  "--user",
+  limits.user,
+  `--cpus=${limits.cpus}`,
+  ...limits.runArgs,
+];
+
 /** The attempt's sandbox. Made on its first use, and kept until close. */
 export const boxOf = (r: Run, o: { readOnly: boolean }): Podman =>
   podman({

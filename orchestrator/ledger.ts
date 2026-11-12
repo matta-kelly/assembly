@@ -571,6 +571,11 @@ export function open(file: string) {
       return row?.result ? JSON.parse(row.result) : undefined;
     },
 
+    /** The item's image changes: the dev image of the commit its move made, which its attempts run in. */
+    reimage(name: string, image: string) {
+      db.prepare("UPDATE items SET image = ? WHERE name = ?").run(image, name);
+    },
+
     /** Records the files a cl changed, once landed. */
     paths(name: string, paths: string[]) {
       tx(() => {
