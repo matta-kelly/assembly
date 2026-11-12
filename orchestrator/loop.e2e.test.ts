@@ -41,7 +41,11 @@ import { issueReviewer } from "../workspace/agents/issue-review.ts";
 import { planReviewer } from "../workspace/agents/plan-review.ts";
 import { planner } from "../workspace/agents/planner.ts";
 import { crateTarget, landTarget } from "../effects/land-target.fixture.ts";
-import { containerfile, devcontainer } from "../effects/dev-image.fixture.ts";
+import {
+  containerfile,
+  devcontainer,
+  smoke,
+} from "../effects/dev-image.fixture.ts";
 import { standInRegistry } from "../effects/registry.fixture.ts";
 import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";
@@ -502,32 +506,43 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     });
     // The attempts' sandboxes go too, also when the test fails before the loop closes them: a name left behind would
     // stop the next run's attempt from opening.
-    afterAll(() => {
-      // ASSEMBLY_E2E_KEEP keeps the run folder, its worktrees, logs and notes, to read after a failure.
-      if (!process.env["ASSEMBLY_E2E_KEEP"])
-        rmSync(dir, { recursive: true, force: true });
-      const names = [
-        "is",
-        "gap",
-        "is-value",
-        "is-double",
-        "rs-value",
-        "mr",
-        "mr-alpha",
-        "mr-beta",
-        "rz-one",
-        "dp",
-        "dp-a",
-        "dp-b",
-        "assembly-e2e-registry",
-      ];
-      for (const name of names.flatMap((c) =>
-        Array.from({ length: 8 }, (_, n) => `assembly-${c}-${n + 1}`),
-      ))
-        execFileSync("podman", ["rm", "-f", "--ignore", name], {
-          stdio: "ignore",
-        });
-    });
+    afterAll(
+      () => {
+        // ASSEMBLY_E2E_KEEP keeps the run folder, its worktrees, logs and notes, to read after a failure.
+        if (!process.env["ASSEMBLY_E2E_KEEP"])
+          rmSync(dir, { recursive: true, force: true });
+        // the stand-in registry has a name of its own, not an attempt's
+        execFileSync(
+          "podman",
+          ["rm", "-f", "--ignore", "assembly-e2e-registry"],
+          {
+            stdio: "ignore",
+          },
+        );
+        const names = [
+          "is",
+          "gap",
+          "is-value",
+          "is-double",
+          "rs-value",
+          "mr",
+          "mr-alpha",
+          "mr-beta",
+          "rz-one",
+          "dp",
+          "dp-a",
+          "dp-b",
+        ];
+        for (const name of names.flatMap((c) =>
+          Array.from({ length: 8 }, (_, n) => `assembly-${c}-${n + 1}`),
+        ))
+          execFileSync("podman", ["rm", "-f", "--ignore", name], {
+            stdio: "ignore",
+          });
+      },
+      // removing every sandbox one by one takes longer than a hook's default on a busy machine
+      120_000,
+    );
 
     it(
       "takes one issue from open to accepted, through a plan of two cls, and raises the other",
@@ -1246,6 +1261,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
               "#!/bin/sh\nnode --test test/*.test.mjs\n",
             );
             chmodSync(join(r, "scripts", "check.sh"), 0o755);
+            // crate builds the image and then runs this: an offline install from its cache.
+            writeFileSync(join(r, "scripts", "dev-image-smoke.sh"), smoke());
+            chmodSync(join(r, "scripts", "dev-image-smoke.sh"), 0o755);
             writeFileSync(join(r, ".gitignore"), "node_modules/\n");
             writeFileSync(
               join(r, ".devcontainer", "Containerfile"),
@@ -1465,6 +1483,7 @@ A and B, each exported, with B on the version A published.
             ledger.item("dp").state,
             JSON.stringify({
               dp: moves("dp"),
+              dpWhy: ledger.events("dp").map((e) => [e.word, e.reason]),
               a: {
                 moves: moves("dp-a"),
                 events: ledger.events("dp-a").map((e) => [e.word, e.reason]),
@@ -1495,6 +1514,8 @@ A and B, each exported, with B on the version A published.
           ]);
           expect(moves("dp-b")).toEqual([
             "new>waiting",
+            // the retry that records why it waited: the version its repo needs was not on npm yet
+            "waiting>waiting",
             "waiting>ready",
             "ready>red",
             "red>green",

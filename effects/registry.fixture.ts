@@ -3,8 +3,6 @@
  * on the host's network serves a folder, and npm's `--registry` points at its URL. A version is published the way a
  * repo's publish workflow would: the package is packed, and its packument and tarball are written. The orchestrator's
  * registry asks the same folder.
- *
- * The URL is the host's own address, which a container reaches whether it runs on the default network or the host's.
  */
 
 import { execFileSync } from "node:child_process";
@@ -17,6 +15,12 @@ const image = "docker.io/library/node:22.23.4-slim";
 
 /** The port it listens on, on the host's network. */
 const port = 4873;
+
+/**
+ * The name a container reaches the host by, on the network podman gives it: the registry listens on the host's
+ * loopback, and the image build and the move's install both reach it by this name.
+ */
+const host = "host.containers.internal";
 
 /** Its container's name: removed at the end of the test, and before it starts. */
 const name = "assembly-e2e-registry";
@@ -73,27 +77,12 @@ export interface StandIn {
   close(): void;
 }
 
-/** The host's own address, as a container on the host's network sees it. */
-function hostAddress(): string {
-  const probe =
-    'const s = require("node:dgram").createSocket("udp4");s.connect(53, "1.1.1.1", () => {console.log(s.address().address); s.close();});';
-  const ran = execFileSync(
-    "podman",
-    ["run", "--rm", "--network=host", image, "node", "-e", probe],
-    { encoding: "utf8", timeout: 120_000 },
-  ).trim();
-  // A host with no address off its loopback is the one case a container reaches by name.
-  return /^\d+\.\d+\.\d+\.\d+$/.test(ran) && !ran.startsWith("127.")
-    ? ran
-    : "host.containers.internal";
-}
-
 /** Starts the registry over `dir`, which must be an empty folder on a host path. */
 export function standInRegistry(dir: string): StandIn {
   mkdirSync(join(dir, "tgz"), { recursive: true });
   writeFileSync(join(dir, "index.json"), "{}");
   writeFileSync(join(dir, "serve.mjs"), serve);
-  const url = `http://${hostAddress()}:${port}`;
+  const url = `http://${host}:${port}`;
   const index = (): Record<string, Packument> =>
     JSON.parse(readFileSync(join(dir, "index.json"), "utf8")) as Record<
       string,

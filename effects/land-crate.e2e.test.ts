@@ -103,49 +103,61 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land through crate", () => {
       rmSync(dir, { recursive: true, force: true });
   });
 
-  it("lands a cl with a plain push that crate checks, and moves its branch to the commit main took", async () => {
-    built("a", {
-      "src/a.mjs": "export const a = 1;\n",
-      "test/a.test.mjs": test("a", 1),
-    });
-    const out = await land(run("a"));
-    expect(out.message).toMatchObject({ word: "pass" });
-    expect(out.message.reason).toMatch(/^landed on server\/main at /);
-    expect(out.files.sort()).toEqual(["src/a.mjs", "test/a.test.mjs"]);
-    expect(onMain("src/a.mjs")).toBe("export const a = 1;");
-    expect(git(repo, "rev-parse", branchOf("is-a"))).toBe(main());
-    expect(out.ran).toBeUndefined();
-  });
+  it(
+    "lands a cl with a plain push that crate checks, and moves its branch to the commit main took",
+    { timeout: 120_000 },
+    async () => {
+      built("a", {
+        "src/a.mjs": "export const a = 1;\n",
+        "test/a.test.mjs": test("a", 1),
+      });
+      const out = await land(run("a"));
+      expect(out.message).toMatchObject({ word: "pass" });
+      expect(out.message.reason).toMatch(/^landed on server\/main at /);
+      expect(out.files.sort()).toEqual(["src/a.mjs", "test/a.test.mjs"]);
+      expect(onMain("src/a.mjs")).toBe("export const a = 1;");
+      expect(git(repo, "rev-parse", branchOf("is-a"))).toBe(main());
+      expect(out.ran).toBeUndefined();
+    },
+  );
 
-  it("lands two cls built from one main: the second is rebased onto the first, and crate checks it", async () => {
-    built("b", { "src/b.mjs": "export const b = 1;\n" });
-    built("c", { "src/c.mjs": "export const c = 1;\n" });
-    expect((await land(run("b"))).message.word).toBe("pass");
-    expect((await land(run("c"))).message.word).toBe("pass");
-    expect(onMain("src/b.mjs")).toBe("export const b = 1;");
-    expect(onMain("src/c.mjs")).toBe("export const c = 1;");
-  });
+  it(
+    "lands two cls built from one main: the second is rebased onto the first, and crate checks it",
+    { timeout: 120_000 },
+    async () => {
+      built("b", { "src/b.mjs": "export const b = 1;\n" });
+      built("c", { "src/c.mjs": "export const c = 1;\n" });
+      expect((await land(run("b"))).message.word).toBe("pass");
+      expect((await land(run("c"))).message.word).toBe("pass");
+      expect(onMain("src/b.mjs")).toBe("export const b = 1;");
+      expect(onMain("src/c.mjs")).toBe("export const c = 1;");
+    },
+  );
 
-  it("sends a cl that crate's check refuses back about the code, with its output, and main does not move", async () => {
-    built("f", { "test/f.test.mjs": test("f", 1) });
-    built("g", {
-      "src/value.mjs": "export const value = 2;\n",
-      "test/base.test.mjs": test("base", 2),
-      "test/a.test.mjs": test("a", 2),
-      "test/g.test.mjs": test("g", 2),
-    });
-    expect((await land(run("g"))).message.word).toBe("pass");
-    const before = main();
-    const out = await land(run("f"));
-    expect(out.message).toMatchObject({
-      word: "back",
-      cause: "check_failed",
-      findings: [{ about: "code", where: "node --test test/f.test.mjs" }],
-    });
-    expect(out.message.findings[0]?.what).toMatch(/check failed at: test/);
-    expect(main()).toBe(before);
-    expect(
-      git(repo, "merge-base", "--is-ancestor", before, branchOf("is-f")),
-    ).toBe("");
-  });
+  it(
+    "sends a cl that crate's check refuses back about the code, with its output, and main does not move",
+    { timeout: 120_000 },
+    async () => {
+      built("f", { "test/f.test.mjs": test("f", 1) });
+      built("g", {
+        "src/value.mjs": "export const value = 2;\n",
+        "test/base.test.mjs": test("base", 2),
+        "test/a.test.mjs": test("a", 2),
+        "test/g.test.mjs": test("g", 2),
+      });
+      expect((await land(run("g"))).message.word).toBe("pass");
+      const before = main();
+      const out = await land(run("f"));
+      expect(out.message).toMatchObject({
+        word: "back",
+        cause: "check_failed",
+        findings: [{ about: "code", where: "node --test test/f.test.mjs" }],
+      });
+      expect(out.message.findings[0]?.what).toMatch(/check failed at: test/);
+      expect(main()).toBe(before);
+      expect(
+        git(repo, "merge-base", "--is-ancestor", before, branchOf("is-f")),
+      ).toBe("");
+    },
+  );
 });

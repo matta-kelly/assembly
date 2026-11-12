@@ -22,6 +22,16 @@ LABEL org.opencontainers.image.source=https://github.com/assembly-e2e/${repo}
 `;
 }
 
+/** crate's smoke, after it builds the image: an offline install from the cache, with no network. */
+export function smoke(): string {
+  return `#!/bin/sh
+# The dev image's smoke: an offline install from its cache, with no network.
+set -e
+cd "$(dirname "$0")/.."
+npm ci --offline --no-audit --no-fund
+`;
+}
+
 /** How a workspace makes its container from the dev image. */
 export function devcontainer(repo: string): string {
   return `${JSON.stringify(

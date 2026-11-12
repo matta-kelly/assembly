@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Run } from "../process/step.ts";
-import { containerfile, devcontainer } from "./dev-image.fixture.ts";
+import { containerfile, devcontainer, smoke } from "./dev-image.fixture.ts";
 import { devImage, npmSetup } from "./repo.ts";
 import { needsSetup, runSetup } from "./setup.ts";
 
@@ -65,6 +65,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         writeFileSync(join(repo, "crate.toml"), 'crate = "1"\nimage = "dev"\n');
         writeFileSync(join(repo, "scripts", "check.sh"), "#!/bin/sh\nexit 0\n");
         chmodSync(join(repo, "scripts", "check.sh"), 0o755);
+        // crate builds the image and then runs this: an offline install from its cache.
+        writeFileSync(join(repo, "scripts", "dev-image-smoke.sh"), smoke());
+        chmodSync(join(repo, "scripts", "dev-image-smoke.sh"), 0o755);
         writeFileSync(join(repo, ".gitignore"), "node_modules/\n");
         writeFileSync(
           join(repo, ".devcontainer", "Containerfile"),
