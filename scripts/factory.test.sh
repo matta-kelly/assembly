@@ -394,6 +394,7 @@ code=$?
 check "with no ASSEMBLY_HOME or XDG_STATE_HOME, status runs here" 0 "$code"
 has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "home under HOME: the folder"
 has_env "$calls" 2 ASSEMBLY_HOME "$fake_home/.local/state/assembly" "home under HOME: the home"
+expect_crate_mount "$calls" "home under HOME: crate"
 launch_args "$root" "$lot" "$fake_home/.local/state/assembly" status
 check "home under HOME: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "home under HOME: the build" "${build_args[@]}"
@@ -411,17 +412,6 @@ printf 'image = "dev"\n' >"$dev/crate.toml"
 git -C "$dev" -c user.name=t -c user.email=t@t add -A
 git -C "$dev" -c user.name=t -c user.email=t@t commit -q -m main
 git -C "$dev" update-ref refs/remotes/server/main HEAD
-# a repo under the same folder whose image is not dev: it needs none, and its script must not run
-plain=$roots/plain
-mkdir -p "$plain/scripts"
-git -C "$plain" init -q -b main
-git -C "$plain" remote add server core@localhost:git/plain.git
-printf 'image = "img"\n' >"$plain/crate.toml"
-printf '#!/usr/bin/env bash\nprintf "localhost/plain:tag\\n"\n' >"$plain/scripts/dev-image.sh"
-chmod +x "$plain/scripts/dev-image.sh"
-git -C "$plain" -c user.name=t -c user.email=t@t add -A
-git -C "$plain" -c user.name=t -c user.email=t@t commit -q -m main
-git -C "$plain" update-ref refs/remotes/server/main HEAD
 calls=$(calls_for here-dev)
 (
   cd "$root" &&
@@ -445,7 +435,7 @@ exact_call "$calls" 2 "a dev repo under the given folder: the run" "${run_args[@
 absent "$calls/rbw-run" "rbw-run (submit takes no key)"
 absent "$calls/ssh" "ssh (a dev repo under the given folder)"
 
-# a repo given by --repo, outside ASSEMBLY_REPOS, is searched for its dev image
+# a repo given by --repo, outside ASSEMBLY_REPOS, goes to the run, and its dev image is made in the orchestrator too
 outside=$tmp/outside
 outside_note=$tmp/outside-issue.md
 printf -- '---\ntype: issue\n---\n' >"$outside_note"
@@ -453,8 +443,6 @@ mkdir -p "$outside/scripts"
 git -C "$outside" init -q -b main
 git -C "$outside" remote add server core@localhost:git/outside.git
 printf 'image = "dev"\n' >"$outside/crate.toml"
-printf '#!/usr/bin/env bash\nprintf "localhost/outside:tag\\n"\n' >"$outside/scripts/dev-image.sh"
-chmod +x "$outside/scripts/dev-image.sh"
 git -C "$outside" -c user.name=t -c user.email=t@t add -A
 git -C "$outside" -c user.name=t -c user.email=t@t commit -q -m main
 git -C "$outside" update-ref refs/remotes/server/main HEAD
@@ -472,8 +460,10 @@ calls=$(calls_for here-repo-dev)
 code=$?
 check "a dev repo given by --repo outside ASSEMBLY_REPOS, add runs here" 0 "$code"
 has_env "$calls" 2 ASSEMBLY_REPOS "$empty_repos" "the given --repo: the folder"
-has_env "$calls" 2 ASSEMBLY_DEV_IMAGES "outside=localhost/outside:tag" \
-  "the dev image of the repo given by --repo"
+check "the dev image of the repo given by --repo is not passed in, the orchestrator makes it" \
+  "ASSEMBLY_DEV_IMAGES=" \
+  "$(grep '^ASSEMBLY_DEV_IMAGES=' "$calls/podman-env.2" 2>/dev/null || true)"
+expect_crate_mount "$calls" "a dev repo given by --repo: crate"
 launch_args "$root" "$empty_repos" "$outside_home" add "$outside_note" --repo "$outside"
 check "a dev repo given by --repo: podman's two calls" 2 \
   "$(cat "$calls/podman-count" 2>/dev/null || true)"
