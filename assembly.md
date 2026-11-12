@@ -206,7 +206,7 @@ What it keeps.
 	- `run`: the loop, until a signal stops it. Its attempts stay open
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's messages, attempts, costs and traces)
 - the dependencies in an attempt: an offline install from the dev image's cache, once per worktree, proven on a que-pasa worktree (setup in 11 s, then its tests pass, no network)
-- the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests, then `scripts/factory.test.sh` (podman, ssh, rbw-run, node and git faked), so a fault in the recipe fails the check. `just e2e` is not in it, since it needs the podman socket
+- the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests, then `scripts/factory.test.sh` (podman, ssh and rbw-run faked; git is real), so a fault in the recipe fails the check. `just e2e` is not in it, since it needs the podman socket
 
 ## Not built
 

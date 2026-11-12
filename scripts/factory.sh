@@ -9,7 +9,8 @@
 #   ASSEMBLY_HOME     the factory's home; $XDG_STATE_HOME/assembly (or ~/.local/state/assembly) by default
 #   XDG_STATE_HOME    the state folder, when ASSEMBLY_HOME is not set
 #   HOME              for the state folder and the host's git-land, when XDG_STATE_HOME is not set
-#   PATH              ssh, podman, rbw-run, node and git, as the host has them
+#   XDG_RUNTIME_DIR   the folder the host's podman socket is in
+#   PATH              ssh, podman, rbw-run and git, as the host has them
 #
 # It gives back the verb's exit code, and its output, unchanged.
 set -euo pipefail
