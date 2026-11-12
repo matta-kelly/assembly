@@ -77,17 +77,22 @@ has_env() { # calls, n, variable, value, what: -e VAR=value, or -e VAR with the 
   printf 'AssertionError: %s did not get [%s=%s]\n' "$what" "$var" "$value" >&2
   fail=1
 }
-exact_call() { # calls, n, what, the argument list it must be
-  local calls=$1 n=$2 what=$3
-  shift 3
+exact_list() { # file, what, the argument list it must be
+  local file=$1 what=$2
+  shift 2
   local want got
   want=$(printf '%s\n' "$@")
-  got=$(cat "$calls/podman.$n" 2>/dev/null || true)
+  got=$(cat "$file" 2>/dev/null || true)
   if [ "$want" != "$got" ]; then
-    printf 'AssertionError: %s (podman call %s) did not match\n' "$what" "$n" >&2
+    printf 'AssertionError: %s did not match\n' "$what" >&2
     printf 'wanted:\n%s\ngot:\n%s\n' "$want" "$got" >&2
     fail=1
   fi
+}
+exact_call() { # calls, n, what, the argument list it must be
+  local calls=$1 n=$2
+  shift 2
+  exact_list "$calls/podman.$n" "$@"
 }
 
 factory=$root/scripts/factory.sh
@@ -103,9 +108,20 @@ calls_for() {
   printf '%s' "$dir"
 }
 
-# The git identity is the host's, empty in the check image: the test reads no name, so it expects `-e GIT_*=` exactly.
+# The git identity is the host's, empty in the check image: the test masks every source git config reads, the
+# checkout's local config included, so it expects `-e GIT_*=` exactly whatever the clone holds.
 fake_home=$tmp/fake-home
 mkdir -p "$fake_home"
+git_identity=(
+  HOME="$fake_home"
+  GIT_CONFIG_GLOBAL=/dev/null
+  GIT_CONFIG_SYSTEM=/dev/null
+  GIT_CONFIG_COUNT=2
+  GIT_CONFIG_KEY_0=user.name
+  GIT_CONFIG_VALUE_0=
+  GIT_CONFIG_KEY_1=user.email
+  GIT_CONFIG_VALUE_1=
+)
 
 # The two calls a run here makes: the build, then the run. `launch_args` fills build_args and run_args for the exact
 # comparison; its arguments are the working directory, the repos folder, the home, the verb and its arguments.
@@ -284,8 +300,7 @@ check_here() { # name, want repos, want home, xdg state, assignments...
     cd "$root" &&
       env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
         PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$xdg" \
-        HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-        "$@" "$factory" status 2>"$calls/err"
+        "${git_identity[@]}" "$@" "$factory" status 2>"$calls/err"
   )
   local code=$?
   check "$name: status runs here" 0 "$code"
@@ -322,8 +337,7 @@ calls=$(calls_for here-dev)
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
       CALLS="$calls" XDG_STATE_HOME="$tmp/state-dev" ASSEMBLY_REPOS="$roots" \
-      ASSEMBLY_HOME="$tmp/home-dev" HOME="$fake_home" \
-      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      ASSEMBLY_HOME="$tmp/home-dev" "${git_identity[@]}" \
       "$factory" submit fx 2>"$calls/err"
 )
 code=$?
@@ -346,8 +360,7 @@ out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
-      HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-      "$factory" status 2>"$calls/err"
+      "${git_identity[@]}" "$factory" status 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, status runs here" 0 "$code"
@@ -369,8 +382,7 @@ calls=$(calls_for elsewhere)
   cd "$elsewhere" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state-elsewhere" \
-      HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-      "$factory" status 2>"$calls/err"
+      "${git_identity[@]}" "$factory" status 2>"$calls/err"
 )
 code=$?
 check "from another folder, status runs here" 0 "$code"
@@ -393,28 +405,20 @@ out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
-      HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-      "$factory" run 2>"$calls/err"
+      "${git_identity[@]}" "$factory" run 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, run runs here" 0 "$code"
 present "$calls/rbw-run" "rbw-run"
 present "$calls/podman-count" "podman"
-abs=""
-[ -e "$calls/rbw-run" ] && abs=$(cat "$calls/rbw-run")
-case "$abs" in
-  *secrets.toml*) ;;
-  *)
-    printf 'AssertionError: run did not read the key from secrets.toml through rbw-run\n' >&2
-    fail=1
-    ;;
-esac
 has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "here run: the folder"
 has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state/assembly" "here run: the home"
 launch_args "$root" "$lot" "$tmp/state/assembly" run
 check "here run: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "here run: the build" "${build_args[@]}"
 exact_call "$calls" 2 "here run: the run" "${run_args[@]}"
+exact_list "$calls/rbw-run" "here run: rbw-run wraps the whole run" \
+  -f "$root/secrets.toml" -- podman "${run_args[@]}"
 absent "$calls/ssh" "ssh"
 
 exit "$fail"
