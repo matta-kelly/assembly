@@ -42,6 +42,10 @@ factory +args:
     set -euo pipefail
     [ -n "${ASSEMBLY_SERVER:-}" ] || just _node true
     cd "{{invocation_directory()}}"
+    # run here takes its keys from the vault, into its environment: the laptop's way. The server's service fills it.
+    if [ "$1" = run ] && [ -z "${ASSEMBLY_SERVER:-}" ]; then
+      exec rbw-run -f "{{root}}/secrets.toml" -- "{{root}}/scripts/factory.sh" "$@"
+    fi
     exec "{{root}}/scripts/factory.sh" "$@"
 
 # Run a command in the Node image: `just run npm install zod`

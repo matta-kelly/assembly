@@ -2,8 +2,9 @@
 # The factory's recipe, `scripts/factory.sh`, on the laptop and on the server. The test runs the script the justfile's
 # `factory` recipe calls, so it runs in the check's image too, where there is no `just`. With ASSEMBLY_SERVER set, the
 # verb runs on the server over ssh: the stub `ssh` on the PATH shows the command, and the stubs for the local runners
-# show it ran nothing here. With it unset, the verb runs here, and only `run` takes the model key through rbw-run. Each
-# here case asserts the podman build and the whole run it asks for. Each case asserts its own result.
+# show it ran nothing here. With it unset, the verb runs here, and `run` takes FIREWORKS_API_KEY and GH_TOKEN from its
+# environment, never the vault. The justfile's `factory` recipe body is run for the laptop's half: it asks rbw-run for
+# the vault's keys, and gives them to `scripts/factory.sh run`. Each case asserts its own result.
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -26,8 +27,9 @@ n=0
 n=$((n + 1))
 printf '%s\n' "$n" >"$CALLS/podman-count"
 printf '%s\n' "$@" >"$CALLS/podman.$n"
-printf 'ASSEMBLY_REPOS=%s\nASSEMBLY_HOME=%s\nASSEMBLY_DEV_IMAGES=%s\n' \
-  "${ASSEMBLY_REPOS-}" "${ASSEMBLY_HOME-}" "${ASSEMBLY_DEV_IMAGES-}" >"$CALLS/podman-env.$n"
+printf 'ASSEMBLY_REPOS=%s\nASSEMBLY_HOME=%s\nASSEMBLY_DEV_IMAGES=%s\nFIREWORKS_API_KEY=%s\nGH_TOKEN=%s\n' \
+  "${ASSEMBLY_REPOS-}" "${ASSEMBLY_HOME-}" "${ASSEMBLY_DEV_IMAGES-}" \
+  "${FIREWORKS_API_KEY-}" "${GH_TOKEN-}" >"$CALLS/podman-env.$n"
 exit 0
 STUB
 
@@ -39,13 +41,22 @@ printf '%s\n' "${SAID:-}"
 exit "${SAID_CODE:-0}"
 STUB
 
-# rbw-run: the key, then the command it gives the key to.
+# rbw-run: the key, then the command it gives the key to, as the real one fills the environment from the vault.
 cat >"$stub/rbw-run" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >"$CALLS/rbw-run"
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 [ "$#" -eq 0 ] || shift
+export FIREWORKS_API_KEY="${VAULT_FIREWORKS_API_KEY-fireworks-from-vault}"
+export GH_TOKEN="${VAULT_GH_TOKEN-gh-from-vault}"
 exec "$@"
+STUB
+
+# just: the `just _node` the recipe runs for the packages. The recipe's call to the script is the real one.
+cat >"$stub/just" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$CALLS/just"
+exit 0
 STUB
 
 chmod +x "$stub"/*
@@ -100,6 +111,20 @@ if [ ! -x "$factory" ]; then
   echo "AssertionError: scripts/factory.sh is not there, or not executable" >&2
   exit 1
 fi
+
+# The laptop's half: the `factory` recipe's body as the justfile holds it, with just's values put in, so the test runs
+# what `just factory <verb>` runs. The recipe's own `just _node` is a stub on the PATH.
+recipe_body() { # cwd: the recipe's body, with just's values put in
+  local cwd=$1
+  awk '
+    /^factory \+args:/ { body = 1; next }
+    body && /^[^ \t]/ { body = 0 }
+    body { print }
+  ' "$root/justfile" | sed -e 's/^    //' \
+    -e "s|{{root}}|$root|g" \
+    -e "s|{{justfile_directory()}}|$root|g" \
+    -e "s|{{invocation_directory()}}|$cwd|g"
+}
 
 # One place for every call's records, made afresh.
 calls_for() {
@@ -495,8 +520,8 @@ calls=$(calls_for here-status)
 out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
-      PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
-      "${git_identity[@]}" "$factory" status 2>"$calls/err"
+      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
+      XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" "$factory" status 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, status runs here" 0 "$code"
@@ -537,18 +562,22 @@ if grep -A1 -xF -- -w "$calls/podman.2" 2>/dev/null | grep -qxF -- "$root"; then
 fi
 absent "$calls/ssh" "ssh (from another folder)"
 
-# run takes the model key through rbw-run, and only run
+# given FIREWORKS_API_KEY and GH_TOKEN in its environment, when run runs here, then the factory's container gets both,
+# and no vault is asked
 calls=$(calls_for here-run)
 out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
+      FIREWORKS_API_KEY=host-fireworks GH_TOKEN=host-gh \
       "${git_identity[@]}" "$factory" run 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, run runs here" 0 "$code"
-present "$calls/rbw-run" "rbw-run"
 present "$calls/podman-count" "podman"
+absent "$calls/rbw-run" "rbw-run (run takes its keys from its environment)"
+has_env "$calls" 2 FIREWORKS_API_KEY host-fireworks "here run: the model key from the environment"
+has_env "$calls" 2 GH_TOKEN host-gh "here run: the GitHub token from the environment"
 has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "here run: the folder"
 has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state/assembly" "here run: the home"
 expect_crate_mount "$calls" "here run: crate"
@@ -556,9 +585,91 @@ launch_args "$root" "$lot" "$tmp/state/assembly" run
 check "here run: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "here run: the build" "${build_args[@]}"
 exact_call "$calls" 2 "here run: the run" "${run_args[@]}"
-exact_list "$calls/rbw-run" "here run: rbw-run wraps the whole run" \
-  -f "$root/secrets.toml" -- podman "${run_args[@]}"
 absent "$calls/ssh" "ssh"
+
+# given either key missing or empty, when run runs here, then it starts no container, and says which key is missing
+run_refused() { # name, fireworks (unset, or its value), gh, the keys the refusal names...
+  local name=$1 fw=$2 gh=$3
+  shift 3
+  local calls out code args=()
+  calls=$(calls_for "refused-$name")
+  [ "$fw" = unset ] || args+=(FIREWORKS_API_KEY="$fw")
+  [ "$gh" = unset ] || args+=(GH_TOKEN="$gh")
+  out=$(
+    cd "$root" &&
+      env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+        -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
+        XDG_STATE_HOME="$tmp/state-refused-$name" "${git_identity[@]}" \
+        "${args[@]}" "$factory" run 2>&1
+  )
+  code=$?
+  if [ "$code" -eq 0 ]; then
+    printf 'AssertionError: %s: run ran with a missing key\n' "$name" >&2
+    fail=1
+  fi
+  no_run "$calls" "$name: run"
+  absent "$calls/rbw-run" "$name: rbw-run (run reads its environment, not the vault)"
+  local key
+  for key in "$@"; do
+    case "$out" in
+      *"$key"*) ;;
+      *)
+        printf 'AssertionError: %s: the refusal does not name %s\n' "$name" "$key" >&2
+        fail=1
+        ;;
+    esac
+  done
+}
+run_refused both-missing unset unset FIREWORKS_API_KEY GH_TOKEN
+run_refused fireworks-missing unset host-gh FIREWORKS_API_KEY
+run_refused gh-missing host-fireworks unset GH_TOKEN
+run_refused both-empty "" "" FIREWORKS_API_KEY GH_TOKEN
+run_refused fireworks-empty "" host-gh FIREWORKS_API_KEY
+run_refused gh-empty host-fireworks "" GH_TOKEN
+
+# given the laptop, when `just factory run` runs, then rbw-run fills its environment from the vault, and run gives the
+# two keys to the factory's container. The justfile's `factory` recipe body is run as it is, with a stub `just`.
+laptop_cwd=$tmp/laptop-cwd
+mkdir -p "$laptop_cwd"
+recipe=$tmp/factory-recipe.sh
+recipe_body "$laptop_cwd" >"$recipe"
+chmod +x "$recipe"
+calls=$(calls_for laptop-run)
+out=$(
+  cd "$laptop_cwd" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
+      XDG_STATE_HOME="$tmp/state-laptop-run" "${git_identity[@]}" \
+      VAULT_FIREWORKS_API_KEY=vault-fireworks VAULT_GH_TOKEN=vault-gh \
+      "$recipe" run 2>"$calls/err"
+)
+code=$?
+check "the laptop's factory run runs here" 0 "$code"
+present "$calls/rbw-run" "the laptop's factory run asks the vault"
+check "the laptop's factory run asks the vault with secrets.toml" \
+  "$(printf -- '-f\n%s' "$root/secrets.toml")" \
+  "$(head -2 "$calls/rbw-run" 2>/dev/null || true)"
+check "the laptop's factory run gives rbw-run a command after --" "--" \
+  "$(sed -n 3p "$calls/rbw-run" 2>/dev/null || true)"
+has_env "$calls" 2 FIREWORKS_API_KEY vault-fireworks "the laptop's run: the model key from the vault"
+has_env "$calls" 2 GH_TOKEN vault-gh "the laptop's run: the GitHub token from the vault"
+present "$calls/podman-count" "podman (the laptop's run reaches the factory's container)"
+absent "$calls/ssh" "ssh (the laptop's run)"
+
+# given the laptop, when a verb that takes no key runs, then no vault is asked
+calls=$(calls_for laptop-status)
+out=$(
+  cd "$laptop_cwd" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
+      XDG_STATE_HOME="$tmp/state-laptop-status" "${git_identity[@]}" \
+      "$recipe" status 2>"$calls/err"
+)
+code=$?
+check "the laptop's factory status runs here" 0 "$code"
+present "$calls/podman-count" "podman (the laptop's status runs here)"
+absent "$calls/rbw-run" "rbw-run (the laptop's status asks no key)"
+absent "$calls/ssh" "ssh (the laptop's status)"
 
 # given a home with no crate install, when add or submit runs here, then it stops before the container, naming it
 bare_home=$tmp/bare-home

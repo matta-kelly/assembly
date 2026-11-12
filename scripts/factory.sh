@@ -10,7 +10,9 @@
 #   XDG_STATE_HOME    the state folder, when ASSEMBLY_HOME is not set
 #   HOME              for the state folder, the host's git-land and crate's install, when not set by another
 #   XDG_RUNTIME_DIR   the folder the host's podman socket is in
-#   PATH              ssh, podman, rbw-run and git, as the host has them
+#   FIREWORKS_API_KEY the model key, for `run` only; whoever starts it fills it (the laptop's `just factory`, from the vault)
+#   GH_TOKEN          the GitHub token, for `run` only, as the model key
+#   PATH              ssh, podman and git, as the host has them
 #
 # It gives back the verb's exit code, and its output, unchanged.
 set -euo pipefail
@@ -59,10 +61,19 @@ if [ "$verb" = add ] || [ "$verb" = submit ]; then
   fi
 fi
 
+# run takes its two keys from its environment, and starts nothing without them.
+if [ "$verb" = run ]; then
+  missing=()
+  [ -n "${FIREWORKS_API_KEY:-}" ] || missing+=(FIREWORKS_API_KEY)
+  [ -n "${GH_TOKEN:-}" ] || missing+=(GH_TOKEN)
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "factory: run needs ${missing[*]} in its environment" >&2
+    exit 2
+  fi
+fi
+
 mkdir -p "$home"
 podman build -q -t localhost/assembly-orchestrator -f "$root/orchestrator/Containerfile" "$root/orchestrator" >/dev/null
-key=()
-[ "$verb" = run ] && key=(rbw-run -f "$root/secrets.toml" --)
 
 # Who the factory commits and pushes as: Matt, by the host's git config, with git-land, the host's, mounted read-only,
 # and crate's install beside it, mounted read-only too.
@@ -74,4 +85,4 @@ export ASSEMBLY_REPOS="$repos" ASSEMBLY_HOME="$home"
 mounts=(-v "$repos:$repos" -v "$home:$home")
 [ "$repos" = "$lot" ] || mounts+=(-v "$lot:$lot")
 
-"${key[@]}" podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_REPOS "${as_matt[@]}" -e ASSEMBLY_HOME -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" "${mounts[@]}" -w "$PWD" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "$root/cli/index.ts" "$@"
+podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_REPOS "${as_matt[@]}" -e ASSEMBLY_HOME -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" "${mounts[@]}" -w "$PWD" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "$root/cli/index.ts" "$@"
