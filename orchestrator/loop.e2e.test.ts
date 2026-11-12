@@ -47,6 +47,7 @@ import {
   smoke,
 } from "../effects/dev-image.fixture.ts";
 import { standInRegistry } from "../effects/registry.fixture.ts";
+import { devImage, npmSetup } from "../effects/repo.ts";
 import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";
 import { advance } from "./advance.ts";
@@ -370,8 +371,8 @@ const versionPlanner = (_input: string, done: number) => {
       {
         ...cl(
           "b",
-          "rb's src/b.mjs exports b, which is 2",
-          "given src/b.mjs, when imported, then b is 2",
+          "rb's src/b.mjs exports b, which doubles a, from the version rb depends on",
+          "given the version rb depends on, when b() runs, then it returns 4",
           2,
         ),
         repo: "rb",
@@ -411,13 +412,13 @@ const cutNail = (input: string, done: number) => {
       content: testOf(
         "b",
         'import { b } from "../src/b.mjs";',
-        "assert.strictEqual(b, 2)",
+        "assert.strictEqual(b(), 4)",
       ),
     });
   if (done === 1)
     return fauxToolCall("write_file", {
       file_path: "src/b.mjs",
-      content: "export const b = 0;\n",
+      content: "export const b = () => 0;\n",
     });
   if (done === 2) return fauxToolCall("test", {});
   return submit({
@@ -432,11 +433,17 @@ const cutHammer = (input: string, done: number) => {
   if (!cut) return submit({ word: "done", changed: [] });
   const file = cut === "a" ? "index.js" : "src/b.mjs";
   if (done === 0)
-    return fauxToolCall("edit_file", {
-      file_path: file,
-      old_string: cut === "a" ? "a = 1" : "b = 0",
-      new_string: cut === "a" ? "a = 2" : "b = 2",
-    });
+    return cut === "a"
+      ? fauxToolCall("edit_file", {
+          file_path: file,
+          old_string: "a = 1",
+          new_string: "a = 2",
+        })
+      : fauxToolCall("write_file", {
+          file_path: file,
+          content:
+            'import { a } from "@e2e/a";\n\nexport const b = () => a * 2;\n',
+        });
   return submit({ word: "done", changed: [file] });
 };
 
@@ -1229,7 +1236,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
 
     it(
       "moves a waiting cl's repo onto the version its dependency published, and takes the issue to accepted",
-      { timeout: 300_000 },
+      { timeout: 900_000 },
       async () => {
         const at = join(dir, "versions");
         mkdirSync(join(at, "work"), { recursive: true });
@@ -1256,9 +1263,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
               join(r, "crate.toml"),
               `crate = "1"\nimage = "${image}"\n`,
             );
+            // the repo's check: its dependencies installed, then its tests
             writeFileSync(
               join(r, "scripts", "check.sh"),
-              "#!/bin/sh\nnode --test test/*.test.mjs\n",
+              "#!/bin/sh\nnpm ci --no-audit --no-fund\nnode --test test/*.test.mjs\n",
             );
             chmodSync(join(r, "scripts", "check.sh"), 0o755);
             // crate builds the image and then runs this: an offline install from its cache.
@@ -1307,11 +1315,30 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             `${JSON.stringify({ name: "@e2e/a", version: "1.2.0", type: "module", exports: "./index.js" }, null, 2)}\n`,
           );
           writeFileSync(join(ra, "index.js"), "export const a = 1;\n");
+          // a repo on crate with no dependencies still has a lockfile: its setup is the repo's offline install.
+          writeFileSync(
+            join(ra, "package-lock.json"),
+            `${JSON.stringify(
+              {
+                name: "@e2e/a",
+                version: "1.2.0",
+                lockfileVersion: 3,
+                requires: true,
+                packages: {
+                  "": { name: "@e2e/a", version: "1.2.0" },
+                },
+              },
+              null,
+              2,
+            )}\n`,
+          );
           git(ra, "add", "-A");
           git(ra, "commit", "-q", "-m", "feat: the package, with a is 1");
           const raBare = onCrate(ra, "ra");
           const raMain = git(raBare, "rev-parse", "main");
           git(ra, "fetch", "-q", "server", "main");
+          // The repo takes its dev image at add: crate made it on the push that checked main.
+          const raImage = await devImage(ra);
 
           // B, which depends on A: its lockfile holds ^1.0.0, from the stand-in registry.
           const rb = repoOf("rb");
@@ -1351,6 +1378,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           const rbBare = onCrate(rb, "rb");
           const rbStart = git(rbBare, "rev-parse", "main");
           git(rb, "fetch", "-q", "server", "main");
+          const rbImage = await devImage(rb);
 
           writeFileSync(
             join(at, "work", "dp.md"),
@@ -1371,7 +1399,7 @@ A and B, each exported, with B on the version A published.
 ## Done
 
 - ra's index.js exports a, which is 2
-- rb's src/b.mjs exports b, which is 2, on the version rb depends on
+- rb's src/b.mjs exports b, which doubles a, on the version rb depends on
 `,
           );
 
@@ -1424,16 +1452,16 @@ A and B, each exported, with B on the version A published.
               {
                 name: "ra",
                 repo: ra,
-                image,
+                image: raImage,
                 test: "scripts/check.sh all",
-                setup: "",
+                setup: npmSetup,
               },
               {
                 name: "rb",
                 repo: rb,
-                image,
+                image: rbImage,
                 test: "scripts/check.sh all",
-                setup: "",
+                setup: npmSetup,
               },
             ],
           });
@@ -1559,9 +1587,20 @@ A and B, each exported, with B on the version A published.
           ).toEqual([moved]);
           db.close();
 
+          // The issue takes the same image for b's repo, so acceptance installs the moved lockfile offline.
+          expect(
+            ledger.item("dp").repos.find((r) => r.name === "rb")?.image,
+          ).toBe(moved);
+          // b's attempts had their dependencies installed, offline, from that image's cache.
+          expect(
+            existsSync(
+              join(f.runs, "dp", "cl", "b", "full.setup", "setup.done"),
+            ),
+          ).toBe(true);
+
           // Each landed on its own repo's main, and only there.
           expect(git(raBare, "show", "main:index.js")).toContain("a = 2");
-          expect(git(rbBare, "show", "main:src/b.mjs")).toContain("b = 2");
+          expect(git(rbBare, "show", "main:src/b.mjs")).toContain("a * 2");
           // The move's commit asks no version: b's repo is released by nothing the move did.
           expect(git(rbBare, "tag", "--list")).toBe("");
           expect(

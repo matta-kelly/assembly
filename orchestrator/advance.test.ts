@@ -47,6 +47,8 @@ let dir: string;
 let ledger: Ledger;
 let path: string;
 beforeEach(() => {
+  // the clock is real at the start of every test in this file, whatever one before it left
+  vi.useRealTimers();
   vi.resetAllMocks();
   vi.mocked(move).mockResolvedValue("c0ffee");
   vi.mocked(devImage).mockResolvedValue("localhost/b-dev:moved");
@@ -73,7 +75,10 @@ beforeEach(() => {
     { attempt: ledger.begin("is") },
   );
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.useRealTimers();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 const state = (name: string) => ledger.item(name).state;
 /** Puts an item at a state, as the steps a test skips would. */
@@ -402,7 +407,6 @@ describe("advance across repos", () => {
       "orchestrator",
     );
   }
-  afterEach(() => vi.useRealTimers());
 
   /** The world: repo files by "<repo>:<file>", the tags the land of x-a put on main, the registry. */
   const worldOf = (
