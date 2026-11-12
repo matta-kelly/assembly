@@ -813,9 +813,13 @@ describe("the world", () => {
       }),
       { readOnly: false },
     );
-    // the move is the orchestrator's, and it comes before the worktree the attempt starts from
+    // the move is the orchestrator's, and it comes before the worktree of the attempt it precedes
+    const at = vi
+      .mocked(worktree)
+      .mock.calls.findIndex((c) => c[0].name === "j-b");
+    expect(at).toBeGreaterThanOrEqual(0);
     expect(vi.mocked(move).mock.invocationCallOrder[0] as number).toBeLessThan(
-      Math.min(...vi.mocked(worktree).mock.invocationCallOrder),
+      vi.mocked(worktree).mock.invocationCallOrder[at] as number,
     );
   });
 
