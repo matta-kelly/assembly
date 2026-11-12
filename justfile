@@ -40,7 +40,8 @@ factory +args:
     #!/usr/bin/env bash
     set -euo pipefail
     [ -n "${ASSEMBLY_SERVER:-}" ] || just _node true
-    exec scripts/factory.sh "$@"
+    cd "{{invocation_directory()}}"
+    exec "{{root}}/scripts/factory.sh" "$@"
 
 # Run a command in the Node image: `just run npm install zod`
 run +command:
