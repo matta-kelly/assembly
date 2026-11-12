@@ -110,8 +110,11 @@ calls_for() {
 
 # The git identity is the host's, empty in the check image: the test masks every source git config reads, the
 # checkout's local config included, so it expects `-e GIT_*=` exactly whatever the clone holds.
+# crate's install on the host is what the factory mounts read-only: the run here needs it, and one case runs without.
 fake_home=$tmp/fake-home
-mkdir -p "$fake_home"
+mkdir -p "$fake_home/.local/share/crate/bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$fake_home/.local/share/crate/bin/crate"
+chmod +x "$fake_home/.local/share/crate/bin/crate"
 git_identity=(
   HOME="$fake_home"
   GIT_CONFIG_GLOBAL=/dev/null
@@ -150,8 +153,6 @@ launch_args() { # cwd, repos, home, verb, args...
     -e
     GH_TOKEN
     -e
-    ASSEMBLY_DEV_IMAGES
-    -e
     ASSEMBLY_REPOS
     -e
     GIT_AUTHOR_NAME=
@@ -163,6 +164,8 @@ launch_args() { # cwd, repos, home, verb, args...
     GIT_COMMITTER_EMAIL=
     -v
     "$fake_home/.local/bin/git-land:/usr/local/bin/git-land:ro"
+    -v
+    "$crate_mount"
     -e
     ASSEMBLY_HOME
     -e
@@ -185,6 +188,31 @@ launch_args() { # cwd, repos, home, verb, args...
     "$verb"
   )
   run_args+=("$@")
+}
+
+# The host's crate install, mounted read-only at a fixed path: the source and the mode are the promise, the path is the
+# builder's. `launch_args` puts the mount the run got where the exemplar, git-land, sits.
+crate_mount=""
+crate_mount_of() { # podman call file
+  grep -F -- "$fake_home/.local/share/crate:" "$1" 2>/dev/null | grep -E ':ro$' | head -1 || true
+}
+expect_crate_mount() { # calls, what
+  crate_mount=$(crate_mount_of "$1/podman.2")
+  if [ -z "$crate_mount" ]; then
+    printf 'AssertionError: %s did not mount crate, the host install, read-only\n' "$2" >&2
+    fail=1
+  fi
+}
+no_run() { # calls, what
+  local f ran=0
+  for f in "$1"/podman.[0-9]*; do
+    [ -e "$f" ] || continue
+    if [ "$(head -1 "$f")" = run ]; then ran=$((ran + 1)); fi
+  done
+  if [ "$ran" -ne 0 ]; then
+    printf 'AssertionError: %s ran the container\n' "$2" >&2
+    fail=1
+  fi
 }
 
 # --- the laptop ---------------------------------------------------------------------------------------------------
@@ -339,6 +367,7 @@ check_here() { # name, want repos, want home, xdg state, assignments...
   check "$name: status runs here" 0 "$code"
   has_env "$calls" 2 ASSEMBLY_REPOS "$want_repos" "$name: the folder"
   has_env "$calls" 2 ASSEMBLY_HOME "$want_home" "$name: the home"
+  expect_crate_mount "$calls" "$name: crate"
   launch_args "$root" "$want_repos" "$want_home" status
   check "$name: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
   exact_call "$calls" 1 "$name: the build" "${build_args[@]}"
@@ -371,15 +400,14 @@ exact_call "$calls" 1 "home under HOME: the build" "${build_args[@]}"
 exact_call "$calls" 2 "home under HOME: the run" "${run_args[@]}"
 absent "$calls/ssh" "ssh (home under HOME)"
 
-# the folder searched for the repos that need a dev image is ASSEMBLY_REPOS, not lot
+# the folder searched for the repos that need a dev image is ASSEMBLY_REPOS, not lot. The repo has no copy of
+# scripts/dev-image.sh: the factory takes it all the same, and gets the image in its own container, from crate.
 roots=$tmp/roots
 dev=$roots/devrepo
 mkdir -p "$dev/scripts"
 git -C "$dev" init -q -b main
 git -C "$dev" remote add server core@localhost:git/devrepo.git
 printf 'image = "dev"\n' >"$dev/crate.toml"
-printf '#!/usr/bin/env bash\nprintf "localhost/devrepo:tag\\n"\n' >"$dev/scripts/dev-image.sh"
-chmod +x "$dev/scripts/dev-image.sh"
 git -C "$dev" -c user.name=t -c user.email=t@t add -A
 git -C "$dev" -c user.name=t -c user.email=t@t commit -q -m main
 git -C "$dev" update-ref refs/remotes/server/main HEAD
@@ -405,8 +433,10 @@ calls=$(calls_for here-dev)
 code=$?
 check "a dev repo under the given folder, submit runs here" 0 "$code"
 has_env "$calls" 2 ASSEMBLY_REPOS "$roots" "the folder given"
-has_env "$calls" 2 ASSEMBLY_DEV_IMAGES "devrepo=localhost/devrepo:tag" \
-  "the dev image under the given folder"
+check "the dev image is no longer passed in, the orchestrator makes it" \
+  "ASSEMBLY_DEV_IMAGES=" \
+  "$(grep '^ASSEMBLY_DEV_IMAGES=' "$calls/podman-env.2" 2>/dev/null || true)"
+expect_crate_mount "$calls" "a dev repo under the given folder: crate"
 launch_args "$root" "$roots" "$tmp/home-dev" submit fx
 check "a dev repo under the given folder: podman's two calls" 2 \
   "$(cat "$calls/podman-count" 2>/dev/null || true)"
@@ -469,6 +499,7 @@ absent "$calls/ssh" "ssh"
 absent "$calls/rbw-run" "rbw-run (status takes no key)"
 has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "here status: the folder"
 has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state/assembly" "here status: the home"
+expect_crate_mount "$calls" "here status: crate"
 launch_args "$root" "$lot" "$tmp/state/assembly" status
 check "here status: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "here status: the build" "${build_args[@]}"
@@ -489,6 +520,7 @@ check "from another folder, status runs here" 0 "$code"
 present "$calls/podman-count" "podman"
 has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "elsewhere: the folder"
 has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state-elsewhere/assembly" "elsewhere: the home"
+expect_crate_mount "$calls" "elsewhere: crate"
 launch_args "$elsewhere" "$lot" "$tmp/state-elsewhere/assembly" status
 check "elsewhere: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "elsewhere: the build" "${build_args[@]}"
@@ -513,6 +545,7 @@ present "$calls/rbw-run" "rbw-run"
 present "$calls/podman-count" "podman"
 has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "here run: the folder"
 has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state/assembly" "here run: the home"
+expect_crate_mount "$calls" "here run: crate"
 launch_args "$root" "$lot" "$tmp/state/assembly" run
 check "here run: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "here run: the build" "${build_args[@]}"
@@ -520,5 +553,33 @@ exact_call "$calls" 2 "here run: the run" "${run_args[@]}"
 exact_list "$calls/rbw-run" "here run: rbw-run wraps the whole run" \
   -f "$root/secrets.toml" -- podman "${run_args[@]}"
 absent "$calls/ssh" "ssh"
+
+# given a home with no crate install, when add or submit runs here, then it stops before the container, naming it
+bare_home=$tmp/bare-home
+mkdir -p "$bare_home"
+calls=$(calls_for no-crate)
+out=$(
+  cd "$root" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state-no-crate" \
+      HOME="$bare_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0= \
+      GIT_CONFIG_KEY_1=user.email GIT_CONFIG_VALUE_1= \
+      "$factory" submit fx 2>&1
+)
+code=$?
+if [ "$code" -eq 0 ]; then
+  printf 'AssertionError: submit ran with no crate install\n' >&2
+  fail=1
+fi
+no_run "$calls" "submit with no crate install"
+case "$out" in
+  *".local/share/crate"*) ;;
+  *)
+    printf "AssertionError: the refusal does not name crate's install, ~/.local/share/crate\n" >&2
+    fail=1
+    ;;
+esac
+absent "$calls/ssh" "ssh (with no crate install)"
 
 exit "$fail"
