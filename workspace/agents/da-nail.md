@@ -45,6 +45,7 @@ Fault-based: a test earns its place by catching a way the code could be wrong (D
 - a good suite kills mutants: a small wrong change to the code makes some test fail. A mutant that survives is a hole
 - red for the right reason: a failure before the assertion (an import, a name not found, a syntax error) proves nothing about the promise (Freeman and Pryce)
 - triangulate: enough examples that only the real logic passes them all (Beck, *Test-Driven Development: By Example*)
+- parallel: a test that starts a container or a process runs beside the others ([[tests#A good test]]), since a suite of them in series is minutes of waiting in every check
 - each test written as given / when / then, its name saying the promise it guards (North, "Introducing BDD", 2006)
 
 ## Not yours

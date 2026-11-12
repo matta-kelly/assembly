@@ -73,6 +73,7 @@ A test checks one behavior: in this situation, when this happens, that is the re
 	- the exception: a property-based test, for a rule over a whole domain ("sorting never loses an element"). Only next to at least one plain example test, which says what the behavior is
 	- a table: one rule over many inputs is one test. Its rows are the inputs and their expected results, written out, a row for each class of input and each boundary. The loop reads the rows and decides nothing (table-driven tests: Cheney, "Prefer table driven tests")
 - it stands alone: it builds what it needs, and passes run alone or in any order (a fresh fixture: Meszaros, *xUnit Test Patterns*)
+	- so it runs in parallel with the rest: names, ports and folders of its own, and its settings passed to what it starts, never set on the shared process. A medium test spends its time waiting on a container, so the suite takes as long as its slowest test, not their sum (Go's `t.Parallel()`, pytest-xdist)
 - DAMP, not DRY: clear beats free of repetition
 - seen to fail: before the code exists, or by breaking the code once on purpose
 	- each case at its own assertion: a failure ends a test, so a case after it was never seen. A case is a test, or a row of a table, never a second block in one test
