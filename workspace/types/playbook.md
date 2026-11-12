@@ -10,7 +10,7 @@ Playbook: a proven way to do one kind of change, at one level. At the plan, it s
 - [[#Building a cut]] the cl's catalog: poteto-mode's playbooks, mapped in
 
 - [[kinetic#The split]], [[kinetic#The build]]: the map, at the plan and the cl
-- [[plan]], [[cl]]: what a playbook's phases and cuts become; a playbook's Out meets their bar
+- [[plan-note]], [[changelist#The cl note]]: what a playbook's phases and cuts become; a playbook's Out meets their bar
 - [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]]: the roles that use them
 
 ---

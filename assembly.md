@@ -13,6 +13,7 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 	- [[changelist]]: one self-contained change to main, and what a good one is
 	- [[playbook]]: a proven way to do one kind of change
 	- [[lint]]: the check on code that does not run it
+	- [[issue-note]], [[plan-note]]: what an issue note and a plan note hold
 
 ---
 ## The product line
@@ -97,9 +98,10 @@ The machine: what moves jobs from station to station, in four layers put togethe
 		- `types/`: the notes a role works to and is judged against
 			- in its context: que-pasa's memory middleware reads an agent's types once, when a run is made, keeps them with the run, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
 			- the builders: da-nail [[tests]], da-hammer [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have
-			- the planner and plan-review: [[changelist]], which holds what a cl note is, and [[playbook]]
+			- the planner and plan-review: [[issue-note]], [[plan-note]], [[changelist]], which holds what a cl note is, and [[playbook]]
+			- issue-review: [[issue-note]]
 			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
-			- Not built: the words of a plan. They are in [[plan]], kinetic's type note, outside the workspace. A cl's are in [[changelist]], and [[cl]] is its blank form
+			- kinetic's type notes: [[issue]], [[plan]] and [[cl]] are the blank forms a new note starts from. Their words are here, since a type note stays with its schema, in kinetic, where no agent's memory reads
 - engine: what moves it (`orchestrator/`)
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
@@ -213,7 +215,6 @@ What it keeps.
 ## Not built
 
 - the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
-- the planner's envelope: its context does not hold the [[plan]] type note its role points to
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry` and `ask`
 - a thinking level per bin: each model runs at its provider's default

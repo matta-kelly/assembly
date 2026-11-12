@@ -8,6 +8,7 @@ import { accept } from "../../process/accept.ts";
 import { resultOf } from "../../process/step.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
+import { types } from "./types.ts";
 
 export const issueReviewer = (model: string) =>
   defineAgent({
@@ -15,5 +16,7 @@ export const issueReviewer = (model: string) =>
     model,
     instructions: instructions("./issue-review.md", import.meta.url),
     tools: [...readTools, execute],
+    // what an issue note holds, its Done above all, which it judges the work against: always in its context
+    middleware: [types("issue-note")],
     output: z.object({ result: resultOf(accept) }),
   });

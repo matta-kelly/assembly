@@ -5,7 +5,7 @@ status: active
 ---
 A changelist (CL): one self-contained change, submitted to main or under review ([Small CLs](https://google.github.io/eng-practices/review/developer/small-cls.html)). Every change to the code is a CL, because every change is reviewed (SWE at Google, ch. 9). The name is Google's; other organisations call it a change, a patch or a pull request.
 
-Like an issue, a CL is a piece of intent plus the check that says it is met: its intent is one sentence of done, and its check is a test for each of its behaviors. It is a leaf of its issue, or a confirmed cut of its issue's [[plan]]. Its input is its cl note: the cut, with every file and fact the CL needs ([[#The cl note]]).
+Like an issue, a CL is a piece of intent plus the check that says it is met: its intent is one sentence of done, and its check is a test for each of its behaviors. It is a leaf of its issue, or a confirmed cut of its issue's plan ([[plan-note]]). Its input is its cl note: the cut, with every file and fact the CL needs ([[#The cl note]]).
 - [[#Good CL]] what a CL must be
 - [[#Behavior]] one guarantee a CL makes
 - [[#Kinds]] what a CL does to behaviors, and so to its tests
@@ -14,8 +14,8 @@ Like an issue, a CL is a piece of intent plus the check that says it is met: its
 - [[#Joining main]] the review and the gate
 
 - [[kinetic#The checks]]: the map, a cl landed on main
-- [[issue]]: where a CL comes from
-- [[plan]]: how CLs are cut from an issue, and how they link
+- [[issue-note]]: where a CL comes from
+- [[plan-note]]: how CLs are cut from an issue, and how they link
 - [[cl]]: the type of its note
 - [[daworks/assembly/workspace/agents/cl-review|review]]: how one is reviewed
 
@@ -92,7 +92,7 @@ The cl's context on disk: its `checkout` is the paths its builders get, as a git
 
 ## Parts
 
-- issue: what it comes from ([[issue]]). The commit message points to it: "Updates #n" for a step, "Fixes #n" on the last
+- issue: what it comes from ([[issue-note]]). The commit message points to it: "Updates #n" for a step, "Fixes #n" on the last
 - workspace ([[workspace]]): one worktree per CL, on a short branch from origin/main
 	- never from local main or another workspace
 	- it lives until the CL lands on main, then it is removed ([[workspace]])
