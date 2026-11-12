@@ -210,6 +210,7 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 - the ship kinds, `crate.toml`'s `ship`
 	- a package (`npm`): published by the repo's `publish.yml` on the version tag, by npm's trusted publishing: no token, with provenance. It runs the check set, sets `package.json`'s version from the tag, and publishes. que-pasa and basis
 	- an image: built once, in presubmit, tagged by its commit, and released by a tag ([[cd#ship.yml]])
+	- a source (`source`): its version tag alone, with nothing published, for a repo that runs from a checkout at its tag. assembly, which the server runs at a version
 	- nothing: no `ship`, no versions. A semantic or config repo, whose land is its release
 - Not built: the image kind on crate. que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[assembly-on-server]])
 

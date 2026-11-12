@@ -38,7 +38,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml` (kube YAML, `WORKSPACE` standing for the workspace's name), played by `scripts/workspace.sh` ([[workspace#Services]]). A repo with no services has no file. stateball has the first
 		- the app under test: a repo with a UI runs its runtime image as one more service, `site`, on the same network as its tests, and its tests reach it by name (`http://site:3000`): on the workspace's network on a machine, on the job's own network in CI. Never `--network host`. Held by: publicpersona's check, the first; every repo with a UI follows it
 	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]])
-	- the ship kind: what a land to main releases, a package, an image, or nothing ([[ci#Release]])
+	- the ship kind: what a land to main releases, a package, an image, a source, or nothing ([[ci#Release]])
 - `crate.toml`: the crate version the repo runs, its check's image (`dev`, or a pinned ref), its check's time limit, its ship kind (`ship`), its package folders (`packages`), and its slow sets (`postsubmit`) ([[#Platform]])
 - the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and its `.devcontainer/Containerfile` from basis, with `<repo>` filled in. crate replaces the copies as it takes each part ([[#Platform]])
 - lot, kinetic and dazoo have none: their lint runs in a pinned Node image
