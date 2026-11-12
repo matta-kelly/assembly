@@ -47,8 +47,9 @@ factory +args:
 run +command:
     @just _node "$@"
 
-# The lint runs in this pinned Node image, never on the host, and installs only when the lockfile is newer.
-node_image := "docker.io/library/node:22.23.4-slim"
+# The check runs in this pinned Node image, never on the host, and installs only when the lockfile is newer. It is the
+# image crate.toml names, so the check here and crate's on the server run in the same image, git in it.
+node_image := "docker.io/library/node@sha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384"
 
 _node +command:
     @podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable --cpus=3 --cpu-shares=256 -u node -e NPM_CONFIG_UPDATE_NOTIFIER=false -v "{{root}}:{{root}}" -w "{{root}}" {{node_image}} sh -c '[ node_modules/.package-lock.json -nt package-lock.json ] || npm ci --ignore-scripts --no-audit --no-fund >/dev/null; '"$*"
