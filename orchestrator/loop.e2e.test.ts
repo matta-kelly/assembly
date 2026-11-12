@@ -358,15 +358,16 @@ const versionPlanner = (_input: string, done: number) => {
       {
         ...cl(
           "a",
-          "ra's index.js exports a, which is 2",
-          "given index.js, when imported, then a is 2",
+          "ra's one and two each export 2",
+          "given one and two, when imported, then each is 2",
           1,
         ),
         repo: "ra",
-        checkout: ["index.js", "test/a.test.mjs"],
+        checkout: ["one/index.js", "two/index.js", "test/a.test.mjs"],
         test: "node --test test/a.test.mjs",
-        seam: "index.js's export, which b's version carries",
-        checkoutNotes: "- index.js: the export\n- test/a.test.mjs: the test",
+        seam: "the two packages' exports, which b's versions carry",
+        checkoutNotes:
+          "- one/index.js, two/index.js: the two packages' exports\n- test/a.test.mjs: the test",
       },
       {
         ...cl(
@@ -396,8 +397,8 @@ const cutNail = (input: string, done: number) => {
         file_path: "test/a.test.mjs",
         content: testOf(
           "a",
-          'import { a } from "../index.js";',
-          "assert.strictEqual(a, 2)",
+          'import { one } from "../one/index.js";\nimport { two } from "../two/index.js";',
+          "assert.deepStrictEqual([one, two], [2, 2])",
         ),
       });
     if (done === 1) return fauxToolCall("test", {});
@@ -427,24 +428,33 @@ const cutNail = (input: string, done: number) => {
   });
 };
 
-/** da-hammer makes its cut's test pass, in the file it wrote. */
+/** da-hammer makes its cut's test pass, in the files it wrote. */
 const cutHammer = (input: string, done: number) => {
   const cut = /The cut (a|b) of/.exec(input)?.[1] as "a" | "b" | undefined;
   if (!cut) return submit({ word: "done", changed: [] });
-  const file = cut === "a" ? "index.js" : "src/b.mjs";
+  if (cut === "a") {
+    if (done === 0)
+      return fauxToolCall("write_file", {
+        file_path: "one/index.js",
+        content: "export const one = 2;\n",
+      });
+    if (done === 1)
+      return fauxToolCall("write_file", {
+        file_path: "two/index.js",
+        content: "export const two = 2;\n",
+      });
+    return submit({
+      word: "done",
+      changed: ["one/index.js", "two/index.js"],
+    });
+  }
   if (done === 0)
-    return cut === "a"
-      ? fauxToolCall("edit_file", {
-          file_path: file,
-          old_string: "a = 1",
-          new_string: "a = 2",
-        })
-      : fauxToolCall("write_file", {
-          file_path: file,
-          content:
-            'import { a } from "@e2e/a";\n\nexport const b = () => a * 2;\n',
-        });
-  return submit({ word: "done", changed: [file] });
+    return fauxToolCall("write_file", {
+      file_path: "src/b.mjs",
+      content:
+        'import { one } from "@e2e/one";\nimport { two } from "@e2e/two";\n\nexport const b = () => one + two;\n',
+    });
+  return submit({ word: "done", changed: ["src/b.mjs"] });
 };
 
 const git = (repo: string, ...args: string[]) =>
@@ -1242,15 +1252,26 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         mkdirSync(join(at, "work"), { recursive: true });
         const registry = standInRegistry(join(at, "registry"));
         try {
-          // A's previous release, which B's lockfile holds before the move.
-          const before = join(at, "a-1.0.0");
-          mkdirSync(before);
-          writeFileSync(
-            join(before, "package.json"),
-            `${JSON.stringify({ name: "@e2e/a", version: "1.0.0", type: "module", exports: "./index.js" }, null, 2)}\n`,
-          );
-          writeFileSync(join(before, "index.js"), "export const a = 1;\n");
-          const one = registry.add("@e2e/a", "1.0.0", before);
+          // The releases B's lockfile holds before the move: one previous version of each package ra ships.
+          const released = (
+            name: string,
+            version: string,
+            exported: string,
+          ) => {
+            const dir = join(at, name.replace(/[^a-z0-9]+/gi, "-"), version);
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(
+              join(dir, "package.json"),
+              `${JSON.stringify({ name, version, type: "module", exports: "./index.js" }, null, 2)}\n`,
+            );
+            writeFileSync(
+              join(dir, "index.js"),
+              `export const ${exported} = 1;\n`,
+            );
+            return registry.add(name, version, dir);
+          };
+          const one = released("@e2e/one", "1.0.0", "one");
+          const two = released("@e2e/two", "0.9.0", "two");
 
           /** A repo on crate: its check, its suite, and the files crate makes a dev image from. */
           const repoOf = (name: string) => {
@@ -1310,41 +1331,57 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
 
           // A, the package: its index.js exports a, which its cl makes 2.
           const ra = repoOf("ra");
+          // A, the package repo: two packages, each its own folder, which its cl makes 2.
+          writeFileSync(
+            join(ra, "crate.toml"),
+            `crate = "1"\nimage = "${image}"\n`,
+          );
           writeFileSync(
             join(ra, "package.json"),
-            `${JSON.stringify({ name: "@e2e/a", version: "1.2.0", type: "module", exports: "./index.js" }, null, 2)}\n`,
+            `${JSON.stringify({ name: "ra-root", version: "0.0.0", private: true }, null, 2)}\n`,
           );
-          writeFileSync(join(ra, "index.js"), "export const a = 1;\n");
           // a repo on crate with no dependencies still has a lockfile: its setup is the repo's offline install.
           writeFileSync(
             join(ra, "package-lock.json"),
             `${JSON.stringify(
               {
-                name: "@e2e/a",
-                version: "1.2.0",
+                name: "ra-root",
+                version: "0.0.0",
                 lockfileVersion: 3,
                 requires: true,
-                packages: {
-                  "": { name: "@e2e/a", version: "1.2.0" },
-                },
+                packages: { "": { name: "ra-root", version: "0.0.0" } },
               },
               null,
               2,
             )}\n`,
           );
+          for (const [folder, name, version] of [
+            ["one", "@e2e/one", "1.2.0"],
+            ["two", "@e2e/two", "1.0.0"],
+          ] as const) {
+            mkdirSync(join(ra, folder));
+            writeFileSync(
+              join(ra, folder, "package.json"),
+              `${JSON.stringify({ name, version, type: "module", exports: "./index.js" }, null, 2)}\n`,
+            );
+            writeFileSync(
+              join(ra, folder, "index.js"),
+              `export const ${folder} = 1;\n`,
+            );
+          }
           git(ra, "add", "-A");
-          git(ra, "commit", "-q", "-m", "feat: the package, with a is 1");
+          git(ra, "commit", "-q", "-m", "feat: the two packages, one and two");
           const raBare = onCrate(ra, "ra");
           const raMain = git(raBare, "rev-parse", "main");
           git(ra, "fetch", "-q", "server", "main");
           // The repo takes its dev image at add: crate made it on the push that checked main.
           const raImage = await devImage(ra);
 
-          // B, which depends on A: its lockfile holds ^1.0.0, from the stand-in registry.
+          // B, which depends on both of A's packages: its lockfile holds their previous versions.
           const rb = repoOf("rb");
           writeFileSync(
             join(rb, "package.json"),
-            `${JSON.stringify({ name: "rb", version: "0.0.0", private: true, type: "module", dependencies: { "@e2e/a": "^1.0.0" } }, null, 2)}\n`,
+            `${JSON.stringify({ name: "rb", version: "0.0.0", private: true, type: "module", dependencies: { "@e2e/one": "^1.0.0", "@e2e/two": "^0.9.0" } }, null, 2)}\n`,
           );
           // npm installs from the stand-in registry: the --registry the move is given.
           writeFileSync(join(rb, ".npmrc"), `registry=${registry.url}\n`);
@@ -1360,12 +1397,20 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
                   "": {
                     name: "rb",
                     version: "0.0.0",
-                    dependencies: { "@e2e/a": "^1.0.0" },
+                    dependencies: {
+                      "@e2e/one": "^1.0.0",
+                      "@e2e/two": "^0.9.0",
+                    },
                   },
-                  "node_modules/@e2e/a": {
+                  "node_modules/@e2e/one": {
                     version: "1.0.0",
                     resolved: one.resolved,
                     integrity: one.integrity,
+                  },
+                  "node_modules/@e2e/two": {
+                    version: "0.9.0",
+                    resolved: two.resolved,
+                    integrity: two.integrity,
                   },
                 },
               },
@@ -1374,7 +1419,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             )}\n`,
           );
           git(rb, "add", "-A");
-          git(rb, "commit", "-q", "-m", "feat: b, on a");
+          git(rb, "commit", "-q", "-m", "feat: b, on the two packages");
           const rbBare = onCrate(rb, "rb");
           const rbStart = git(rbBare, "rev-parse", "main");
           git(rb, "fetch", "-q", "server", "main");
@@ -1384,22 +1429,22 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             join(at, "work", "dp.md"),
             `---
 type: issue
-description: "One package in one repo, its dependent in the other. A fixture of the factory's end to end test."
+description: "Two packages in one repo, their dependent in the other. A fixture of the factory's end to end test."
 kind: task
 priority: P2
 status: new
 ---
-ra is a package, and rb depends on it.
+ra ships two packages, and rb depends on both.
 
 ---
 ## Intent
 
-A and B, each exported, with B on the version A published.
+One and two, each exported, with b on the versions ra published.
 
 ## Done
 
-- ra's index.js exports a, which is 2
-- rb's src/b.mjs exports b, which doubles a, on the version rb depends on
+- ra's one and two each export 2
+- rb's src/b.mjs exports b, which is 4, on the versions rb depends on
 `,
           );
 
@@ -1472,7 +1517,10 @@ A and B, each exported, with B on the version A published.
           let tagged = false;
           let published = false;
           const release = () => {
-            git(raBare, "tag", "v1.2.0", git(raBare, "rev-parse", "main"));
+            const landed = git(raBare, "rev-parse", "main");
+            // crate's version tags, one for each package folder its release made
+            git(raBare, "tag", "one-v1.2.0", landed);
+            git(raBare, "tag", "two-v1.0.0", landed);
             tagged = true;
           };
           const publish = () => {
@@ -1480,14 +1528,15 @@ A and B, each exported, with B on the version A published.
             const tree = join(at, "a-landed");
             if (!existsSync(tree))
               git(ra, "worktree", "add", "--detach", tree, "server/main");
-            registry.add("@e2e/a", "1.2.0", tree);
+            registry.add("@e2e/one", "1.2.0", join(tree, "one"));
+            registry.add("@e2e/two", "1.0.0", join(tree, "two"));
             published = true;
           };
           const settled = ["accepted", "raised", "escalated"];
           // Its own end, before the test's: a case that waits for a cl that never lands ends here, and fails.
           const start = Date.now();
           try {
-            for (let i = 0; i < 60 && Date.now() - start < 180_000; i++) {
+            for (let i = 0; i < 60 && Date.now() - start < 420_000; i++) {
               await l.tick();
               await l.settled();
               if (!tagged && git(raBare, "rev-parse", "main") !== raMain)
@@ -1554,28 +1603,52 @@ A and B, each exported, with B on the version A published.
           // B waited for the version A released, before it started.
           const b = ledger.events("dp-b");
           const held = b.findIndex((e) => e.word === "retry");
-          expect(b[held]?.reason).toMatch(/@e2e\/a.*1\.2\.0.*not on npm yet/);
+          expect(b[held]?.reason).toMatch(/@e2e\/one.*1\.2\.0.*not on npm yet/);
           expect(held).toBeLessThan(b.findIndex((e) => e.to_state === "ready"));
 
-          // Its branch holds the move first, then its own work: the move's commit, and no version of its own.
-          expect(
-            git(rb, "log", "--format=%s", `${rbStart}..assembly/dp-b/head`)
-              .trim()
-              .split("\n")
-              .at(-1),
-          ).toBe("build(deps): @e2e/a to 1.2.0");
+          // Its branch holds the moves first, then its own work: one build commit per package, the second on the
+          // first, and no version of its own.
+          const commits = git(
+            rb,
+            "log",
+            "--format=%H %s",
+            `${rbStart}..assembly/dp-b/head`,
+          )
+            .split("\n")
+            .map((line) => {
+              const [sha, ...subject] = line.split(" ");
+              return { sha, subject: subject.join(" ") };
+            });
+          const builds = commits.filter((c) =>
+            c.subject.startsWith("build(deps): "),
+          );
+          expect(builds.map((c) => c.subject).sort()).toEqual([
+            "build(deps): @e2e/one to 1.2.0",
+            "build(deps): @e2e/two to 1.0.0",
+          ]);
+          const newest = builds[0];
+          const oldest = builds[1];
+          // the second move's commit sits on the first's
+          expect(git(rb, "rev-parse", `${newest?.sha}^`)).toBe(oldest?.sha);
           const manifest = JSON.parse(
             git(rb, "show", "assembly/dp-b/head:package.json"),
           ) as { dependencies: Record<string, string> };
-          expect(manifest.dependencies["@e2e/a"]).toBe("^1.2.0");
+          expect(manifest.dependencies).toMatchObject({
+            "@e2e/one": "^1.2.0",
+            "@e2e/two": "^1.0.0",
+          });
           const lock = JSON.parse(
             git(rb, "show", "assembly/dp-b/head:package-lock.json"),
           ) as { packages: Record<string, { version?: string }> };
-          expect(lock.packages["node_modules/@e2e/a"]?.version).toBe("1.2.0");
+          expect(lock.packages["node_modules/@e2e/one"]?.version).toBe("1.2.0");
+          expect(lock.packages["node_modules/@e2e/two"]?.version).toBe("1.0.0");
 
-          // The item took the dev image of the moved commit, and its attempts ran in it.
+          // The item took a dev image of the moved commits, one its attempts ran in: not main's, which the first
+          // move alone would leave. Its cache holds both moved versions, or the offline setup below fails.
           const moved = ledger.item("dp-b").image;
           expect(moved).not.toBe(image);
+          expect(moved).not.toBe(rbImage);
+          expect(moved).toMatch(/rb-dev:/);
           const db = new DatabaseSync(join(at, "ledger.db"));
           expect(
             db
@@ -1599,8 +1672,9 @@ A and B, each exported, with B on the version A published.
           ).toBe(true);
 
           // Each landed on its own repo's main, and only there.
-          expect(git(raBare, "show", "main:index.js")).toContain("a = 2");
-          expect(git(rbBare, "show", "main:src/b.mjs")).toContain("a * 2");
+          expect(git(raBare, "show", "main:one/index.js")).toContain("one = 2");
+          expect(git(raBare, "show", "main:two/index.js")).toContain("two = 2");
+          expect(git(rbBare, "show", "main:src/b.mjs")).toContain("one + two");
           // The move's commit asks no version: b's repo is released by nothing the move did.
           expect(git(rbBare, "tag", "--list")).toBe("");
           expect(

@@ -946,6 +946,35 @@ describe("advance across repos", () => {
       expect(said("y-b")[0]).toMatch(/@s\/gamma.*2\.0\.0/);
     });
 
+    it("leaves the cl waiting, its issue escalated with the output, when the second move fails", async () => {
+      const world = twoReleased(registryOf(true));
+      vi.mocked(move)
+        .mockResolvedValueOnce("c1")
+        .mockRejectedValueOnce(
+          new Error(
+            "npm error code E404: @s/gamma@2.0.0 is not in this registry",
+          ),
+        );
+      await advance(ledger, world);
+      expect(state("y-b")).toBe("waiting");
+      expect(state("y")).toBe("escalated");
+      const escalation = ledger.events("y").at(-1);
+      expect(escalation).toMatchObject({
+        by: "orchestrator",
+        word: "escalate",
+      });
+      expect(escalation?.reason).toContain(
+        "npm error code E404: @s/gamma@2.0.0 is not in this registry",
+      );
+      expect(ledger.attemptsOf("y-b")).toEqual([]);
+      // its issue is Matt's now: it moves nothing more, and escalates it once
+      await advance(ledger, world);
+      expect(
+        ledger.events("y").filter((e) => e.word === "escalate"),
+      ).toHaveLength(1);
+      expect(vi.mocked(move)).toHaveBeenCalledTimes(2);
+    });
+
     describe("a failed move", () => {
       const fails = [
         {
