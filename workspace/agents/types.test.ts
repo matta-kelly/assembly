@@ -22,21 +22,21 @@ describe("an agent's types", () => {
   it.each([
     ["da-nail", daNail, ["tests"]],
     ["da-hammer", daHammer, ["code"]],
-    ["cl-review", clReview, ["code", "tests", "changelist"]],
-    ["planner", planner, ["issue-note", "plan-note", "changelist", "playbook"]],
+    ["cl-review", clReview, ["code", "tests", "changelist", "cl"]],
+    ["planner", planner, ["issue", "plan", "cl", "changelist", "playbook"]],
     [
       "plan-review",
       planReviewer,
-      ["issue-note", "plan-note", "changelist", "playbook"],
+      ["issue", "plan", "cl", "changelist", "playbook"],
     ],
-    ["issue-review", issueReviewer, ["issue-note"]],
+    ["issue-review", issueReviewer, ["issue"]],
   ] as const)(
     "%s has each of its types, whole, in this order",
     async (_name, make, names) => {
       const notes = await loaded(make("test:model"));
       expect(Object.keys(notes)).toEqual(names.map(sourceOf));
       for (const text of Object.values(notes))
-        expect(text).toMatch(/^---\ntype: doc\n/);
+        expect(text).toMatch(/^---\ntype: (doc|type)\n/);
     },
   );
 

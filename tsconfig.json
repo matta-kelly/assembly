@@ -17,6 +17,7 @@
     "orchestrator",
     "process",
     "workspace",
+    "work",
     "effects",
     "main.ts",
     "main.test.ts",

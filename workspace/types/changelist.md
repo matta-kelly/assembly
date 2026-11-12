@@ -14,8 +14,8 @@ Like an issue, a CL is a piece of intent plus the check that says it is met: its
 - [[#Joining main]] the review and the gate
 
 - [[kinetic#The checks]]: the map, a cl landed on main
-- [[issue-note]]: where a CL comes from
-- [[plan-note]]: how CLs are cut from an issue, and how they link
+- [[issue]]: where a CL comes from
+- [[plan]]: how CLs are cut from an issue, and how they link
 - [[cl]]: the type of its note
 - [[daworks/assembly/workspace/agents/cl-review|review]]: how one is reviewed
 
@@ -59,40 +59,11 @@ What the CL does to behaviors, and so to their tests. The commit type names the 
 
 ## The cl note
 
-The spec of one CL, written before any of it is built, as a contract (Design by Contract: Hoare, 1969; Meyer, 1986): its Check is what it ensures, its `phase` what it requires, its Seam what it keeps. The body that meets it is its builders'. Its type is [[cl]], whose note is the blank form a new one starts from.
-
-- its first line: the cut's intent, one sentence of done, said as what is true after its CL lands
-
-### Check
-
-What it ensures: its promises, each one a future test ([[#Behavior]]). Each promise can fail: a promise nothing could break is no check.
-
-- behavior: given, when, then. It fails before the change and passes after
-- structure: what stays green before and after, by its test files. When the tests themselves are what changes, the code stays as it is, and the mutation score holds
-- a seam it creates: a promise that the seam holds, at its surface
-- a Done item it completes: that item's test, which this cl writes red first ([[kinetic#Policy]], the promise rule)
-- the whole behavior: a cut that asks an outside thing, waits, or says why it did a thing has a promise for each ([[code#Running]]). A promise left out is built by nobody, so the review finds it after the code
-	- the failed ask: what happens when the outside thing fails, or does not answer
-	- the limit: how long a wait may last, and what passing it does
-	- the record: where a reason or a result is kept, and who reads it there
-
-### Seam
-
-What it keeps: the decision the cut hides from the other cls, what it must not change, and what crosses to them: the names, types and shapes the other side reads.
-
-### Checkout
-
-The cl's context on disk: its `checkout` is the paths its builders get, as a git sparse checkout, so they start from what the planner already found and spend no turns finding it. It fences exploration, not edits.
-
-- the paths: every file or folder conceivably relevant to the cut. Err wide: an extra path costs tokens, a missing one costs a raise
-- each path: one line, what it is and why it is here: "`orchestrator/ledger.ts`: the ledger, where an attempt's record is kept"
-- the exemplar: one file in the checkout its builders should write like, since a model of good code in the repo carries further than any rule
-- a fact from outside the code: a probe's output or a doc, written here with its source
-- a gap: a raise, not a search. A builder that needs a path the checkout does not hold raises it and stops, and the planner widens the checkout
+The spec of one CL, written before any of it is built, as a contract (Design by Contract: Hoare, 1969; Meyer, 1986): its Check is what it ensures, its `phase` what it requires, its Seam what it keeps. The body that meets it is its builders'. Its type is [[cl]], whose type note says what each part holds: its first line, its Check, its Seam and its Checkout.
 
 ## Parts
 
-- issue: what it comes from ([[issue-note]]). The commit message points to it: "Updates #n" for a step, "Fixes #n" on the last
+- issue: what it comes from ([[issue]]). The commit message points to it: "Updates #n" for a step, "Fixes #n" on the last
 - workspace ([[workspace]]): one worktree per CL, on a short branch from origin/main
 	- never from local main or another workspace
 	- it lives until the CL lands on main, then it is removed ([[workspace]])

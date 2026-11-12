@@ -14,11 +14,13 @@ cd "$(dirname "$0")/.."
 sets="lint code"
 
 # 2. Each set's commands.
-set_lint() { npm run --silent lint; }
-# The code: types, lint, format and tests, then the factory's recipe test. That test calls scripts/factory.sh, not `just`,
-# so it runs in this image too.
+# The notes lint, from each root: assembly's, which reads the work types through its import, then work's own, alone.
+set_lint() { npm run --silent lint && npx basis lint work/types; }
+# The code: types, the work package's build as npm publishes it, lint, format and tests, then the factory's recipe test.
+# That test calls scripts/factory.sh, not `just`, so it runs in this image too.
 set_code() {
   npx tsc --noEmit &&
+    npm run --silent build --prefix work &&
     npx eslint &&
     npx prettier --check . &&
     npx vitest run &&

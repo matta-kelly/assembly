@@ -6,14 +6,14 @@ status: active
 assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through [[kinetic]]'s process, its plan and its cls, phase by phase, each cl onto main, to accepted. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
-- [[software-factory-v2-design]]: the design it follows
-- the types: what a role works to and is judged against, each a note in `workspace/types/`
-	- [[tests]]: what a test is, its kinds, and what a good one is
-	- [[code]]: how code is written here
-	- [[changelist]]: one self-contained change to main, and what a good one is
-	- [[playbook]]: a proven way to do one kind of change
-	- [[lint]]: the check on code that does not run it
-	- [[issue-note]], [[plan-note]]: what an issue note and a plan note hold
+- the types: what a role works to and is judged against
+	- the work's: [[issue]], [[plan]] and [[cl]], each the type note of a work type, in `work/types/`, which says what each part of its notes holds
+	- the factory's: each a note in `workspace/types/`
+		- [[tests]]: what a test is, its kinds, and what a good one is
+		- [[code]]: how code is written here
+		- [[changelist]]: one self-contained change to main, and what a good one is
+		- [[playbook]]: a proven way to do one kind of change
+		- [[lint]]: the check on code that does not run it
 
 ---
 ## The product line
@@ -38,6 +38,7 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 The model: the four things that travel with a job, each with its rules in the process, its store behind an effect, and its moves in the engine.
 
 - spec: the notes that say what must be true: the issue, the plan and its cls, in kinetic
+	- types: [[issue]], [[plan]] and [[cl]], with [[objective]] and the abstract [[work]], in `work/`: the package `@mku1tra/work`, which holds the types and no notes. A graph that holds work imports it, so work is in any repo, with or without the factory
 	- shapes: held by the process. `effects/notes.ts` reads them by path, or from a git commit
 	- writes: the engine writes only the notes of a spec the factory's planner made, in kinetic's format. No note's `status` is written: the ledger is the status. A finding is never written into a note
 	- Matt's spec: his own notes, which the engine reads at one kinetic commit and never writes
@@ -95,13 +96,13 @@ The machine: what moves jobs from station to station, in four layers put togethe
 			- for every agent: `ls`, `read_file`, `glob`, `grep`
 			- for nail and hammer: `write_file`, `edit_file`, in their sparse checkout
 			- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
-		- `types/`: the notes a role works to and is judged against
+		- `types/`: the factory's own notes that a role works to and is judged against. The work's are type notes, in `work/types/`
 			- in its context: que-pasa's memory middleware reads an agent's types once, when a run is made, keeps them with the run, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
-			- the builders: da-nail [[tests]], da-hammer [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have
-			- the planner and plan-review: [[issue-note]], [[plan-note]], [[changelist]], which holds what a cl note is, and [[playbook]]
-			- issue-review: [[issue-note]]
+			- the builders: da-nail [[tests]], da-hammer [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have, and [[cl]]
+			- the planner and plan-review: [[issue]], [[plan]], [[cl]], [[changelist]] and [[playbook]]
+			- issue-review: [[issue]]
 			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
-			- kinetic's type notes: [[issue]], [[plan]] and [[cl]] are the blank forms a new note starts from. Their words are here, since a type note stays with its schema, in kinetic, where no agent's memory reads
+			- a work type: its type note, the definition itself, so an agent and a person who writes a note read the same text
 - engine: what moves it (`orchestrator/`)
 	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
 	- the tick: `loop.ts`. Starts attempts, up to `concurrent` at once, the open ones first; answers each check's worktree, and records its test run
@@ -214,6 +215,7 @@ What it keeps.
 
 ## Not built
 
+- kinetic on `@mku1tra/work`: kinetic holds its own copy of the work types, until work's first version is on npm
 - the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry` and `ask`
