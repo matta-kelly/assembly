@@ -175,7 +175,7 @@ describe("add", () => {
     });
   });
 
-  it("reads each repo's settings from it: its image from crate.toml, its dev image's tag from the host, no setup with no lockfile", () => {
+  it("reads each repo's settings from it: its image from crate.toml, its dev image's tag as add is given it, no setup with no lockfile", () => {
     const other = join(home, "other");
     onCrate(other, "dev", false);
     expect(

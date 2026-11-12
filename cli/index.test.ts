@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   readFileSync,
   mkdirSync,
@@ -8,20 +9,34 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../effects/repo.ts";
 import { homeOf, main } from "./index.ts";
 
 let home: string;
+let bin: string;
+let path: string;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "factory-"));
+  bin = join(home, "bin");
+  mkdirSync(bin);
+  path = process.env.PATH ?? "";
+  process.env.PATH = `${bin}${delimiter}${path}`;
 });
 afterEach(() => {
+  process.env.PATH = path;
   vi.restoreAllMocks();
   rmSync(home, { recursive: true, force: true });
 });
+
+/** A stand-in for `crate` on the PATH, at the seam: it prints the tag of the dev image it was asked for. */
+function fakeCrate(tag: string): void {
+  const at = join(bin, "crate");
+  writeFileSync(at, `#!/usr/bin/env bash\nprintf '%s\\n' '${tag}'\n`);
+  chmodSync(at, 0o755);
+}
 
 describe("the factory's home", () => {
   it("is ASSEMBLY_HOME, else under XDG_STATE_HOME", () => {
@@ -49,16 +64,10 @@ const read: Reader = {
 
 describe("the command line", () => {
   const add = (note: string, repo: string) =>
-    main(
-      ["add", note, "--repo", repo],
-      {
-        ASSEMBLY_HOME: home,
-        ASSEMBLY_DEV_IMAGES: "repo=ghcr.io/x/repo-dev:abc",
-      },
-      read,
-    );
+    main(["add", note, "--repo", repo], { ASSEMBLY_HOME: home }, read);
 
   it("adds an issue by its note, named by the file", async () => {
+    fakeCrate("localhost/repo-dev:made-by-crate");
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const note = join(home, "my-issue.md");
     writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
@@ -69,7 +78,7 @@ describe("the command line", () => {
     expect(compose({ home }).ledger.item("my-issue")).toMatchObject({
       path: note,
       repo,
-      image: "ghcr.io/x/repo-dev:abc",
+      image: "localhost/repo-dev:made-by-crate",
       test: "scripts/check.sh all",
       state: "open",
     });

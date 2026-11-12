@@ -201,7 +201,23 @@ expect_crate_mount() { # calls, what
   if [ -z "$crate_mount" ]; then
     printf 'AssertionError: %s did not mount crate, the host install, read-only\n' "$2" >&2
     fail=1
+    return
   fi
+  check_crate_on_path "$crate_mount" "$2"
+}
+# The orchestrator runs `crate` by name, so the mounted install's bin must be on the image's PATH: the mount target and
+# the Containerfile's PATH are one promise, and neither side alone proves it.
+check_crate_on_path() { # mount, what
+  local target=${1#*:} bin path
+  target=${target%:ro}
+  bin="$target/bin"
+  path=$(grep -E '^ENV PATH=' "$root/orchestrator/Containerfile" 2>/dev/null | sed -E 's/^ENV PATH=//' || true)
+  case ":$path:" in
+    *":$bin:"*) return 0 ;;
+  esac
+  printf 'AssertionError: %s mounts crate at %s, and the image PATH [%s] does not name %s\n' \
+    "$2" "$target" "$path" "$bin" >&2
+  fail=1
 }
 no_run() { # calls, what
   local f ran=0

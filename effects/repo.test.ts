@@ -233,6 +233,63 @@ describe("a repo's dev image", () => {
     expect(ledgerItem("fx")?.image).toBe("localhost/kinetic-dev:ref");
   });
 
+  it("at submit, takes kinetic's dev image at the --at commit, and each other dev repo's at its own main", async () => {
+    fakeCrate(`name=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = --name ] && name=$a
+  prev=$a
+done
+printf '%s\\n' "localhost/$name-dev:made"`);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const kinetic = join(home, "kinetic");
+    onCrate(kinetic, "dev");
+    mkdirSync(join(kinetic, "_well"));
+    writeFileSync(join(kinetic, "_well", "fx.md"), issue);
+    writeFileSync(join(kinetic, "_well", "fx-a.md"), cl("other"));
+    const spec = commit(kinetic, "the spec");
+    // kinetic's main moves on, so its checkout is not at the spec's commit
+    writeFileSync(join(kinetic, "later.txt"), "later\n");
+    const kineticMain = commit(kinetic, "after the spec");
+    git(kinetic, "update-ref", "refs/remotes/server/main", kineticMain);
+    const other = join(home, "other");
+    onCrate(other, "dev");
+    const otherMain = git(other, "rev-parse", "HEAD");
+    // the other repo's checkout moves on too, so it has no checkout at its own main
+    writeFileSync(join(other, "later.txt"), "later\n");
+    commit(other, "after main");
+    expect(
+      await main(
+        ["submit", "fx", "--repo", kinetic, "--repo", other, "--at", spec],
+        { ASSEMBLY_HOME: home },
+        read,
+      ),
+    ).toBe(0);
+    expect(calls()).toHaveLength(2);
+    expect(calls()).toEqual(
+      expect.arrayContaining([
+        ["-C", kinetic, "dev-image", "ref", "--rev", spec, "--name", "kinetic"],
+        [
+          "-C",
+          other,
+          "dev-image",
+          "ref",
+          "--rev",
+          otherMain,
+          "--name",
+          "other",
+        ],
+      ]),
+    );
+    expect(ledgerItem("fx")?.repos.map((r) => [r.name, r.image])).toEqual(
+      expect.arrayContaining([
+        ["kinetic", "localhost/kinetic-dev:made"],
+        ["other", "localhost/other-dev:made"],
+      ]),
+    );
+    expect(compose({ home }).ledger.spec("fx")?.commit).toBe(spec);
+  });
+
   it("is resolved for each repo of an issue of several dev repos, and each repo carries its own tag", async () => {
     fakeCrate(`name=""
 prev=""
