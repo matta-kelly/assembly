@@ -8,10 +8,10 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Repo } from "../process/step.ts";
-import { sh } from "./sh.ts";
+import { must, sh } from "./sh.ts";
 
 /** The image an issue's own steps run in when it has several repos: they only read. Assembly's own check's. */
 export const readerImage =
@@ -159,17 +159,23 @@ function checkedOut(path: string): string | undefined {
   }
 }
 
-/**
- * The tag crate gives the repo's dev image, made in the orchestrator's image from the host's crate install: from a
- * checkout at `commit`, or, when the checkout is not at it, from the commit itself. Throws a CrateError when it fails.
- */
-export async function devImage(repo: string, commit?: string): Promise<string> {
-  const name = basename(repo);
-  const args =
-    commit !== undefined && checkedOut(repo) !== commit
-      ? ["-C", repo, "dev-image", "ref", "--rev", commit, "--name", name]
-      : ["-C", repo, "dev-image", "local", "--name", name];
-  const ran = await sh("crate", args).catch((e: unknown) => {
+/** Whether `commit` is on main, or one of its ancestors, so its image may already be in the registry. */
+function onMain(repo: string, commit: string): boolean {
+  try {
+    execFileSync(
+      "git",
+      ["-C", repo, "merge-base", "--is-ancestor", commit, mainRef],
+      { stdio: "ignore" },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The tag crate gives back: its last line of output. A failure, or no tag, is a CrateError. */
+async function crateTag(at: string, args: string[]): Promise<string> {
+  const ran = await sh("crate", ["-C", at, ...args]).catch((e: unknown) => {
     throw new CrateError(127, `crate: ${(e as Error).message}`);
   });
   const tag =
@@ -181,4 +187,43 @@ export async function devImage(repo: string, commit?: string): Promise<string> {
   if (ran.code !== 0 || tag === "")
     throw new CrateError(ran.code || 1, ran.out.trim());
   return tag;
+}
+
+/**
+ * The tag crate gives the repo's dev image, made in the orchestrator's image from the host's crate install: from a
+ * checkout at `commit`, a registry lookup when that commit is main's, else from a checkout crate makes at the commit.
+ * Throws a CrateError when it fails.
+ */
+export async function devImage(repo: string, commit?: string): Promise<string> {
+  const name = basename(repo);
+  if (commit === undefined || checkedOut(repo) === commit)
+    return crateTag(repo, ["dev-image", "local", "--name", name]);
+  // A commit the registry may hold: a lookup, which never builds. A branch commit may not be there yet.
+  if (onMain(repo, commit))
+    return crateTag(repo, [
+      "dev-image",
+      "ref",
+      "--rev",
+      commit,
+      "--name",
+      name,
+    ]);
+  // A commit no image has yet: crate builds it from a checkout at it, inside the repo so podman reaches the path.
+  const work = mkdtempSync(join(repo, ".assembly-image-"));
+  rmSync(work, { recursive: true, force: true });
+  try {
+    await must("git", [
+      "-C",
+      repo,
+      "worktree",
+      "add",
+      "--detach",
+      work,
+      commit,
+    ]);
+    return await crateTag(work, ["dev-image", "local", "--name", name]);
+  } finally {
+    await sh("git", ["-C", repo, "worktree", "remove", "--force", work]);
+    rmSync(work, { recursive: true, force: true });
+  }
 }
