@@ -1,9 +1,8 @@
 /**
  * A repo's settings, as the factory runs it, read from the repo's main, so an issue names nothing of them and nothing can
  * disagree with them. An issue that names no repos may change any repo on crate, and its planner picks:
- * - the image: its `crate.toml`'s `image`, the one crate checks it in. `dev` is its own dev image: the host puts it on
- *   this machine with the repo's `scripts/dev-image.sh local`, which prints its tag, and passes the tag in, since the
- *   orchestrator's image has no engine of its own to build it
+ * - the image: its `crate.toml`'s `image`, the one crate checks it in. `dev` is its own dev image, which crate makes
+ *   in the orchestrator's image, from crate's install the host mounts there (devImage)
  * - the full suite: `scripts/check.sh all`, every set of its check
  * - the setup: `npm ci` from the dev image's cache, offline, when it has a lockfile; none when it has not
  */
@@ -12,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Repo } from "../process/step.ts";
+import { sh } from "./sh.ts";
 
 /** The image an issue's own steps run in when it has several repos: they only read. Assembly's own check's. */
 export const readerImage =
@@ -63,7 +63,7 @@ export const gitReader: Reader = {
 
 /**
  * The repo at `path`, with its settings as its main holds them, where the factory builds from, or why it can't be run.
- * `dev` maps a repo's name to its dev image's tag, as the host resolved it.
+ * `dev` maps a repo's name to its dev image's tag, as the factory resolved it with crate.
  */
 export function settingsOf(
   path: string,
@@ -83,7 +83,7 @@ export function settingsOf(
   if (image === "dev" && !dev[name])
     return {
       ok: false,
-      error: `${name}'s image is its dev image, and no tag was given for it: add it through \`just factory\`, which puts it on this machine`,
+      error: `${name}'s image is its dev image, and no tag was given for it: crate could not make it`,
     };
   if (read.file(path, "scripts/check.sh") === undefined)
     return {
@@ -121,6 +121,66 @@ export function reposOn(root: string, read: Reader = gitReader): string[] {
   };
   walk(root, 0);
   return found.sort();
+}
+
+/** The dev repos among `paths`, by name and path: those whose crate.toml names `dev`, read from their main. */
+export function devReposOf(
+  paths: string[],
+  read: Reader = gitReader,
+): { name: string; path: string }[] {
+  return paths.flatMap((path) => {
+    const toml = read.file(path, "crate.toml");
+    return toml !== undefined && tomlValue(toml, "image") === "dev"
+      ? [{ name: basename(path), path }]
+      : [];
+  });
+}
+
+/** crate's failure: the exit code it gave, and its output, as a person reads it. */
+export class CrateError extends Error {
+  readonly exitCode: number;
+  readonly output: string;
+  constructor(exitCode: number, output: string) {
+    super(output);
+    this.exitCode = exitCode;
+    this.output = output;
+  }
+}
+
+/** The commit a repo's checkout is at, or undefined when it has none. */
+function checkedOut(path: string): string | undefined {
+  try {
+    return execFileSync("git", ["-C", path, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The tag crate gives the repo's dev image, made in the orchestrator's image from the host's crate install: from a
+ * checkout at `commit`, or, when the checkout is not at it, from the commit itself. Throws a CrateError when it fails.
+ */
+export async function devImage(repo: string, commit?: string): Promise<string> {
+  const name = basename(repo);
+  const args =
+    commit !== undefined && checkedOut(repo) !== commit
+      ? ["-C", repo, "dev-image", "ref", "--rev", commit, "--name", name]
+      : ["-C", repo, "dev-image", "local", "--name", name];
+  const ran = await sh("crate", args).catch((e: unknown) => {
+    throw new CrateError(127, `crate: ${(e as Error).message}`);
+  });
+  const tag =
+    ran.stdout
+      .split("\n")
+      .filter((line) => line.trim())
+      .at(-1)
+      ?.trim() ?? "";
+  if (ran.code !== 0 || tag === "")
+    throw new CrateError(ran.code || 1, ran.out.trim());
+  return tag;
 }
 
 /** The dev images' tags as the host passes them: `name=tag` pairs, comma-separated. */

@@ -27,3 +27,6 @@ RUN curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/v${G
   && rm -rf /tmp/gh.tgz "/tmp/gh_${GH}_linux_amd64"
 
 ENV CONTAINER_HOST=unix:///run/podman/podman.sock
+
+# crate, the host's install, is mounted read-only here, so the orchestrator makes each dev repo's image with it.
+ENV PATH=/usr/local/share/crate/bin:$PATH

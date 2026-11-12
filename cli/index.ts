@@ -14,17 +14,28 @@
  *
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
  * Each repo's image, full suite and setup are read from its main (effects/repo.ts). A repo checked in its dev image needs
- * that image's tag, which the host puts in $ASSEMBLY_DEV_IMAGES as name=tag pairs (`just factory` does both).
+ * that image's tag, which crate makes here for each dev repo, unless the host passed it in $ASSEMBLY_DEV_IMAGES as
+ * name=tag pairs (`just factory` no longer does).
  *
  * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly.
  */
 
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
-import { devImagesOf, gitReader, type Reader } from "../effects/repo.ts";
+import { commitOf } from "../effects/notes.ts";
+import {
+  CrateError,
+  devImage,
+  devImagesOf,
+  devReposOf,
+  gitReader,
+  mainRef,
+  type Reader,
+  reposOn,
+} from "../effects/repo.ts";
 import { add, approve, type Done, replan, submit } from "./add.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
@@ -49,6 +60,33 @@ const print = ({ code, lines }: Done) => {
   (code === 0 ? console.log : console.error)(lines.join("\n"));
   return code;
 };
+
+/** The paths of the repos an issue may change: those given, else every repo on crate under the root. */
+function repoPaths(
+  repos: string[],
+  root: string | undefined,
+  read: Reader,
+): string[] {
+  const paths = repos.length ? repos : root ? reposOn(resolve(root), read) : [];
+  return paths.map((path) => resolve(path));
+}
+
+/**
+ * The dev images' tags: the host's, which still win, and one crate makes for each dev repo it did not pass. Throws a
+ * CrateError, with crate's output and exit code, when crate fails.
+ */
+async function resolveDevImages(
+  paths: string[],
+  passed: Record<string, string>,
+  commitOfRepo: (path: string) => string | undefined,
+): Promise<Record<string, string>> {
+  const dev = { ...passed };
+  for (const { name, path } of devReposOf(paths)) {
+    if (dev[name]) continue;
+    dev[name] = await devImage(path, commitOfRepo(path));
+  }
+  return dev;
+}
 
 /** The command line: one verb, and its arguments. Gives back the exit code. */
 export async function main(
@@ -79,10 +117,30 @@ export async function main(
     case "add":
     case "submit": {
       if (!arg) break;
+      const paths = repoPaths(values.repo ?? [], env["ASSEMBLY_REPOS"], read);
+      // the spec's commit is the one that matters for kinetic; another repo's dev image comes from its own main
+      const commitOfRepo = (path: string) =>
+        verb === "submit"
+          ? commitOf(
+              path,
+              basename(path) === "kinetic" ? (values.at ?? mainRef) : mainRef,
+            )
+          : undefined;
+      let dev: Record<string, string>;
+      try {
+        dev = await resolveDevImages(
+          paths,
+          devImagesOf(env["ASSEMBLY_DEV_IMAGES"]),
+          commitOfRepo,
+        );
+      } catch (e) {
+        if (!(e instanceof CrateError)) throw e;
+        return print({ code: e.exitCode, lines: [e.output] });
+      }
       const done = (verb === "add" ? add : submit)(factory, arg, {
         repos: values.repo ?? [],
         root: env["ASSEMBLY_REPOS"],
-        dev: devImagesOf(env["ASSEMBLY_DEV_IMAGES"]),
+        dev,
         read,
         at: values.at,
       });
