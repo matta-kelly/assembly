@@ -35,8 +35,8 @@ const said = (word: Message["word"], reason: string): Message => ({
 
 /**
  * What add and submit are given: the repos the issue may change, each by its path, or none, for every repo on crate
- * under `root`, among which its planner picks; and the tags of the dev images the host put on this machine, by repo
- * name. Each repo's image, full suite and setup are read from its main (effects/repo.ts).
+ * under `root`, among which its planner picks; and the dev image tags crate made, by repo name. Each repo's image, full
+ * suite and setup are read from its main (effects/repo.ts).
  */
 export interface Options {
   repos: string[];
@@ -49,7 +49,9 @@ export interface Options {
 type At = { path: string; name: string; repos: Repo[]; done?: never };
 
 /** The paths of the repos an issue may change: those given, else every repo on crate under the root. */
-function given(o: Options): { paths: string[]; done?: never } | { done: Done } {
+export function given(
+  o: Options,
+): { paths: string[]; done?: never } | { done: Done } {
   const paths = (
     o.repos.length ? o.repos : o.root ? reposOn(o.root, o.read) : []
   ).map((each) => resolve(each));

@@ -182,13 +182,3 @@ export async function devImage(repo: string, commit?: string): Promise<string> {
     throw new CrateError(ran.code || 1, ran.out.trim());
   return tag;
 }
-
-/** The dev images' tags as the host passes them: `name=tag` pairs, comma-separated. */
-export function devImagesOf(value: string | undefined): Record<string, string> {
-  return Object.fromEntries(
-    (value ?? "")
-      .split(",")
-      .map((pair) => pair.split("="))
-      .filter((p): p is [string, string] => p.length === 2 && !!p[0] && !!p[1]),
-  );
-}
