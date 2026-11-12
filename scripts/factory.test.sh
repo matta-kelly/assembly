@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# `just factory` on the laptop and on the server. With ASSEMBLY_SERVER set, the verb runs on the server over ssh: the
-# stub `ssh` on the PATH shows the command, and the stubs for the local runners show it ran nothing here. With it unset,
-# the verb runs here, and only `run` takes the model key through rbw-run. Each case asserts its own result.
+# The factory's recipe, `scripts/factory.sh`, on the laptop and on the server. The test runs the script the justfile's
+# `factory` recipe calls, so it runs in the check's image too, where there is no `just`. With ASSEMBLY_SERVER set, the
+# verb runs on the server over ssh: the stub `ssh` on the PATH shows the command, and the stubs for the local runners
+# show it ran nothing here. With it unset, the verb runs here, and only `run` takes the model key through rbw-run. Each
+# case asserts its own result.
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -65,6 +67,12 @@ present() { # file, what
     fail=1
   fi
 }
+has_arg() { # file, argument, what
+  if ! grep -qxF -- "$2" "$1" 2>/dev/null; then
+    printf 'AssertionError: %s did not get [%s]\n' "$3" "$2" >&2
+    fail=1
+  fi
+}
 has_env() { # calls, variable, value, what: -e VAR=value, or -e VAR with the value in the run's environment
   local calls=$1 var=$2 value=$3 what=$4
   if grep -qxF -- "$var=$value" "$calls/podman" 2>/dev/null; then return; fi
@@ -74,8 +82,9 @@ has_env() { # calls, variable, value, what: -e VAR=value, or -e VAR with the val
   fail=1
 }
 
-if ! just=$(command -v just); then
-  echo "AssertionError: just is not on the PATH" >&2
+factory=$root/scripts/factory.sh
+if [ ! -x "$factory" ]; then
+  echo "AssertionError: scripts/factory.sh is not there, or not executable" >&2
   exit 1
 fi
 
@@ -94,7 +103,7 @@ out=$(
   cd "$root" &&
     PATH="$stub:$PATH" CALLS="$calls" SAID="on the server" SAID_CODE=0 \
       ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
-      "$just" factory status 2>"$calls/err"
+      "$factory" status 2>"$calls/err"
 )
 code=$?
 check "status gives back the server's exit code" 0 "$code"
@@ -112,12 +121,28 @@ out=$(
   cd "$root" &&
     PATH="$stub:$PATH" CALLS="$calls" SAID="submitted" SAID_CODE=0 \
       ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
-      "$just" factory submit fx 2>"$calls/err"
+      "$factory" submit fx 2>"$calls/err"
 )
 code=$?
 check "submit gives back the server's exit code" 0 "$code"
 check "submit runs over ssh, with its arguments" \
   "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\nfx')" \
+  "$(cat "$calls/ssh" 2>/dev/null || true)"
+absent "$calls/podman" "podman"
+absent "$calls/rbw-run" "rbw-run"
+
+# an option's value is not the issue: a repo path goes to the server, and is not refused as a note path
+calls=$(calls_for repo)
+out=$(
+  cd "$root" &&
+    PATH="$stub:$PATH" CALLS="$calls" SAID="submitted" SAID_CODE=0 \
+      ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
+      "$factory" submit --repo /srv/clones/repo fx 2>"$calls/err"
+)
+code=$?
+check "submit takes a repo path to the server" 0 "$code"
+check "the repo path and the issue go over ssh in order" \
+  "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\n--repo\n/srv/clones/repo\nfx')" \
   "$(cat "$calls/ssh" 2>/dev/null || true)"
 absent "$calls/podman" "podman"
 absent "$calls/rbw-run" "rbw-run"
@@ -128,7 +153,7 @@ out=$(
   cd "$root" &&
     PATH="$stub:$PATH" CALLS="$calls" SAID="refused by the server" SAID_CODE=7 \
       ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
-      "$just" factory run --every 5 2>"$calls/err"
+      "$factory" run --every 5 2>"$calls/err"
 )
 code=$?
 check "a server failure is the laptop's exit code" 7 "$code"
@@ -142,15 +167,15 @@ absent "$calls/rbw-run" "rbw-run"
 # a note path is refused: the server reads its notes from git, and submit takes an issue's name
 note=$tmp/fx.md
 printf -- '---\ntype: issue\n---\n' >"$note"
-for row in "add|$note" "submit|notes/fx.md"; do
+for row in "add|$note" "submit|notes/fx.md" "add|fx.md" "submit|notes/fx"; do
   verb=${row%%|*}
   arg=${row#*|}
-  calls=$(calls_for "path-${verb}")
+  calls=$(calls_for "path-${verb}-$(printf '%s' "$arg" | tr '/' '_')")
   out=$(
     cd "$root" &&
       PATH="$stub:$PATH" CALLS="$calls" SAID="on the server" SAID_CODE=0 \
         ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
-        "$just" factory "$verb" "$arg" 2>&1
+        "$factory" "$verb" "$arg" 2>&1
   )
   code=$?
   if [ "$code" -eq 0 ]; then
@@ -170,7 +195,7 @@ done
 # --- the folder and the home --------------------------------------------------------------------------------------
 
 # given ASSEMBLY_REPOS and ASSEMBLY_HOME, when the verb runs here, then the command line gets both, and each falls back
-# on its own: the folder to lot, the home to the state folder. The final podman run carries them.
+# on its own: the folder to lot, the home to the state folder. The final podman run carries them and mounts the folder.
 repos=$tmp/repos
 mkdir -p "$repos"
 given_home=$tmp/given-home
@@ -184,12 +209,13 @@ check_here() { # name, want repos, want home, xdg state, assignments...
     cd "$root" &&
       env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME \
         PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$xdg" "$@" \
-        "$just" factory status 2>"$calls/err"
+        "$factory" status 2>"$calls/err"
   )
   local code=$?
   check "$name: status runs here" 0 "$code"
   has_env "$calls" ASSEMBLY_REPOS "$want_repos" "$name: the folder"
   has_env "$calls" ASSEMBLY_HOME "$want_home" "$name: the home"
+  has_arg "$calls/podman" "$want_repos:$want_repos" "$name: the folder as a mount"
   absent "$calls/ssh" "ssh ($name)"
 }
 check_here both "$repos" "$given_home" "$tmp/state-both" \
@@ -217,7 +243,7 @@ calls=$(calls_for here-dev)
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
       CALLS="$calls" XDG_STATE_HOME="$tmp/state-dev" ASSEMBLY_REPOS="$roots" \
-      ASSEMBLY_HOME="$tmp/home-dev" "$just" factory submit fx 2>"$calls/err"
+      ASSEMBLY_HOME="$tmp/home-dev" "$factory" submit fx 2>"$calls/err"
 )
 code=$?
 check "a dev repo under the given folder, submit runs here" 0 "$code"
@@ -233,7 +259,7 @@ calls=$(calls_for here-status)
 out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER PATH="$stub:$PATH" CALLS="$calls" \
-      XDG_STATE_HOME="$tmp/state" "$just" factory status 2>"$calls/err"
+      XDG_STATE_HOME="$tmp/state" "$factory" status 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, status runs here" 0 "$code"
@@ -246,7 +272,7 @@ calls=$(calls_for here-run)
 out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER PATH="$stub:$PATH" CALLS="$calls" \
-      XDG_STATE_HOME="$tmp/state" "$just" factory run 2>"$calls/err"
+      XDG_STATE_HOME="$tmp/state" "$factory" run 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, run runs here" 0 "$code"
