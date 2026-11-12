@@ -3,7 +3,7 @@
 # `factory` recipe calls, so it runs in the check's image too, where there is no `just`. With ASSEMBLY_SERVER set, the
 # verb runs on the server over ssh: the stub `ssh` on the PATH shows the command, and the stubs for the local runners
 # show it ran nothing here. With it unset, the verb runs here, and only `run` takes the model key through rbw-run. Each
-# case asserts its own result.
+# here case asserts the podman build and the whole run it asks for. Each case asserts its own result.
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,12 +18,16 @@ mkdir -p "$XDG_RUNTIME_DIR"
 stub=$tmp/bin
 mkdir -p "$stub"
 
-# podman: its arguments, and the environment the run was given.
+# podman: every call, in order, with its arguments and the environment the run was given.
 cat >"$stub/podman" <<'STUB'
 #!/usr/bin/env bash
-printf '%s\n' "$@" >"$CALLS/podman"
+n=0
+[ -f "$CALLS/podman-count" ] && read -r n <"$CALLS/podman-count"
+n=$((n + 1))
+printf '%s\n' "$n" >"$CALLS/podman-count"
+printf '%s\n' "$@" >"$CALLS/podman.$n"
 printf 'ASSEMBLY_REPOS=%s\nASSEMBLY_HOME=%s\nASSEMBLY_DEV_IMAGES=%s\n' \
-  "${ASSEMBLY_REPOS-}" "${ASSEMBLY_HOME-}" "${ASSEMBLY_DEV_IMAGES-}" >"$CALLS/podman-env"
+  "${ASSEMBLY_REPOS-}" "${ASSEMBLY_HOME-}" "${ASSEMBLY_DEV_IMAGES-}" >"$CALLS/podman-env.$n"
 exit 0
 STUB
 
@@ -65,19 +69,25 @@ present() { # file, what
     fail=1
   fi
 }
-has_pair() { # file, flag, value, what
-  if ! grep -A1 -xF -- "$2" "$1" 2>/dev/null | grep -qxF -- "$3"; then
-    printf 'AssertionError: %s did not get [%s %s]\n' "$4" "$2" "$3" >&2
-    fail=1
-  fi
-}
-has_env() { # calls, variable, value, what: -e VAR=value, or -e VAR with the value in the run's environment
-  local calls=$1 var=$2 value=$3 what=$4
-  if grep -qxF -- "$var=$value" "$calls/podman" 2>/dev/null; then return; fi
-  if grep -qxF -- "$var" "$calls/podman" 2>/dev/null &&
-    grep -qxF -- "$var=$value" "$calls/podman-env" 2>/dev/null; then return; fi
+has_env() { # calls, n, variable, value, what: -e VAR=value, or -e VAR with the value in the run's environment
+  local calls=$1 n=$2 var=$3 value=$4 what=$5
+  if grep -qxF -- "$var=$value" "$calls/podman.$n" 2>/dev/null; then return; fi
+  if grep -qxF -- "$var" "$calls/podman.$n" 2>/dev/null &&
+    grep -qxF -- "$var=$value" "$calls/podman-env.$n" 2>/dev/null; then return; fi
   printf 'AssertionError: %s did not get [%s=%s]\n' "$what" "$var" "$value" >&2
   fail=1
+}
+exact_call() { # calls, n, what, the argument list it must be
+  local calls=$1 n=$2 what=$3
+  shift 3
+  local want got
+  want=$(printf '%s\n' "$@")
+  got=$(cat "$calls/podman.$n" 2>/dev/null || true)
+  if [ "$want" != "$got" ]; then
+    printf 'AssertionError: %s (podman call %s) did not match\n' "$what" "$n" >&2
+    printf 'wanted:\n%s\ngot:\n%s\n' "$want" "$got" >&2
+    fail=1
+  fi
 }
 
 factory=$root/scripts/factory.sh
@@ -91,6 +101,74 @@ calls_for() {
   local dir=$tmp/$1
   mkdir -p "$dir"
   printf '%s' "$dir"
+}
+
+# The git identity is the host's, empty in the check image: the test reads no name, so it expects `-e GIT_*=` exactly.
+fake_home=$tmp/fake-home
+mkdir -p "$fake_home"
+
+# The two calls a run here makes: the build, then the run. `launch_args` fills build_args and run_args for the exact
+# comparison; its arguments are the working directory, the repos folder, the home, the verb and its arguments.
+launch_args() { # cwd, repos, home, verb, args...
+  local cwd=$1 want_repos=$2 want_home=$3 verb=$4
+  shift 4
+  build_args=(
+    build
+    -q
+    -t
+    localhost/assembly-orchestrator
+    -f
+    "$root/orchestrator/Containerfile"
+    "$root/orchestrator"
+  )
+  run_args=(
+    run
+    --rm
+    --userns=keep-id:uid=1000,gid=1000
+    --security-opt
+    label=disable
+    -u
+    node
+    -e
+    FIREWORKS_API_KEY
+    -e
+    GH_TOKEN
+    -e
+    ASSEMBLY_DEV_IMAGES
+    -e
+    ASSEMBLY_REPOS
+    -e
+    GIT_AUTHOR_NAME=
+    -e
+    GIT_AUTHOR_EMAIL=
+    -e
+    GIT_COMMITTER_NAME=
+    -e
+    GIT_COMMITTER_EMAIL=
+    -v
+    "$fake_home/.local/bin/git-land:/usr/local/bin/git-land:ro"
+    -e
+    ASSEMBLY_HOME
+    -e
+    "HOST_HOME=$fake_home"
+    -v
+    "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock"
+    -v
+    "$want_repos:$want_repos"
+    -v
+    "$want_home:$want_home"
+  )
+  if [ "$want_repos" != "$lot" ]; then run_args+=(-v "$lot:$lot"); fi
+  run_args+=(
+    -w
+    "$cwd"
+    localhost/assembly-orchestrator
+    node
+    --disable-warning=ExperimentalWarning
+    "$root/cli/index.ts"
+    "$verb"
+  )
+  run_args+=("$@")
 }
 
 # --- the laptop ---------------------------------------------------------------------------------------------------
@@ -109,7 +187,7 @@ check "status gives back the server's output" "on the server" "$out"
 check "status runs over ssh" \
   "$(printf 'assembly@monkeybusiness\nfactory\nstatus')" \
   "$(cat "$calls/ssh" 2>/dev/null || true)"
-absent "$calls/podman" "podman"
+absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
 # a verb takes its arguments to the server, and a name is not a path
@@ -125,7 +203,7 @@ check "submit gives back the server's exit code" 0 "$code"
 check "submit runs over ssh, with its arguments" \
   "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\nfx')" \
   "$(cat "$calls/ssh" 2>/dev/null || true)"
-absent "$calls/podman" "podman"
+absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
 # an option's value is not the issue: a repo path goes to the server, and is not refused as a note path
@@ -141,7 +219,7 @@ check "submit takes a repo path to the server" 0 "$code"
 check "the repo path and the issue go over ssh in order" \
   "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\n--repo\n/srv/clones/repo\nfx')" \
   "$(cat "$calls/ssh" 2>/dev/null || true)"
-absent "$calls/podman" "podman"
+absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
 # a failure on the server is the laptop's failure, with the same output
@@ -158,7 +236,7 @@ check "a server failure keeps its output" "refused by the server" "$out"
 check "run takes every argument over ssh" \
   "$(printf 'assembly@monkeybusiness\nfactory\nrun\n--every\n5')" \
   "$(cat "$calls/ssh" 2>/dev/null || true)"
-absent "$calls/podman" "podman"
+absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
 # a note path is refused: the server reads its notes from git, and submit takes an issue's name
@@ -192,7 +270,7 @@ done
 # --- the folder and the home --------------------------------------------------------------------------------------
 
 # given ASSEMBLY_REPOS and ASSEMBLY_HOME, when the verb runs here, then the command line gets both, and each falls back
-# on its own: the folder to lot, the home to the state folder. The final podman run carries them and mounts the folder.
+# on its own: the folder to lot, the home to the state folder. The build and the run carry them and mount the folder.
 repos=$tmp/repos
 mkdir -p "$repos"
 given_home=$tmp/given-home
@@ -205,18 +283,18 @@ check_here() { # name, want repos, want home, xdg state, assignments...
   (
     cd "$root" &&
       env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
-        PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$xdg" "$@" \
-        "$factory" status 2>"$calls/err"
+        PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$xdg" \
+        HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        "$@" "$factory" status 2>"$calls/err"
   )
   local code=$?
   check "$name: status runs here" 0 "$code"
-  has_env "$calls" ASSEMBLY_REPOS "$want_repos" "$name: the folder"
-  has_env "$calls" ASSEMBLY_HOME "$want_home" "$name: the home"
-  has_pair "$calls/podman" -v "$want_repos:$want_repos" "$name: the folder as a mount"
-  has_pair "$calls/podman" -v "$want_home:$want_home" "$name: the home as a mount"
-  if [ "$want_repos" != "$lot" ]; then
-    has_pair "$calls/podman" -v "$lot:$lot" "$name: lot as a mount, beside the folder"
-  fi
+  has_env "$calls" 2 ASSEMBLY_REPOS "$want_repos" "$name: the folder"
+  has_env "$calls" 2 ASSEMBLY_HOME "$want_home" "$name: the home"
+  launch_args "$root" "$want_repos" "$want_home" status
+  check "$name: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
+  exact_call "$calls" 1 "$name: the build" "${build_args[@]}"
+  exact_call "$calls" 2 "$name: the run" "${run_args[@]}"
   absent "$calls/ssh" "ssh ($name)"
 }
 check_here both "$repos" "$given_home" "$tmp/state-both" \
@@ -244,13 +322,20 @@ calls=$(calls_for here-dev)
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
       CALLS="$calls" XDG_STATE_HOME="$tmp/state-dev" ASSEMBLY_REPOS="$roots" \
-      ASSEMBLY_HOME="$tmp/home-dev" "$factory" submit fx 2>"$calls/err"
+      ASSEMBLY_HOME="$tmp/home-dev" HOME="$fake_home" \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      "$factory" submit fx 2>"$calls/err"
 )
 code=$?
 check "a dev repo under the given folder, submit runs here" 0 "$code"
-has_env "$calls" ASSEMBLY_REPOS "$roots" "the folder given"
-has_env "$calls" ASSEMBLY_DEV_IMAGES "devrepo=localhost/devrepo:tag" \
+has_env "$calls" 2 ASSEMBLY_REPOS "$roots" "the folder given"
+has_env "$calls" 2 ASSEMBLY_DEV_IMAGES "devrepo=localhost/devrepo:tag" \
   "the dev image under the given folder"
+launch_args "$root" "$roots" "$tmp/home-dev" submit fx
+check "a dev repo under the given folder: podman's two calls" 2 \
+  "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "a dev repo under the given folder: the build" "${build_args[@]}"
+exact_call "$calls" 2 "a dev repo under the given folder: the run" "${run_args[@]}"
 absent "$calls/ssh" "ssh (a dev repo under the given folder)"
 
 # --- the server ---------------------------------------------------------------------------------------------------
@@ -260,14 +345,21 @@ calls=$(calls_for here-status)
 out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
-      PATH="$stub:$PATH" CALLS="$calls" \
-      XDG_STATE_HOME="$tmp/state" "$factory" status 2>"$calls/err"
+      PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
+      HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      "$factory" status 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, status runs here" 0 "$code"
-present "$calls/podman" "podman"
+present "$calls/podman-count" "podman"
 absent "$calls/ssh" "ssh"
 absent "$calls/rbw-run" "rbw-run (status takes no key)"
+has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "here status: the folder"
+has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state/assembly" "here status: the home"
+launch_args "$root" "$lot" "$tmp/state/assembly" status
+check "here status: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "here status: the build" "${build_args[@]}"
+exact_call "$calls" 2 "here status: the run" "${run_args[@]}"
 
 # the command is called from another folder: the container's working directory is that folder, not the repo's root
 elsewhere=$tmp/elsewhere
@@ -276,13 +368,20 @@ calls=$(calls_for elsewhere)
 (
   cd "$elsewhere" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
-      PATH="$stub:$PATH" CALLS="$calls" \
-      XDG_STATE_HOME="$tmp/state-elsewhere" "$factory" status 2>"$calls/err"
+      PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state-elsewhere" \
+      HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      "$factory" status 2>"$calls/err"
 )
 code=$?
 check "from another folder, status runs here" 0 "$code"
-has_pair "$calls/podman" -w "$elsewhere" "the folder the command is called from, as the working directory"
-if grep -A1 -xF -- -w "$calls/podman" 2>/dev/null | grep -qxF -- "$root"; then
+present "$calls/podman-count" "podman"
+has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "elsewhere: the folder"
+has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state-elsewhere/assembly" "elsewhere: the home"
+launch_args "$elsewhere" "$lot" "$tmp/state-elsewhere/assembly" status
+check "elsewhere: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "elsewhere: the build" "${build_args[@]}"
+exact_call "$calls" 2 "elsewhere: the run" "${run_args[@]}"
+if grep -A1 -xF -- -w "$calls/podman.2" 2>/dev/null | grep -qxF -- "$root"; then
   printf 'AssertionError: the container got the repo root as its working directory\n' >&2
   fail=1
 fi
@@ -293,13 +392,14 @@ calls=$(calls_for here-run)
 out=$(
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
-      PATH="$stub:$PATH" CALLS="$calls" \
-      XDG_STATE_HOME="$tmp/state" "$factory" run 2>"$calls/err"
+      PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
+      HOME="$fake_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      "$factory" run 2>"$calls/err"
 )
 code=$?
 check "with no ASSEMBLY_SERVER, run runs here" 0 "$code"
 present "$calls/rbw-run" "rbw-run"
-present "$calls/podman" "podman"
+present "$calls/podman-count" "podman"
 abs=""
 [ -e "$calls/rbw-run" ] && abs=$(cat "$calls/rbw-run")
 case "$abs" in
@@ -309,6 +409,12 @@ case "$abs" in
     fail=1
     ;;
 esac
+has_env "$calls" 2 ASSEMBLY_REPOS "$lot" "here run: the folder"
+has_env "$calls" 2 ASSEMBLY_HOME "$tmp/state/assembly" "here run: the home"
+launch_args "$root" "$lot" "$tmp/state/assembly" run
+check "here run: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "here run: the build" "${build_args[@]}"
+exact_call "$calls" 2 "here run: the run" "${run_args[@]}"
 absent "$calls/ssh" "ssh"
 
 exit "$fail"
