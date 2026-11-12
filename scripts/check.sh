@@ -15,12 +15,14 @@ sets="lint code"
 
 # 2. Each set's commands.
 set_lint() { npm run --silent lint; }
-# The code: types, lint, format and tests.
+# The code: types, lint, format and tests, then the factory's recipe test. That test calls scripts/factory.sh, not `just`,
+# so it runs in this image too.
 set_code() {
   npx tsc --noEmit &&
     npx eslint &&
     npx prettier --check . &&
-    npx vitest run
+    npx vitest run &&
+    scripts/factory.test.sh
 }
 
 # 3. The sets a changed file needs. A file no rule names needs every set, so a missing rule runs more, never less.

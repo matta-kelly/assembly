@@ -193,7 +193,7 @@ What it keeps.
 ## Built
 
 - the machine: an issue from open to accepted, proven end to end on scripted models, with an attempt taken up after a stop (`just e2e`)
-- the command line: `just factory`, its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, and its repos from `$ASSEMBLY_REPOS`, else lot
+- the command line: `scripts/factory.sh`, which `just factory` calls and the gate tests without `just`: its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, and its repos from `$ASSEMBLY_REPOS`, else lot
 	- on the laptop: `ASSEMBLY_SERVER` set runs the verb on the server over ssh, with its exit code and output. A note path is refused there: the server reads its notes from git, and `submit` takes an issue's name
 	- each command: a message through the one door, as Matt
 	- `add`: an issue, which enters at open, for the planner
@@ -206,7 +206,7 @@ What it keeps.
 	- `run`: the loop, until a signal stops it. Its attempts stay open
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's messages, attempts, costs and traces)
 - the dependencies in an attempt: an offline install from the dev image's cache, once per worktree, proven on a que-pasa worktree (setup in 11 s, then its tests pass, no network)
-- the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests (podman and git faked). `just e2e` is not in it, since it needs the podman socket
+- the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests, then `scripts/factory.test.sh` (podman, ssh, rbw-run, node and git faked), so a fault in the recipe fails the check. `just e2e` is not in it, since it needs the podman socket
 
 ## Not built
 
