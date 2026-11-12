@@ -18,8 +18,6 @@ mkdir -p "$XDG_RUNTIME_DIR"
 stub=$tmp/bin
 mkdir -p "$stub"
 
-# What each local runner was asked to do, written into the case's CALLS folder by name.
-
 # podman: its arguments, and the environment the run was given.
 cat >"$stub/podman" <<'STUB'
 #!/usr/bin/env bash
@@ -64,12 +62,6 @@ absent() { # file, what
 present() { # file, what
   if [ ! -e "$1" ]; then
     printf 'AssertionError: %s did not run\n' "$2" >&2
-    fail=1
-  fi
-}
-has_arg() { # file, argument, what
-  if ! grep -qxF -- "$2" "$1" 2>/dev/null; then
-    printf 'AssertionError: %s did not get [%s]\n' "$3" "$2" >&2
     fail=1
   fi
 }
@@ -220,7 +212,11 @@ check_here() { # name, want repos, want home, xdg state, assignments...
   check "$name: status runs here" 0 "$code"
   has_env "$calls" ASSEMBLY_REPOS "$want_repos" "$name: the folder"
   has_env "$calls" ASSEMBLY_HOME "$want_home" "$name: the home"
-  has_arg "$calls/podman" "$want_repos:$want_repos" "$name: the folder as a mount"
+  has_pair "$calls/podman" -v "$want_repos:$want_repos" "$name: the folder as a mount"
+  has_pair "$calls/podman" -v "$want_home:$want_home" "$name: the home as a mount"
+  if [ "$want_repos" != "$lot" ]; then
+    has_pair "$calls/podman" -v "$lot:$lot" "$name: lot as a mount, beside the folder"
+  fi
   absent "$calls/ssh" "ssh ($name)"
 }
 check_here both "$repos" "$given_home" "$tmp/state-both" \
