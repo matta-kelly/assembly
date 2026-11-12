@@ -25,8 +25,7 @@ import {
 import type { Message } from "../process/step.ts";
 import type { Item, Ledger } from "./ledger.ts";
 import { writeNote } from "../effects/notes.ts";
-import type { Reader } from "../effects/repo.ts";
-import { devImage } from "../effects/repo.ts";
+import { devImage, type Reader } from "../effects/repo.ts";
 import type { Registry } from "../effects/registry.ts";
 import { move } from "../effects/move.ts";
 import { top } from "../process/table.ts";
@@ -241,7 +240,8 @@ async function versionFor(
 
 /**
  * Moves a released cl's repo onto the version it needs, and takes the dev image of the commit its move made, which the
- * cl's attempts run in. A failure escalates its issue, with the command's output, and leaves the cl waiting. Gives back
+ * cl's attempts run in. The issue's repo entry takes the same image, so the issue's own steps and acceptance run the
+ * moved lockfile too. A failure escalates its issue, with the command's output, and leaves the cl waiting. Gives back
  * whether the cl may start.
  */
 async function released(
@@ -271,6 +271,7 @@ async function released(
     return false;
   }
   ledger.reimage(cl.name, image);
+  ledger.reimageRepo(cl.issue, cl.repo, image);
   return true;
 }
 

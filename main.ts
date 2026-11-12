@@ -12,9 +12,8 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
-import { models as hostModels } from "./effects/models.ts";
+import { models as hostModels, modelOf } from "./effects/models.ts";
 import { agents } from "./workspace/agents/index.ts";
-import { modelOf } from "./effects/models.ts";
 import { landedTags } from "./effects/git.ts";
 import { npmRegistry, type Registry } from "./effects/registry.ts";
 import { gitReader } from "./effects/repo.ts";

@@ -1,6 +1,6 @@
-# The orchestrator's image: node, git, the podman client and gh. The orchestrator runs here, never on the host. It starts
-# its attempts' containers through the host's podman socket, so every path it hands podman is a host path, mounted at
-# the same path in here. It lands each cl with the host's git-land, mounted read-only, and commits and pushes as Matt:
+# The orchestrator's image: node, git, gh, skopeo and the podman client. The orchestrator runs here, never on the host. It
+# starts its attempts' containers through the host's podman socket, so every path it hands podman is a host path, mounted
+# at the same path in here. It lands each cl with the host's git-land, mounted read-only, and commits and pushes as Matt:
 # his name from the host's git config, and his GH_TOKEN, both given by `just factory`.
 FROM docker.io/library/node:22.23.4-slim
 

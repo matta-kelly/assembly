@@ -576,6 +576,31 @@ export function open(file: string) {
       db.prepare("UPDATE items SET image = ? WHERE name = ?").run(image, name);
     },
 
+    /**
+     * The image of the issue's repo at `repo` changes: the dev image of the commit a cl's move made there, which the
+     * issue's own steps use. A single-repo issue's own image is that repo's image. Nothing changes when the ledger has
+     * no such issue, or no such repo entry.
+     */
+    reimageRepo(issue: string, repo: string, image: string) {
+      const row = db.prepare("SELECT * FROM items WHERE name = ?").get(issue);
+      if (!row) return;
+      const i = itemOf(row);
+      tx(() => {
+        if (i.repos.length)
+          db.prepare("UPDATE items SET repos = ? WHERE name = ?").run(
+            JSON.stringify(
+              i.repos.map((p) => (p.repo === repo ? { ...p, image } : p)),
+            ),
+            issue,
+          );
+        else if (i.repo === repo)
+          db.prepare("UPDATE items SET image = ? WHERE name = ?").run(
+            image,
+            issue,
+          );
+      });
+    },
+
     /** Records the files a cl changed, once landed. */
     paths(name: string, paths: string[]) {
       tx(() => {
