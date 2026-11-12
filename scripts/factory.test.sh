@@ -412,6 +412,7 @@ check "a dev repo under the given folder: podman's two calls" 2 \
   "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "a dev repo under the given folder: the build" "${build_args[@]}"
 exact_call "$calls" 2 "a dev repo under the given folder: the run" "${run_args[@]}"
+absent "$calls/rbw-run" "rbw-run (submit takes no key)"
 absent "$calls/ssh" "ssh (a dev repo under the given folder)"
 
 # a repo given by --repo, outside ASSEMBLY_REPOS, is searched for its dev image
@@ -448,6 +449,7 @@ check "a dev repo given by --repo: podman's two calls" 2 \
   "$(cat "$calls/podman-count" 2>/dev/null || true)"
 exact_call "$calls" 1 "a dev repo given by --repo: the build" "${build_args[@]}"
 exact_call "$calls" 2 "a dev repo given by --repo: the run" "${run_args[@]}"
+absent "$calls/rbw-run" "rbw-run (add takes no key)"
 absent "$calls/ssh" "ssh (a dev repo given by --repo)"
 
 # --- the server ---------------------------------------------------------------------------------------------------
