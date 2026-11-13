@@ -6,10 +6,11 @@ import type { Ledger } from "../orchestrator/ledger.ts";
 
 const money = (n: number) => `$${n.toFixed(4)}`;
 
-/** Each issue and its state, its cls under it, the attempts open now, and what the factory has spent. */
-export function status(ledger: Ledger): string[] {
+/** The version the factory runs, then each issue and its state, its cls under it, the attempts open now, and what the factory has spent. */
+export function status(ledger: Ledger, version: string): string[] {
   const open = ledger.open();
   return [
+    `assembly ${version}`,
     ...ledger
       .items()
       .filter((i) => i.kind === "issue")

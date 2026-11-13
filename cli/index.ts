@@ -37,7 +37,7 @@ import {
 import { add, approve, type Done, given, replan, submit } from "./add.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
-import { top } from "./top.ts";
+import { top, version } from "./top.ts";
 
 /** Where the factory keeps everything, from the environment. */
 export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
@@ -155,7 +155,7 @@ export async function main(
       return 0;
     }
     case "status":
-      return print({ code: 0, lines: status(factory().ledger) });
+      return print({ code: 0, lines: status(factory().ledger, version()) });
     case "top":
       await top(factory(), 2);
       return 0;
