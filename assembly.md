@@ -210,6 +210,7 @@ What it keeps.
 	- `replan`: an issue he holds, raised or escalated, back to open, its cls not landed dropped
 	- `run`: the loop, until a signal stops it. Its attempts stay open
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's messages, attempts, costs and traces)
+	- `top`: the factory live, redrawn every 2s until `q`: each issue with its phase and spend, each cl with its state, its attempts and the one open now, and the tokens and cost of each role. Over ssh it asks for a terminal
 - the dependencies in an attempt: an offline install from the dev image's cache, once per worktree, proven on a que-pasa worktree (setup in 11 s, then its tests pass, no network)
 - the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests, then `scripts/factory.test.sh` (podman, ssh and rbw-run faked; git is real), so a fault in the recipe fails the check. `just e2e` is not in it, since it needs the podman socket
 

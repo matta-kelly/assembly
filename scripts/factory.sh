@@ -45,7 +45,10 @@ if [ -n "${ASSEMBLY_SERVER:-}" ]; then
         ;;
     esac
   fi
-  exec ssh "$ASSEMBLY_SERVER" factory "$@"
+  # top draws a live screen, so it asks the server for a terminal.
+  tty=()
+  [ "$verb" = top ] && tty=(-t)
+  exec ssh "${tty[@]}" "$ASSEMBLY_SERVER" factory "$@"
 fi
 
 home="${ASSEMBLY_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/assembly}"
@@ -85,4 +88,8 @@ export ASSEMBLY_REPOS="$repos" ASSEMBLY_HOME="$home"
 mounts=(-v "$repos:$repos" -v "$home:$home")
 [ "$repos" = "$lot" ] || mounts+=(-v "$lot:$lot")
 
-podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_REPOS "${as_matt[@]}" -e ASSEMBLY_HOME -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" "${mounts[@]}" -w "$PWD" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "$root/cli/index.ts" "$@"
+# top draws a live screen, so its container gets the terminal.
+it=()
+[ "$verb" = top ] && it=(-it)
+
+podman run "${it[@]}" --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_REPOS "${as_matt[@]}" -e ASSEMBLY_HOME -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" "${mounts[@]}" -w "$PWD" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "$root/cli/index.ts" "$@"

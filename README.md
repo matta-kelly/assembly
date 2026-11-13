@@ -17,7 +17,7 @@ Node runs in a pinned image, never on the host. You need `just` and `podman`, an
 
 - `just check`: the check set, `scripts/check.sh`: notes, then types, lint, format and the unit tests. The pre-push hook and the pipeline run the same file
 - `just e2e`: the whole loop on scripted models, with real sandboxes, through the host's podman socket. Not in the check set, since the pipeline has no podman socket
-- `just factory <verb>`: the factory itself, in its own image: `add` an issue, for the factory's planner, or `submit <issue> [--at <ref>]` one with Matt's spec: a name, read from the kinetic repo at a commit (its `server/main` when none is given), and the ledger keeps that commit. Each runs over every repo on crate unless `--repo` narrows it, each repo's image, suite and setup read from its main, a dev image made by crate in the orchestrator's image from the host's install, mounted read-only; `approve`, `replan`, `run`, `status`, `blocked`, `explain`
+- `just factory <verb>`: the factory itself, in its own image: `add` an issue, for the factory's planner, or `submit <issue> [--at <ref>]` one with Matt's spec: a name, read from the kinetic repo at a commit (its `server/main` when none is given), and the ledger keeps that commit. Each runs over every repo on crate unless `--repo` narrows it, each repo's image, suite and setup read from its main, a dev image made by crate in the orchestrator's image from the host's install, mounted read-only; `approve`, `replan`, `run`, `status`, `blocked`, `explain`, `top` (the factory live)
 - `just smoke-model`: one real call per model the bins name. The key comes from the vault (`secrets.toml`, through rbw-run)
 - `just run <command>`: a command in the Node image, such as `just run npm install zod`
 

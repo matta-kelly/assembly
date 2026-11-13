@@ -536,6 +536,32 @@ check "here status: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/nu
 exact_call "$calls" 1 "here status: the build" "${build_args[@]}"
 exact_call "$calls" 2 "here status: the run" "${run_args[@]}"
 
+# top draws a live screen: here, its container gets the terminal (-it); every other verb's run line is as above
+calls=$(calls_for here-top)
+(
+  cd "$root" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
+      XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" "$factory" top 2>"$calls/err"
+)
+code=$?
+check "with no ASSEMBLY_SERVER, top runs here" 0 "$code"
+launch_args "$root" "$lot" "$tmp/state/assembly" top
+exact_call "$calls" 2 "here top: the run, with a terminal" run -it "${run_args[@]:1}"
+
+# top on the server: ssh asks for a terminal (-t); status above asks for none
+calls=$(calls_for server-top)
+(
+  cd "$root" &&
+    PATH="$stub:$PATH" CALLS="$calls" SAID="" SAID_CODE=0 \
+      ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
+      "$factory" top 2>"$calls/err"
+)
+check "top runs over ssh with a terminal" \
+  "$(printf -- '-t\nassembly@monkeybusiness\nfactory\ntop')" \
+  "$(cat "$calls/ssh" 2>/dev/null || true)"
+absent "$calls/podman-count" "podman (top on the server)"
+
 # the command is called from another folder: the container's working directory is that folder, not the repo's root
 elsewhere=$tmp/elsewhere
 mkdir -p "$elsewhere"

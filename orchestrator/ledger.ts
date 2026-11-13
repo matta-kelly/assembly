@@ -61,6 +61,19 @@ export interface Attempt {
   cost: number | null;
 }
 
+/** What one attempt used. Its tokens and cost are null while it is open, or when its run reported none. */
+export interface Used {
+  name: string;
+  n: number;
+  step: State;
+  started: string;
+  ended: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  cached_in: number | null;
+  cost: number | null;
+}
+
 /** Who sends a message: an agent's attempt as it ends, the orchestrator, or Matt through the command line. */
 export type By =
   | {
@@ -647,6 +660,15 @@ export function open(file: string) {
           c: number;
         }
       ).c;
+    },
+
+    /** Every attempt's use: the item, its step, when it ran, its tokens and its cost. What `factory top` sums. */
+    usage(): Used[] {
+      return db
+        .prepare(
+          "SELECT name, n, step, started, ended, tokens_in, tokens_out, cached_in, cost FROM attempts ORDER BY rowid",
+        )
+        .all() as unknown as Used[];
     },
 
     /** An item's attempts, in order: what each one did, and what it cost. */

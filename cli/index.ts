@@ -11,6 +11,7 @@
  *   factory status
  *   factory blocked
  *   factory explain <item>
+ *   factory top
  *
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
  * Each repo's image, full suite and setup are read from its main (effects/repo.ts). A repo checked in its dev image needs
@@ -36,6 +37,7 @@ import {
 import { add, approve, type Done, given, replan, submit } from "./add.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
+import { top } from "./top.ts";
 
 /** Where the factory keeps everything, from the environment. */
 export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
@@ -51,7 +53,8 @@ factory replan <issue>
 factory run [--every <seconds>]
 factory status
 factory blocked
-factory explain <item>`;
+factory explain <item>
+factory top`;
 
 const print = ({ code, lines }: Done) => {
   (code === 0 ? console.log : console.error)(lines.join("\n"));
@@ -153,6 +156,9 @@ export async function main(
     }
     case "status":
       return print({ code: 0, lines: status(factory().ledger) });
+    case "top":
+      await top(factory(), 2);
+      return 0;
     case "blocked":
       return print({ code: 0, lines: blocked(factory().ledger) });
     case "explain": {
