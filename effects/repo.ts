@@ -98,7 +98,7 @@ export async function settingsAt(
   if (file("scripts/check.sh") === undefined)
     throw new NotOnCrate(`${name} has no scripts/check.sh, its full suite`);
   return {
-    image: image === "dev" ? await devImage(work, name) : image,
+    image: image === "dev" ? await devImage(work) : image,
     test: fullSuite,
     setup: file("package-lock.json") === undefined ? "" : npmSetup,
   };
@@ -126,21 +126,17 @@ export function reposOn(root: string, read: Reader = gitReader): string[] {
 }
 
 /**
- * The tag of the dev image crate makes from the worktree `work`, for the repo `name`: `crate dev-image local`, run in
- * the orchestrator's image from the host's crate install. Its last line of output is the tag. A failure, or no tag, is
+ * The tag of the dev image crate makes from the worktree `work`: `crate dev-image local`, run in the orchestrator's
+ * image from the host's crate install. The repo's crate.toml names the image (`name`) and the files its hash covers
+ * (`[dev] inputs`). Its last line of output is the tag. A failure, or no tag, is
  * a CrateError, with crate's output and exit code.
  */
-export async function devImage(work: string, name: string): Promise<string> {
-  const ran = await sh("crate", [
-    "-C",
-    work,
-    "dev-image",
-    "local",
-    "--name",
-    name,
-  ]).catch((e: unknown) => {
-    throw new CrateError(127, `crate: ${(e as Error).message}`);
-  });
+export async function devImage(work: string): Promise<string> {
+  const ran = await sh("crate", ["-C", work, "dev-image", "local"]).catch(
+    (e: unknown) => {
+      throw new CrateError(127, `crate: ${(e as Error).message}`);
+    },
+  );
   const tag =
     ran.stdout
       .split("\n")

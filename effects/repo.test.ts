@@ -112,9 +112,7 @@ describe("a repo's dev image", () => {
     expect((await settingsAt(at, "repo")).image).toBe(
       "localhost/repo-dev:local",
     );
-    expect(calls()).toEqual([
-      ["-C", at, "dev-image", "local", "--name", "repo"],
-    ]);
+    expect(calls()).toEqual([["-C", at, "dev-image", "local"]]);
     expect(existsSync(join(at, "scripts", "dev-image.sh"))).toBe(false);
   });
 

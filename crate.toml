@@ -2,6 +2,10 @@
 # main whose commits ask one, per package: `v<version>` is the factory's release, checked out on a server, and
 # `work-v<version>` is @mku1tra/work's, in work/, which .github/workflows/publish.yml puts on npm.
 crate = "1"
+name = "assembly"
 image = "dev"
 ship = "source"
 packages = ". work"
+
+[dev]   # the dev image: the files its hash covers
+inputs = [".devcontainer/devcontainer.json", ".devcontainer/Containerfile", "package-lock.json"]

@@ -45,6 +45,7 @@ import { crateTarget, landTarget } from "../effects/land-target.fixture.ts";
 import {
   containerfile,
   devcontainer,
+  devToml,
   smoke,
 } from "../effects/dev-image.fixture.ts";
 import { standInRegistry } from "../effects/registry.fixture.ts";
@@ -1338,10 +1339,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             mkdirSync(join(r, "test"), { recursive: true });
             mkdirSync(join(r, ".devcontainer"), { recursive: true });
             git(r, "init", "-q", "-b", "main");
-            writeFileSync(
-              join(r, "crate.toml"),
-              'crate = "1"\nimage = "dev"\n',
-            );
+            writeFileSync(join(r, "crate.toml"), devToml(name));
             // the repo's check: its dependencies installed, then its tests
             writeFileSync(
               join(r, "scripts", "check.sh"),

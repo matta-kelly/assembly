@@ -51,3 +51,7 @@ export function devcontainer(repo: string): string {
     2,
   )}\n`;
 }
+
+/** The crate.toml of an e2e repo checked in its dev image: crate takes the image's name and its inputs from it. */
+export const devToml = (repo: string): string =>
+  `crate = "1"\nname = "${repo}"\nimage = "dev"\n\n[dev]\ninputs = [".devcontainer/Containerfile", "package-lock.json"]\n`;
