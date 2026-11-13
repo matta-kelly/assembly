@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Run } from "./step.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import {
-  behaviors,
+  promises,
   judge,
   nail as tests,
   testFilesOf,
@@ -24,12 +24,12 @@ Intent.
 ## Check
 
 - given a, when b, then c
-	- a detail, not a behavior
+	- a detail, not a promise
 - given d, when e, then f
 
 ## Seam
 
-- not a behavior
+- not a promise
 `;
 
 let dir: string;
@@ -54,15 +54,15 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const t = (behavior: number, file = "a.test.ts") => ({
-  behavior,
+const t = (promise: number, file = "a.test.ts") => ({
+  promise,
   file,
-  name: `b${behavior}`,
+  name: `b${promise}`,
 });
 
-describe("behaviors", () => {
+describe("promises", () => {
   it("are the top-level items of the cl's Check list", () => {
-    expect(behaviors(r.path)).toEqual([
+    expect(promises(r.path)).toEqual([
       "- given a, when b, then c",
       "- given d, when e, then f",
     ]);
@@ -70,12 +70,12 @@ describe("behaviors", () => {
 });
 
 describe("da-nail's tests, as the steps after it read them", () => {
-  it("are its last passed result's: the files once each, and each test by behavior", () => {
+  it("are its last passed result's: the files once each, and each test by promise", () => {
     const ledger = {
       passed: () => ({ word: "done", tests: [t(1), t(2), t(3, "b.test.ts")] }),
     } as unknown as Ledger;
     expect(testFilesOf(ledger, "x")).toEqual(["a.test.ts", "b.test.ts"]);
-    expect(testsOf(ledger, "x")).toContain("- behavior 3: `b.test.ts`, b3");
+    expect(testsOf(ledger, "x")).toContain("- promise 3: `b.test.ts`, b3");
   });
 
   it("are none before da-nail passed", () => {
@@ -85,17 +85,17 @@ describe("da-nail's tests, as the steps after it read them", () => {
 });
 
 describe("the nail step's check, before red", () => {
-  it("retries when a behavior has no test", async () => {
+  it("retries when a promise has no test", async () => {
     const v = await tests.check(r, { word: "done", tests: [t(1)] }, at, none);
     expect(v).toEqual({
       word: "retry",
       cause: "invalid_output",
-      reason: "behavior 2 has no test",
+      reason: "promise 2 has no test",
       findings: [],
     });
   });
 
-  it("retries when a test names a behavior the cl does not have", async () => {
+  it("retries when a test names a promise the cl does not have", async () => {
     const v = await tests.check(
       r,
       { word: "done", tests: [t(1), t(2), t(3)] },
@@ -103,7 +103,7 @@ describe("the nail step's check, before red", () => {
       none,
     );
     expect(v.word).toBe("retry");
-    expect(v.reason).toMatch(/behaviors the cl does not have: 3/);
+    expect(v.reason).toMatch(/promises the cl does not have: 3/);
   });
 
   it("retries when a test file is not in the worktree", async () => {

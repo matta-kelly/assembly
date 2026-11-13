@@ -110,7 +110,7 @@ const submit = (result: object) =>
 const cl = (
   name: string,
   intent: string,
-  behavior: string,
+  promise: string,
   phase: number | undefined,
   read: string[] = [],
 ) => ({
@@ -120,7 +120,7 @@ const cl = (
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`, "README", ...read],
   test: `node --test test/${name}.test.mjs`,
-  check: [behavior],
+  check: [promise],
   seam: `src/${name}.mjs's export, which the next cl imports`,
   checkoutNotes: "- README: the repo has no code yet",
 });
@@ -235,7 +235,7 @@ const nailScript = (input: string, done: number) => {
     if (done === 2) return fauxToolCall("test", {});
     return submit({
       word: "done",
-      tests: [{ behavior: 1, file: `test/${lone}.test.mjs`, name: lone }],
+      tests: [{ promise: 1, file: `test/${lone}.test.mjs`, name: lone }],
     });
   }
   const double = input.includes("The cut double of");
@@ -265,7 +265,7 @@ const nailScript = (input: string, done: number) => {
   if (done === 2) return fauxToolCall("test", {});
   return submit({
     word: "done",
-    tests: [{ behavior: 1, file: `test/${name}.test.mjs`, name }],
+    tests: [{ promise: 1, file: `test/${name}.test.mjs`, name }],
   });
 };
 
@@ -404,7 +404,7 @@ const cutNail = (input: string, done: number) => {
     if (done === 1) return fauxToolCall("test", {});
     return submit({
       word: "done",
-      tests: [{ behavior: 1, file: "test/a.test.mjs", name: "a" }],
+      tests: [{ promise: 1, file: "test/a.test.mjs", name: "a" }],
     });
   }
   if (done === 0)
@@ -424,7 +424,7 @@ const cutNail = (input: string, done: number) => {
   if (done === 2) return fauxToolCall("test", {});
   return submit({
     word: "done",
-    tests: [{ behavior: 1, file: "test/b.test.mjs", name: "b" }],
+    tests: [{ promise: 1, file: "test/b.test.mjs", name: "b" }],
   });
 };
 

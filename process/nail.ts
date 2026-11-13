@@ -1,6 +1,6 @@
 /**
- * The nail step: ready to red. da-nail writes one test per behavior in the cl's Check, each failing at its assertion.
- * The check confirms each behavior has a test in a file that exists, then runs the cl's test command and passes only
+ * The nail step: ready to red. da-nail writes a test for each promise in the cl's Check, each failing at its assertion.
+ * The check confirms each promise has a test in a file that exists, then runs the cl's test command and passes only
  * when it fails at an assertion (red.sh in loke's v1 gates). A review that sends the cl back to its tests brings it
  * here again, and da-nail reads the findings in its messages.
  */
@@ -15,11 +15,11 @@ const done = z.object({
   tests: z
     .array(
       z.object({
-        behavior: z
+        promise: z
           .number()
           .int()
           .min(1)
-          .describe("the behavior's number in the cl's Check list, from 1"),
+          .describe("the promise's number in the cl's Check list, from 1"),
         file: z.string().describe("the test file, from the repo's root"),
         name: z.string().describe("the test's name"),
       }),
@@ -34,8 +34,8 @@ const done = z.object({
 });
 type Done = z.infer<typeof done>;
 
-/** The behaviors of a cl: the top-level items of its Check list. */
-export function behaviors(cl: string): string[] {
+/** The promises of a cl: the top-level items of its Check list. */
+export function promises(cl: string): string[] {
   return items(cl, "Check");
 }
 
@@ -53,7 +53,7 @@ export const testsOf = (ledger: Ledger, cl: string): string =>
   [
     "# da-nail's tests",
     ...nailed(ledger, cl).map(
-      (t) => `- behavior ${t.behavior}: \`${t.file}\`, ${t.name}`,
+      (t) => `- promise ${t.promise}: \`${t.file}\`, ${t.name}`,
     ),
   ].join("\n");
 
@@ -92,17 +92,17 @@ export const nail: Step<Done> = {
   done,
   about: ["cl", "plan", "issue"],
   async check(r, d, at) {
-    const want = behaviors(r.path).length;
-    const have = new Set(d.tests.map((t) => t.behavior));
+    const want = promises(r.path).length;
+    const have = new Set(d.tests.map((t) => t.promise));
     for (let b = 1; b <= want; b++) {
       if (!have.has(b))
-        return say("retry", `behavior ${b} has no test`, "invalid_output");
+        return say("retry", `promise ${b} has no test`, "invalid_output");
     }
     const extra = [...have].filter((b) => b > want);
     if (extra.length)
       return say(
         "retry",
-        `tests name behaviors the cl does not have: ${extra.join(", ")}`,
+        `tests name promises the cl does not have: ${extra.join(", ")}`,
         "invalid_output",
       );
     const files = [...new Set(d.tests.map((t) => t.file))];

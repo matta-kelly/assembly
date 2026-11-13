@@ -301,10 +301,10 @@ describe("an attempt", () => {
   });
 
   it("keeps the cl in its state when the check retries, and writes nothing", async () => {
-    message = { word: "retry", reason: "behavior 1 has no test", findings: [] };
+    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
     await once(make(gives(done("x"))));
     expect(ledger.item("c").state).toBe("ready");
-    expect(last().reason).toBe("behavior 1 has no test");
+    expect(last().reason).toBe("promise 1 has no test");
     expect(doc()).toBe(cl);
     expect(commit).not.toHaveBeenCalled();
   });
@@ -326,12 +326,12 @@ describe("an attempt", () => {
   });
 
   it("gives the next attempt the messages it answers: a retry's reason", async () => {
-    message = { word: "retry", reason: "behavior 1 has no test", findings: [] };
+    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
     await once(make(gives(done("x"))));
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner));
     expect(runner.mock.calls[0]?.[1]).toBe(
-      `${cl}\n# Messages\n- from fake, retry: behavior 1 has no test`,
+      `${cl}\n# Messages\n- from fake, retry: promise 1 has no test`,
     );
   });
 
@@ -510,7 +510,7 @@ describe("an attempt's setup", () => {
 
 describe("a retry", () => {
   it("tells the runner a state's first attempt from its retries, so a retry runs on the bin's fallback", async () => {
-    message = { word: "retry", reason: "behavior 1 has no test", findings: [] };
+    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
     const runner = vi.fn<Run1>(gives(done("x")));
     const l = await make(runner);
     await once(l);

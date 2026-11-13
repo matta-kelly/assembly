@@ -1,5 +1,5 @@
 /**
- * da-nail: the test agent of the nail step, ready to red. One cl's tests, before any code: one test per behavior, each
+ * da-nail: the test agent of the nail step, ready to red. One cl's tests, before any code: each promise tested, each
  * failing at its assertion. Its instructions are its note, da-nail.md, ported from loke's da-nail skill, cut to what holds in the factory.
  */
 

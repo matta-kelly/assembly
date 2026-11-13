@@ -53,4 +53,4 @@ shape: the kind of change a cl is, its `shape.change` (Beck, *Tidy First?*). An 
 
 ## retired words
 
-retired words: the words used before these, each read as a promise: Done item, claim, ensures, and behavior as a thing.
+retired words: the words used before these, each read as a promise: Done item, claim, a cl's ensures, and behavior as a thing. A role's own contract keeps requires and ensures (Meyer).
