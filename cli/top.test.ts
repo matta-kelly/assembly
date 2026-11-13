@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
-import { roleOf, screen, since, tokens } from "./top.ts";
+import { runOf } from "../effects/runs.ts";
+import type { Item } from "../orchestrator/ledger.ts";
+import { roleOf, screen, since, tokens, traceOf } from "./top.ts";
 
 let home: string;
 beforeEach(() => {
@@ -29,65 +31,124 @@ const cl = (name: string, seq: number, phase: number) => ({
   phase,
 });
 
+/** One OTLP export line of spans with these names, the last of them ending at `lastEnd`. */
+const spans = (names: string[], lastEnd: string) => {
+  const end = BigInt(Date.parse(lastEnd)) * 1_000_000n;
+  return JSON.stringify({
+    resourceSpans: [
+      {
+        scopeSpans: [
+          {
+            spans: names.map((name, i) => ({
+              name,
+              endTimeUnixNano: String(
+                end - BigInt(names.length - 1 - i) * 1_000_000_000n,
+              ),
+            })),
+          },
+        ],
+      },
+    ],
+  });
+};
+
+let runsOf = "";
+/** Writes an attempt's trace where the factory keeps it. */
+const trace = (item: Item, n: number, names: string[], lastEnd: string) => {
+  const dir = runOf(item, n, runsOf).dir;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "trace.jsonl"), spans(names, lastEnd) + "\n");
+};
+
 describe("factory top", () => {
-  it("shows each issue's phase and spend, each cl's attempts, the open attempt, and the use by role", () => {
+  it("shows each issue's phase, time and spend, each cl's attempts, turns and time, the open attempt live, and the use by role", () => {
     vi.useFakeTimers({ now: new Date("2026-11-12T15:00:00Z") });
-    const { ledger } = compose({ home });
+    const f = compose({ home });
+    runsOf = f.runs;
+    const { ledger } = f;
     ledger.addIssue(issue);
     ledger.addCl(cl("is-a", 1, 1), "ready");
     ledger.addCl(cl("is-b", 2, 2), "waiting");
     ledger.addCl(cl("is-c", 3, 3), "waiting");
-    // is-a: da-nail passes it to red, da-hammer passes it to green
+    // is-a: da-nail, 15:00 to 15:02, passes it to red; da-hammer, 15:02 to 15:05, passes it to green
+    const nail = ledger.begin("is-a");
+    vi.setSystemTime(new Date("2026-11-12T15:02:00Z"));
     ledger.apply(
       "is-a",
       { word: "pass", reason: "red at an assertion", findings: [] },
       {
-        attempt: ledger.begin("is-a"),
+        attempt: nail,
         usage: { input: 400_000, cached: 380_000, output: 21_000, cost: 0.4 },
       },
     );
+    const hammer = ledger.begin("is-a");
+    vi.setSystemTime(new Date("2026-11-12T15:05:00Z"));
     ledger.apply(
       "is-a",
       { word: "pass", reason: "green", findings: [] },
       {
-        attempt: ledger.begin("is-a"),
+        attempt: hammer,
         usage: { input: 300_000, cached: 270_000, output: 18_000, cost: 0.5 },
       },
     );
-    // cl-review's attempt on is-a, open now, begun at 15:00
-    ledger.begin("is-a");
-    const lines = screen(ledger, new Date("2026-11-12T15:03:12Z"), "v0.1.3");
+    // cl-review's attempt, open since 15:05: two model turns and a tool call so far, the last ending at 15:08:04
+    const review = ledger.begin("is-a");
+    const item = ledger.items().find((i) => i.name === "is-a")!;
+    trace(
+      item,
+      nail,
+      ["chat m", "chat m", "execute_tool read", "chat m"],
+      "2026-11-12T15:01:50Z",
+    );
+    trace(
+      item,
+      review,
+      ["chat m", "execute_tool bash", "chat m"],
+      "2026-11-12T15:08:04Z",
+    );
+    const at = new Date("2026-11-12T15:08:12Z");
+    const lines = screen(ledger, f.runs, at, "v0.1.3");
 
     expect(lines[0]).toBe(
-      `assembly v0.1.3 · ${new Date("2026-11-12T15:03:12Z").toTimeString().slice(0, 8)} · spent $0.90`,
+      `assembly v0.1.3 · ${at.toTimeString().slice(0, 8)} · spent $0.90`,
     );
-    expect(lines).toContain("ISSUE is   open   phase 1 of 3   $0.90");
+    expect(lines).toContain("ISSUE is   open   phase 1 of 3   8m12s   $0.90");
     expect(lines).toContain(
-      "  phase 1   is-a   green   3 attempts   $0.90   ▶ cl-review #3, 3m12s",
+      "  phase 1   is-a   green   3 attempts   5 turns   8m12s   $0.90   ▶ cl-review #3, 3m12s, 2 turns, idle 8s",
     );
     expect(lines).toContain("  phase 2   is-b   waiting");
     expect(lines).toContain("  phase 3   is-c   waiting");
-    const role = (r: string) => lines.find((l) => l.startsWith(`  ${r} `));
-    expect(role("da-nail")?.split(/\s+/).filter(Boolean)).toEqual([
+    const role = (r: string) =>
+      lines
+        .find((l) => l.startsWith(`  ${r} `))
+        ?.split(/\s+/)
+        .filter(Boolean);
+    expect(role("da-nail")).toEqual([
       "da-nail",
       "1",
+      "3",
+      "2m00s",
       "400k",
       "380k",
       "21k",
       "$0.40",
     ]);
-    expect(role("da-hammer")?.split(/\s+/).filter(Boolean)).toEqual([
+    expect(role("da-hammer")).toEqual([
       "da-hammer",
       "1",
+      "0",
+      "3m00s",
       "300k",
       "270k",
       "18k",
       "$0.50",
     ]);
-    // the open attempt counts, with no use reported yet
-    expect(role("cl-review")?.split(/\s+/).filter(Boolean)).toEqual([
+    // the open attempt counts, with its turns so far and no use reported yet
+    expect(role("cl-review")).toEqual([
       "cl-review",
       "1",
+      "2",
+      "3m12s",
       "0",
       "0",
       "0",
@@ -95,13 +156,26 @@ describe("factory top", () => {
     ]);
   });
 
+  it("reads an attempt with no trace yet as no turns and no idle time, and skips a line it cannot parse", () => {
+    expect(traceOf(join(home, "missing.jsonl"))).toEqual({ turns: 0 });
+    const file = join(home, "trace.jsonl");
+    writeFileSync(
+      file,
+      "not json\n" + spans(["chat m"], "2026-11-12T15:00:00Z") + "\n",
+    );
+    expect(traceOf(file)).toEqual({
+      turns: 1,
+      last: Date.parse("2026-11-12T15:00:00Z"),
+    });
+  });
+
   it("names the phase as landed when every cl of an issue has landed or dropped, and says when there is nothing", () => {
-    const { ledger } = compose({ home });
-    expect(screen(ledger, new Date(), "v0")).toContain("no issues yet");
+    const { ledger, runs } = compose({ home });
+    expect(screen(ledger, runs, new Date(), "v0")).toContain("no issues yet");
     ledger.addIssue(issue);
     ledger.addCl(cl("is-a", 1, 1), "landed");
     ledger.addCl(cl("is-b", 2, 2), "dropped");
-    expect(screen(ledger, new Date(), "v0")).toContain(
+    expect(screen(ledger, runs, new Date(), "v0")).toContain(
       "ISSUE is   open   all 2 phases landed   $0.00",
     );
   });
