@@ -550,22 +550,98 @@ if grep -A1 -xF -- -w "$calls/podman.2" 2>/dev/null | grep -qxF -- "$root"; then
 fi
 absent "$calls/ssh" "ssh (from another folder)"
 
-# given an account with ~/.ssh, when a verb runs here, then its container gets that folder read-only at node's
-# ~/.ssh: the key and the known hosts it reaches crate with. With no ~/.ssh (every case above), no such mount
+# --- the account's ssh --------------------------------------------------------------------------------------------
+
+# The account's ~/.ssh as a host has it: the key crate takes for a push or fetch, the known hosts it checks crate by,
+# and the account's own files, which the factory's container must not see. `ssh_case` copies it, takes away the files
+# the case leaves out, and runs status here with that home; `ssh_calls` then holds the podman calls it made.
 ssh_home=$tmp/ssh-home
+ssh_files=(id_ed25519 known_hosts id_ed25519.pub id_rsa id_rsa.pub config authorized_keys)
 mkdir -p "$ssh_home/.ssh"
-calls=$(calls_for here-ssh)
+for f in "${ssh_files[@]}"; do printf '# %s\n' "$f" >"$ssh_home/.ssh/$f"; done
+ssh_case() { # name, the files to take away...
+  local name=$1 dir=$tmp/ssh/$1
+  shift
+  rm -rf "$dir"
+  mkdir -p "$dir/.ssh"
+  local f
+  for f in "${ssh_files[@]}"; do cp "$ssh_home/.ssh/$f" "$dir/.ssh/$f"; done
+  for f in "$@"; do rm -f "$dir/.ssh/$f"; done
+  ssh_calls=$(calls_for "ssh-$name")
+  (
+    cd "$root" &&
+      env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+        -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$ssh_calls" \
+        XDG_STATE_HOME="$tmp/state-ssh-$name" "${git_identity[@]}" HOME="$dir" \
+        ASSEMBLY_REPOS="$tmp/clones" ASSEMBLY_HOME="$tmp/home-ssh-$name" "$factory" status 2>"$ssh_calls/err"
+  )
+  check "$name: status runs here" 0 "$?"
+  ssh_dir=$dir
+}
+# the run's mounts that reach into the account's ~/.ssh, as -v then source:target[:mode], and nothing else: a mount of
+# the folder, or of a path of it that is not one of the two files, shows up here too
+ssh_mounts() {
+  grep -A1 -xF -- -v "$ssh_calls/podman.2" 2>/dev/null | sed -n '2,$p' | grep -v '^-' |
+    { local m; while IFS= read -r m; do
+      case "$m" in "$ssh_dir"/.ssh*) printf -- '-v\n%s\n' "$m" ;; esac
+    done; }
+}
+# the run as the exemplar fixes it, with the given ssh mounts where the script builds them: just before the host's time
+# zone, the last mount the exemplar adds
+exemplar_with_ssh() { # the ssh mounts, as -v, source:target:ro...
+  awk -v localtime="/etc/localtime:/etc/localtime:ro" -v ssh="$(printf '%s\n' "$@")" '
+    last == "-v" && $0 == localtime { print ssh }
+    { last = $0; print }
+  ' <<<"$(printf '%s\n' "${run_args[@]}")"
+}
+
+# given an account with the key and the known hosts among other files of ~/.ssh, when the verb runs here, then podman
+# mounts each read-only at node's ~/.ssh, and mounts no other path of the account's ~/.ssh
+ssh_case both
+check "both: the key and the known hosts, read-only, and nothing else of ~/.ssh" \
+  "$(printf -- '-v\n%s\n-v\n%s\n' \
+    "$ssh_home/.ssh/id_ed25519:/home/node/.ssh/id_ed25519:ro" \
+    "$ssh_home/.ssh/known_hosts:/home/node/.ssh/known_hosts:ro")" \
+  "$(ssh_mounts)"
+# and every other mount and argument is as today: the exemplar's run, with the two ssh mounts in the ssh one's place
+launch_args "$root" "$tmp/clones" "$tmp/home-ssh-both" status
+exact_call "$ssh_calls" 2 "both: the run, the rest as today" \
+  $(exemplar_with_ssh -v "$ssh_home/.ssh/id_ed25519:/home/node/.ssh/id_ed25519:ro" \
+    -v "$ssh_home/.ssh/known_hosts:/home/node/.ssh/known_hosts:ro")
+absent "$ssh_calls/ssh" "ssh (with the account's ssh)"
+
+# given an account whose ~/.ssh lacks one of the two files, when the verb runs here, then the one there is is mounted,
+# and nothing for the one there is not
+ssh_case only-key id_ed25519.pub id_rsa id_rsa.pub config authorized_keys known_hosts
+check "only the key: it is mounted read-only, and nothing else of ~/.ssh" \
+  "$(printf -- '-v\n%s\n' "$ssh_home/.ssh/id_ed25519:/home/node/.ssh/id_ed25519:ro")" \
+  "$(ssh_mounts)"
+launch_args "$root" "$tmp/clones" "$tmp/home-ssh-only-key" status
+exact_call "$ssh_calls" 2 "only the key: the run, the rest as today" \
+  $(exemplar_with_ssh -v "$ssh_home/.ssh/id_ed25519:/home/node/.ssh/id_ed25519:ro")
+
+ssh_case only-known-hosts id_ed25519 id_ed25519.pub id_rsa id_rsa.pub config authorized_keys
+check "only the known hosts: they are mounted read-only, and nothing else of ~/.ssh" \
+  "$(printf -- '-v\n%s\n' "$ssh_home/.ssh/known_hosts:/home/node/.ssh/known_hosts:ro")" \
+  "$(ssh_mounts)"
+launch_args "$root" "$tmp/clones" "$tmp/home-ssh-only-known-hosts" status
+exact_call "$ssh_calls" 2 "only the known hosts: the run, the rest as today" \
+  $(exemplar_with_ssh -v "$ssh_home/.ssh/known_hosts:/home/node/.ssh/known_hosts:ro")
+
+# given an account with no ~/.ssh, when the verb runs here, then it mounts nothing of ssh, and the rest is as today
+ssh_case no-folder
+rm -rf "$ssh_dir/.ssh"
 (
   cd "$root" &&
     env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
-      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
-      XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" HOME="$ssh_home" "$factory" status 2>"$calls/err"
+      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$ssh_calls" \
+      XDG_STATE_HOME="$tmp/state-ssh-no-folder/state" "${git_identity[@]}" HOME="$ssh_dir" \
+      ASSEMBLY_REPOS="$tmp/clones" ASSEMBLY_HOME="$tmp/home-ssh-no-folder" "$factory" status 2>"$ssh_calls/err"
 )
-check "with ~/.ssh, status runs here" 0 "$?"
-if ! grep -A1 -xF -- -v "$calls/podman.2" 2>/dev/null | grep -qxF -- "$ssh_home/.ssh:/home/node/.ssh:ro"; then
-  printf 'AssertionError: the container did not get the account'"'"'s ~/.ssh, read-only\n' >&2
-  fail=1
-fi
+check "with no ~/.ssh, status runs here" 0 "$?"
+check "with no ~/.ssh, nothing of the account's ssh is mounted" "" "$(ssh_mounts)"
+launch_args "$root" "$tmp/clones" "$tmp/home-ssh-no-folder" status
+exact_call "$ssh_calls" 2 "with no ~/.ssh, the run is as today" "${run_args[@]}"
 
 # given FIREWORKS_API_KEY and GH_TOKEN in its environment, when run runs here, then the factory's container gets both,
 # and no vault is asked
