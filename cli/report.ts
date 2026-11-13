@@ -24,17 +24,29 @@ export function status(ledger: Ledger, version: string): string[] {
   ];
 }
 
-/** The items that wait for Matt: each one raised or escalated, with the reason of its last move. */
+/** How long since `at`, short: whole units elapsed, the largest that fits (`12s ago`, `4m ago`, `3h ago`, `2d ago`). */
+const age = (at: string, now: number): string => {
+  const s = Math.max(0, Math.floor((now - Date.parse(at)) / 1_000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+};
+
+/** The items that wait for Matt: each one raised or escalated, with the reason of its last move, and how long ago that was. */
 export function blocked(ledger: Ledger): string[] {
   const stuck = ledger
     .items()
     .filter((i) => i.state === "raised" || i.state === "escalated");
   if (!stuck.length) return ["nothing is blocked"];
+  const now = Date.now();
   return stuck.map((i) => {
     const last = ledger.events(i.name).at(-1) as
-      { reason: string | null; cause: string | null } | undefined;
+      { reason: string | null; cause: string | null; at: string } | undefined;
     const cause = last?.cause ? ` [${last.cause}]` : "";
-    return `${i.name}  ${i.state}${cause}: ${last?.reason ?? ""}`;
+    const since = last ? ` ${age(last.at, now)}` : "";
+    return `${i.name}  ${i.state}${cause}: ${last?.reason ?? ""}${since}`;
   });
 }
 
