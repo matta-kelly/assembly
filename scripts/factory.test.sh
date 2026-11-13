@@ -588,6 +588,23 @@ if grep -A1 -xF -- -w "$calls/podman.2" 2>/dev/null | grep -qxF -- "$root"; then
 fi
 absent "$calls/ssh" "ssh (from another folder)"
 
+# given an account with ~/.ssh, when a verb runs here, then its container gets that folder read-only at node's
+# ~/.ssh: the key and the known hosts it reaches crate with. With no ~/.ssh (every case above), no such mount
+ssh_home=$tmp/ssh-home
+mkdir -p "$ssh_home/.ssh"
+calls=$(calls_for here-ssh)
+(
+  cd "$root" &&
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
+      XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" HOME="$ssh_home" "$factory" status 2>"$calls/err"
+)
+check "with ~/.ssh, status runs here" 0 "$?"
+if ! grep -A1 -xF -- -v "$calls/podman.2" 2>/dev/null | grep -qxF -- "$ssh_home/.ssh:/home/node/.ssh:ro"; then
+  printf 'AssertionError: the container did not get the account'"'"'s ~/.ssh, read-only\n' >&2
+  fail=1
+fi
+
 # given FIREWORKS_API_KEY and GH_TOKEN in its environment, when run runs here, then the factory's container gets both,
 # and no vault is asked
 calls=$(calls_for here-run)

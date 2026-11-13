@@ -86,6 +86,8 @@ as_matt=(-e GIT_AUTHOR_NAME="$name" -e GIT_AUTHOR_EMAIL="$email" -e GIT_COMMITTE
 
 export ASSEMBLY_REPOS="$repos" ASSEMBLY_HOME="$home"
 mounts=(-v "$repos:$repos" -v "$home:$home")
+# the host account's ssh: its key, which crate takes for a push or fetch, and the known hosts it checks crate by
+[ -d "$HOME/.ssh" ] && mounts+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
 [ "$repos" = "$lot" ] || mounts+=(-v "$lot:$lot")
 
 # top draws a live screen, so its container gets the terminal.

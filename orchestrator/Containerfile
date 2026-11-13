@@ -1,11 +1,11 @@
-# The orchestrator's image: node, git, gh, skopeo and the podman client. The orchestrator runs here, never on the host. It
+# The orchestrator's image: node, git, ssh, gh, skopeo and the podman client. The orchestrator runs here, never on the host. It
 # starts its attempts' containers through the host's podman socket, so every path it hands podman is a host path, mounted
 # at the same path in here. It lands each cl with the host's git-land, mounted read-only, and commits and pushes as Matt:
 # his name from the host's git config, and his GH_TOKEN, both given by `just factory`.
 FROM docker.io/library/node:22.23.4-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl git skopeo \
+  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client skopeo \
   && rm -rf /var/lib/apt/lists/*
 
 # podman-remote, the client only, pinned by version and by the release's sha256.
@@ -27,6 +27,10 @@ RUN curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/v${G
   && rm -rf /tmp/gh.tgz "/tmp/gh_${GH}_linux_amd64"
 
 ENV CONTAINER_HOST=unix:///run/podman/podman.sock
+
+# ssh to `localhost` is ssh to the host: a repo's remote on crate is core@localhost when crate is on the same machine,
+# and in here localhost is the container. The host key stays localhost's, so the host's known_hosts holds for it.
+RUN printf 'Host localhost\n  HostName host.containers.internal\n  HostKeyAlias localhost\n' > /etc/ssh/ssh_config.d/host.conf
 
 # crate, the host's install, is mounted read-only here, so the orchestrator makes each dev repo's image with it.
 ENV PATH=/usr/local/share/crate/bin:$PATH
