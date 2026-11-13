@@ -328,14 +328,20 @@ function hold(ledger: Ledger, cl: Item, h: Hold, world: World) {
 }
 
 export async function advance(ledger: Ledger, world: World) {
-  // The notes at main, read once a tick, and only when an issue building has no cl left to land.
+  // The notes at main, read once a tick, and only when an issue building has no cl left to land. A fetch that fails
+  // holds no issue: the next tick reads again.
   let notes: Notes | undefined;
-  for (const issue of ledger.inState("building"))
-    await guarded(ledger, issue, async () => {
-      const cls = ledger.cls(issue.name);
-      if (cls.some((c) => !ends.includes(c.state))) return;
+  for (const issue of ledger.inState("building")) {
+    if (ledger.cls(issue.name).some((c) => !ends.includes(c.state))) continue;
+    try {
       notes ??= await notesNow(world.notes);
-      const read = readSpec(notes, issue.note, issue.name);
+    } catch (e) {
+      console.error(`the notes were not read: ${(e as Error).message}`);
+      break;
+    }
+    const at = notes;
+    await guarded(ledger, issue, () => {
+      const read = readSpec(at, issue.note, issue.name);
       if (!read.ok) throw new Error(read.errors.join("; "));
       // Built once every cl of its notes is in the ledger and has landed or is dropped.
       if (!reconcile(ledger, issue, read.spec).length)
@@ -345,6 +351,7 @@ export async function advance(ledger: Ledger, world: World) {
           "orchestrator",
         );
     });
+  }
 
   // A phase starts once every cl of the phases before it has landed or been dropped: a raised cl has not landed.
   for (const cl of ledger.inState("waiting")) {

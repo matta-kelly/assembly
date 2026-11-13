@@ -3,7 +3,7 @@
  * hold the key; each attempt's sandbox is a container its tools work in (effects/sandbox.ts).
  *
  * An attempt lives until it ends, whatever happens to the process that runs it. Its run is que-pasa's, durable, with
- * the attempt's id; its sandbox and worktree are its own, and a container outlives the orchestrator. So a stopped
+ * the attempt's id; its sandbox is its own, and a container outlives the orchestrator. So a stopped
  * orchestrator leaves its attempts open in the ledger, and the next one takes each one up: its sandbox again, and its
  * run goes on from where it stopped. A taken-up attempt goes the same way as a new one.
  *
@@ -15,12 +15,14 @@
  * - it makes the orchestrator's own moves (advance.ts): a building issue's cls, phase by phase, and their issue built.
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
  *   then a new one for each item waiting in a state that has a step, except the cls of an issue escalated to Matt: they
- *   stay in their state until he answers. It does not wait for one: the run goes on as a
- *   task, under a time limit, and settles the attempt when it ends. Its result is checked against the step's shape,
- *   the step's check picks the word from the result and the attempt's worktree, which the loop answers for it
- *   (a test run, the changed files), the note is written, and the ledger moves the item.
- * An approved cl's attempt is its land (effects/land.ts): code, with no agent, that takes it to main. Lands of one
- * repo run one at a time, each after the one before it.
+ *   stay in their state until he answers. Each is readied first: its worktree, the notes' main fetched and its commit
+ *   pinned on the attempt, its repo's settings read from the worktree, and its setup. It does not wait for one: the run
+ *   goes on as a task, under a time limit, and settles the attempt when it ends. Its result is checked against the
+ *   step's shape, the step's check picks the word from the result and the attempt's worktree, which the loop answers
+ *   for it (a test run, the changed files), and the ledger moves the item.
+ * An approved item's attempt is its land (effects/land.ts): code, with no agent, that takes a cl to its repo's main, and
+ * an issue's plan, written as notes, to the notes' main. Lands onto one main run one at a time, each after the one
+ * before it.
  * Closing the loop closes the runner and ends nothing: its attempts stay open for the next process.
  *
  * Each attempt is one trace (effects/trace.ts): its span's ids are made when it begins, its run starts under that span, and

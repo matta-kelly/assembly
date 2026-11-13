@@ -284,6 +284,17 @@ describe("advance", () => {
     expect(state("is-value")).toBe("ready");
   });
 
+  it("holds no issue when the notes cannot be read: it waits for the next tick", async () => {
+    landPlan();
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    rmSync(notes.repo, { recursive: true, force: true });
+    await advance(ledger, world);
+    expect(state("is")).toBe("building");
+    expect(err).toHaveBeenCalledWith(
+      expect.stringMatching(/^the notes were not read/),
+    );
+  });
+
   it("reads no notes while an issue building has a cl to land", async () => {
     landPlan();
     await advance(ledger, world);
