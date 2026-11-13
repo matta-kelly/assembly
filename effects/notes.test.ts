@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { items, section, writeNote } from "./notes.ts";
 
 const note =
-  "---\ntype: cl\nstatus: new\n---\nIntent.\n\n## Check\n\n- b1\n\t- not an item\n- b2\n\n## Tests\n\nold\n";
+  "---\ntype: cl\nstatus: new\n---\nIntent.\n\n## Promises\n\n- b1\n\t- not an item\n- b2\n\n## Tests\n\nold\n";
 
 let dir: string;
 let file: string;
@@ -19,7 +19,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 describe("notes", () => {
   it("read a section, and its top-level items", () => {
     expect(section(file, "Tests").trim()).toBe("old");
-    expect(items(file, "Check")).toEqual(["- b1", "- b2"]);
+    expect(items(file, "Promises")).toEqual(["- b1", "- b2"]);
     expect(section(file, "Seam")).toBe("");
   });
 

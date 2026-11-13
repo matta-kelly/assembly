@@ -23,7 +23,7 @@ const cl = (name: string, phase?: number, o: Partial<ClSpec> = {}): ClSpec => ({
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.ts`, `src/${name}.test.ts`, "src/a.ts"],
   test: `node --test src/${name}.test.ts`,
-  check: ["given x, when y, then z"],
+  promises: ["given x, when y, then z"],
   seam: `the export of src/${name}.ts`,
   checkoutNotes: `- src/${name}.ts: the code\n- src/a.ts: the exemplar`,
   ...o,

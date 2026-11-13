@@ -21,7 +21,7 @@ type: cl
 ---
 Intent.
 
-## Check
+## Promises
 
 - given a, when b, then c
 	- a detail, not a promise
@@ -61,7 +61,7 @@ const t = (promise: number, file = "a.test.ts") => ({
 });
 
 describe("promises", () => {
-  it("are the top-level items of the cl's Check list", () => {
+  it("are the top-level items of the cl's Promises list", () => {
     expect(promises(r.path)).toEqual([
       "- given a, when b, then c",
       "- given d, when e, then f",

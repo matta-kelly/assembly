@@ -101,7 +101,7 @@ export const plan = defineType({
 export const cl = defineType({
   name: "cl",
   description:
-    "The spec of one cut, the CL that builds it, as a contract: its check is what it ensures, its phase what it requires, its seam what it keeps. Its shape, checkout and test command are data; its intent, check, seam and the description of its checkout are prose. The note holds the spec only: what happens to it (its state, attempts, results and findings) is the controller's record, keyed by its name. new once written, done once the CL lands.",
+    "The spec of one cut, the CL that builds it, as a contract: its promises, its phase (what must land before it) and its seam (what it keeps). Its shape, checkout and test command are data; its intent, promises, seam and the description of its checkout are prose. The note holds the spec only: what happens to it (its state, attempts, results and findings) is the controller's record, keyed by its name. new once written, done once the CL lands.",
   fields: {
     // The plan it is a cut of, or the issue itself when the issue takes one CL.
     belongsTo: one(() => [plan, issue] as const),

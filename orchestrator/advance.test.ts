@@ -33,7 +33,7 @@ const cl = (name: string, phase?: number): ClSpec => ({
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`],
   test: `node --test test/${name}.test.mjs`,
-  check: [`given ${name}, when read, then right`],
+  promises: [`given ${name}, when read, then right`],
   seam: "src/value.mjs's exports",
   checkoutNotes: `- src/${name}.mjs: the code`,
 });
@@ -107,7 +107,7 @@ describe("advance", () => {
     expect(read("is-value")).toContain(
       'checkout: ["src/value.mjs","test/value.test.mjs"]',
     );
-    expect(section(join(dir, "is-value.md"), "Check").trim()).toBe(
+    expect(section(join(dir, "is-value.md"), "Promises").trim()).toBe(
       "- given value, when read, then right",
     );
     expect(read("is")).toBe(issueNote);

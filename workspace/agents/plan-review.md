@@ -37,11 +37,11 @@ The planner's obligations, each proven again, at the plan's levels, top first: a
 	- named: every such thing is in a Seam. One that a cl reads from another and no Seam names is a finding
 	- agreed: the maker and each user say what crosses the same way: its names, its types, its order, its defaults, and what it gives back
 	- promised: nothing a user relies on is left unsaid by the maker. What two builders, each working alone, would have to invent is a finding
-	- proven: the seam's promise is in the Check of the cl that creates it, in a line that fails when the seam breaks
+	- proven: the seam's promise is in the Promises of the cl that creates it, in a line that fails when the seam breaks
 	- grounded: what the seam rests on in the code holds, read from the repo
 - each cl: alone, once the seams it meets at hold
-	- its parts: its checkout, test, Check and Seam, and in a plan its phase. Its Seam names the decision the cut hides
-	- its promises ([[cl]], Check): each one can fail, is traced to the issue's promise or the seam it serves, and an issue promise's test is in the Check of the cl that completes it. A cut that asks or waits on an outside thing promises what holds when it fails. One left out is a finding
+	- its parts: its checkout, test, Promises and Seam, and in a plan its phase. Its Seam names the decision the cut hides
+	- its promises ([[cl]], Promises): each one can fail, is traced to the issue's promise or the seam it serves, and an issue promise's test is in the Promises of the cl that completes it. A cut that asks or waits on an outside thing promises what holds when it fails. One left out is a finding
 	- its surface: its promises say what holds, never how, and list no cases. A promise that reads as a test case, or a build step, is a finding: it takes the builders' judgement from them ([[terms#case]])
 	- its ground: each assumption its contract rests on is grounded: you open the code, the probe's output, or the design doc. One that could not be settled sits in a phase-1 cl, so the build checks it first
 	- its checkout: it holds all its builders need: each path described, with what it is and why it is there, and one exemplar. A path missing is a finding; an extra one is not

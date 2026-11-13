@@ -1,6 +1,6 @@
 ---
 type: doc
-description: "A changelist (CL): one self-contained change to main, what a good one is, its kinds, its note (the cl: its Check, Seam and Checkout), and its parts: workspace, branch and commits. Use when cutting, making or judging a CL."
+description: "A changelist (CL): one self-contained change to main, what a good one is, its kinds, its note (the cl: its Promises, Seam and Checkout), and its parts: workspace, branch and commits. Use when cutting, making or judging a CL."
 status: active
 ---
 A changelist (CL): one self-contained change, submitted to main or under review ([Small CLs](https://google.github.io/eng-practices/review/developer/small-cls.html)). Every change to the code is a CL, because every change is reviewed (SWE at Google, ch. 9). The name is Google's; other organisations call it a change, a patch or a pull request.
@@ -46,7 +46,7 @@ What the CL does to promises, and so to their tests. The commit type names the k
 
 ## The cl note
 
-The spec of one CL, written before any of it is built, as a contract (Design by Contract: Hoare, 1969; Meyer, 1986): its Check holds its promises, its `phase` what must land before it, its Seam what it keeps. The body that meets it is its builders'. Its type is [[cl]], whose type note says what each part holds: its first line, its Check, its Seam and its Checkout.
+The spec of one CL, written before any of it is built, as a contract (Design by Contract: Hoare, 1969; Meyer, 1986): its Promises section holds its promises, its `phase` what must land before it, its Seam what it keeps. The body that meets it is its builders'. Its type is [[cl]], whose type note says what each part holds: its first line, its Promises, its Seam and its Checkout.
 
 ## Parts
 

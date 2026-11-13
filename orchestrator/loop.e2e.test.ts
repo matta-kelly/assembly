@@ -120,7 +120,7 @@ const cl = (
   shape: { change: "behavior", checked: "repo" },
   checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`, "README", ...read],
   test: `node --test test/${name}.test.mjs`,
-  check: [promise],
+  promises: [promise],
   seam: `src/${name}.mjs's export, which the next cl imports`,
   checkoutNotes: "- README: the repo has no code yet",
 });
@@ -333,7 +333,7 @@ const clReviewScript = (_input: string, done: number, last: string) => {
   return submit({ word: "done" });
 };
 
-/** issue-review runs the issue's Check, the whole suite, then accepts. */
+/** issue-review runs the issue's check, the whole suite, then accepts. */
 const issueReviewScript = (_input: string, done: number, last: string) => {
   if (done === 0) return tryWrite;
   if (done === 1 && !refused(last))
@@ -822,7 +822,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const clPath = join(at, "work", "rs-value.md");
         writeFileSync(
           clPath,
-          "---\ntype: cl\nstatus: new\n---\nThe cut value of rs.\n\n---\n## Check\n\n- given value, when read, then 2\n",
+          "---\ntype: cl\nstatus: new\n---\nThe cut value of rs.\n\n---\n## Promises\n\n- given value, when read, then 2\n",
         );
 
         // da-nail's third model call, after its two writes, waits: the first orchestrator closes while it is out. Its
@@ -981,7 +981,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         for (const n of ["one", "two"])
           writeFileSync(
             join(at, "work", `rz-${n}.md`),
-            `---\ntype: cl\nstatus: new\n---\nThe cut ${n} of rz.\n\n---\n## Check\n\n- given ${n}, when read, then 2\n`,
+            `---\ntype: cl\nstatus: new\n---\nThe cut ${n} of rz.\n\n---\n## Promises\n\n- given ${n}, when read, then 2\n`,
           );
 
         // da-nail cannot meet the cut as it stands: it hands back two findings about the cl.
@@ -996,7 +996,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
                 {
                   about: "cl",
                   what: "the promise names a file the checkout lacks",
-                  where: "Check 1",
+                  where: "Promises 1",
                 },
                 {
                   about: "cl",
@@ -1062,7 +1062,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           {
             word: "escalate",
             findings: [
-              { about: "cl", where: "Check 1" },
+              { about: "cl", where: "Promises 1" },
               { about: "cl", where: "Seam" },
             ],
           },
@@ -1071,7 +1071,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(line).toMatch(/^rz {2}escalated/);
         expect(line).toContain("rz-one raised");
         expect(explain(ledger, join(at, "runs"), "rz")).toContain(
-          "     cl: the promise names a file the checkout lacks (Check 1)",
+          "     cl: the promise names a file the checkout lacks (Promises 1)",
         );
 
         // Nothing is built after it: the phase 2 cl is never ready, and no attempt starts.

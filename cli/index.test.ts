@@ -126,7 +126,7 @@ test: npx vitest run test/a.test.ts
 src/a.ts exports a, which is 2.
 
 ---
-## Check
+## Promises
 
 - given a, when imported, then it is 2
 
@@ -263,7 +263,7 @@ test: npx vitest run test/a.test.ts
 src/a.ts exports a, which is 2.
 
 ---
-## Check
+## Promises
 
 - given a, when imported, then it is 2
 

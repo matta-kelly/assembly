@@ -4,7 +4,7 @@ type: type
 The cut's intent, in one line: one sentence of done, said as what is true after its CL lands.
 
 ---
-## Check
+## Promises
 
 The cl's promises ([[terms#promise]]): what is true once it lands, each an outcome at the cut's boundary that can fail. Few, each at the altitude of its source. The cases are its tester's, and the build inside the boundary is its builders'.
 

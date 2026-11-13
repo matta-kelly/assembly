@@ -1,5 +1,5 @@
 /**
- * The nail step: ready to red. da-nail writes a test for each promise in the cl's Check, each failing at its assertion.
+ * The nail step: ready to red. da-nail writes a test for each promise in the cl's Promises, each failing at its assertion.
  * The check confirms each promise has a test in a file that exists, then runs the cl's test command and passes only
  * when it fails at an assertion (red.sh in loke's v1 gates). A review that sends the cl back to its tests brings it
  * here again, and da-nail reads the findings in its messages.
@@ -19,7 +19,7 @@ const done = z.object({
           .number()
           .int()
           .min(1)
-          .describe("the promise's number in the cl's Check list, from 1"),
+          .describe("the promise's number in the cl's Promises list, from 1"),
         file: z.string().describe("the test file, from the repo's root"),
         name: z.string().describe("the test's name"),
       }),
@@ -34,9 +34,9 @@ const done = z.object({
 });
 type Done = z.infer<typeof done>;
 
-/** The promises of a cl: the top-level items of its Check list. */
+/** The promises of a cl: the top-level items of its Promises list. */
 export function promises(cl: string): string[] {
-  return items(cl, "Check");
+  return items(cl, "Promises");
 }
 
 /** da-nail's tests for the cl: its last passed result's, none before it passed. */

@@ -1,7 +1,7 @@
 /**
  * The plan step: an issue from open to planned. The planner reads the issue and the code, read-only, and hands back the
  * spec as data, in the shape of kinetic's plan and cl types: its plan (the approach, each phase's reason, and what does
- * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, checkout, test, check,
+ * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, checkout, test, promises,
  * seam and the description of its checkout). The check is spec lint, in code: what can be decided without judgment.
  * Whether the cut is good is the plan review's. Nothing is written yet: the notes are written once the plan review
  * approves (orchestrator/advance.ts). A spec Matt makes is read from its notes (readSpec) and checked by the same lint.
@@ -83,11 +83,11 @@ export const clSpec = z.object({
     .describe(
       "the command its checks run, from the repo's root: its new test files and the existing ones that test what it changes, each in its checkout",
     ),
-  check: z
+  promises: z
     .array(z.string().min(1))
     .min(1)
     .describe(
-      "its promises, each a future test that can fail: behavior as given, when, then; structure as what stays green",
+      "its promises: each an outcome at the cut's surface that can fail, traced to the issue's promise or the seam it serves; never a case or a build step",
     ),
   seam: z
     .string()
@@ -195,8 +195,8 @@ export function specText(s: Spec): string {
       `- shape: ${c.shape.change}, checked in the ${c.shape.checked}`,
       `- checkout: ${c.checkout.join(", ")}`,
       `- test: \`${c.test}\``,
-      "- check:",
-      ...c.check.map((b) => `  - ${b}`),
+      "- promises:",
+      ...c.promises.map((b) => `  - ${b}`),
       `- seam: ${c.seam}`,
       "- checkout notes:",
       c.checkoutNotes,
@@ -364,15 +364,15 @@ export function planNote(issue: string, s: Spec & { plan: PlanSpec }): string {
   ].join("\n");
 }
 
-/** A cl note's body, in kinetic's cl type: its intent, Check, Seam and Checkout. */
+/** A cl note's body, in kinetic's cl type: its intent, Promises, Seam and Checkout. */
 export function clNote(c: ClSpec): string {
   return [
     c.intent,
     "",
     "---",
-    "## Check",
+    "## Promises",
     "",
-    ...c.check.map((b) => `- ${b}`),
+    ...c.promises.map((b) => `- ${b}`),
     "",
     "## Seam",
     "",
@@ -469,7 +469,7 @@ export function readSpec(
       shape: fields["shape"],
       checkout: fields["checkout"],
       test: fields["test"],
-      check: itemsIn(body, "Check").map((x) => x.slice(2)),
+      promises: itemsIn(body, "Promises").map((x) => x.slice(2)),
       seam: sectionIn(body, "Seam").trim(),
       checkoutNotes: sectionIn(body, "Checkout").trim(),
     });

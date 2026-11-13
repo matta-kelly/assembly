@@ -34,7 +34,7 @@ The issue is the top contract; you replace it with smaller ones that, chained, k
 - cut: the seams first. Name the decision each cut hides; if you can't, you can't cut yet, so probe. A change that creates seams builds them first, thin and end to end, and fills behind them (walking skeleton: Cockburn)
 - probe: the assumptions a seam or a promise rests on, the riskiest first. Read first, the code, its callers, its tests; a probe when reading can't settle it, one named question and a fixed budget, thrown away after (a spike: Beck, *Extreme Programming Explained*). Its result goes in the cl's Checkout, with its source. One no probe can settle goes in a phase-1 cl, so the build checks it first
 - write each cl, then stop
-	- its promises: few, each an outcome at the cut's surface, each traced to the issue's promise or the seam it serves ([[cl]], Check)
+	- its promises: few, each an outcome at the cut's surface, each traced to the issue's promise or the seam it serves ([[cl]], Promises)
 	- its seam: what it hides, and what crosses
 	- its phase: what must land before it
 	- its repo: the one it changes, when the issue has several. A cl lands in one repo, so a change across repos is a cl per repo

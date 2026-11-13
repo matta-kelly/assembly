@@ -23,7 +23,7 @@ intent: the need a piece of work serves, as the problem and the rough form of it
 ## promise
 
 promise: a guarantee a unit makes to the level above, said as an outcome at the unit's boundary, never as how it is built or what to test ("any guarantee that a system makes about how it will respond to a series of inputs while in a particular state": [SWE at Google, ch. 12](https://abseil.io/resources/swe-book/html/ch12.html)). It can fail, so it has a test.
-- its home: an issue's Done, a cl's Check
+- its home: an issue's Done, a cl's Promises
 - one rule, one promise: never a promise for each kind of input, since the kinds are its cases
 - its source: what it serves, one level up. An issue's promise serves its intent; a cl's promise serves an issue's promise, a seam, or the cl's own intent
 - its altitude: the level of its source, which sets the kind of its test ([[tests#Kinds]]). A promise is tested at the altitude of its source, not of the cl that carries it

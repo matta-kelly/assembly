@@ -51,7 +51,7 @@ vi.mock("../effects/repo.ts", async (original) => ({
   devImage: vi.fn(),
 }));
 
-const cl = "## Check\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
+const cl = "## Promises\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
 
 let dir: string;
 let ledger: Ledger;
@@ -195,7 +195,7 @@ describe("an attempt", () => {
             shape: { change: "behavior", checked: "repo" },
             checkout: ["src/", "test/a.test.ts"],
             test: "t",
-            check: ["b1"],
+            promises: ["b1"],
             seam: "s",
             checkoutNotes: "n",
           },
@@ -825,7 +825,7 @@ describe("the world", () => {
 
   it("runs the issue's own step in the moved commit's dev image, so its setup installs the moved lockfile offline", async () => {
     // an issue of one repo, whose cl waits on a package a landed cl of the issue released there
-    writeFileSync(join(dir, "k.md"), "## Check\n\n- b1\n");
+    writeFileSync(join(dir, "k.md"), "## Promises\n\n- b1\n");
     ledger.addIssue({
       name: "k",
       path: join(dir, "k.md"),

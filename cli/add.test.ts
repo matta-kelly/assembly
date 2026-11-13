@@ -60,7 +60,7 @@ test: npx vitest run test/${name}.test.ts
 src/${name}.ts exports ${name}, which is 2.
 
 ---
-## Check
+## Promises
 
 - given ${name}, when imported, then it is 2
 
