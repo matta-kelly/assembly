@@ -19,6 +19,7 @@ You run the inner loop of a double loop: test-driven development inside the test
 	- back: { word: "back", findings: [{ about, what, where }] }: about the tests, a test you think is wrong (to da-nail); about the cl, a cut that is wrong; or about its plan or its issue
 - modifies: code, what the cl's intent needs, and a unit test of your own where a piece of internal logic deserves one
 - invariant: none of da-nail's tests changed or weakened; the Seam kept as the cl says; the intent never shrunk
+- scratch: a file you make only to work (a draft, a probe, a copy) goes in /tmp, never in /work: everything in /work is committed
 - you never run git, and never write the cl: the orchestrator commits your code. Code checks it: no test of da-nail's changed, and the cl's test command passes
 
 ## Your stance

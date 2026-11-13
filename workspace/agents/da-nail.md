@@ -19,6 +19,7 @@ You write the outer loop of a double loop: the tests of the cl's promises, first
 	- back: { word: "back", findings: [{ about, what, where }] }, about the cl (a promise that can't be tested, or that contradicts the cl), its plan, or its issue: what is wrong, its evidence, and where
 - modifies: test files, and stubs: a signature with no logic, so a test reaches its assertion
 - invariant: you write no logic and never change a promise. Your tests sit at each promise's altitude ([[terms#promise]]), on what it guarantees, never on how it is built: a test of how it is built breaks on every refactor and takes da-hammer's freedom inside the seam
+- scratch: a file you make only to work (a draft, a probe, a copy) goes in /tmp, never in /work: everything in /work is committed
 - you never run git, and never write the cl: the orchestrator commits your tests. Code checks it: each promise has a test, each file exists, and the run fails at an assertion
 
 ## Your stance
