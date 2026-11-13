@@ -61,6 +61,10 @@ const spans = (names: string[], lastEnd: string) => {
   });
 };
 
+/** The lines inside the screen's cards, without their borders or the padding to them. */
+const inside = (lines: string[]) =>
+  lines.filter((l) => l.startsWith("│")).map((l) => l.slice(2, -2).trimEnd());
+
 let runsOf = "";
 /** Writes an attempt's trace where the factory keeps it. */
 const trace = (item: Item, n: number, names: string[], lastEnd: string) => {
@@ -117,25 +121,30 @@ describe("factory top", () => {
     );
     const at = new Date("2026-11-12T15:08:12Z");
     const lines = screen(ledger, f.runs, at, "v0.1.3");
+    const body = inside(lines);
 
-    expect(lines[0]).toBe(
-      `assembly v0.1.3 · ${at.toTimeString().slice(0, 8)} · spent $0.90`,
+    expect(lines[0]).toMatch(
+      /^assembly v0\.1\.3 +\d\d:\d\d:\d\d {3}spent \$0\.90$/,
     );
-    expect(lines).toContain("ISSUE is   open   phase 1 of 3   8m12s   $0.90");
-    // the cl, then its open attempt live: what it does now, its turns and tokens so far; then why it moved last
-    const i = lines.indexOf(
-      "  phase 1   is-a   green   3 attempts   5 turns   8m12s   $0.90",
+    // the card: the issue, its state and phase on its border, its time and spend on the right
+    expect(lines[2]).toMatch(
+      /^┌ is {2}open · phase 1 of 3 ─+ 8m12s {2}\$0\.90 ┐$/,
     );
-    expect(i).toBeGreaterThan(0);
-    expect(lines.slice(i + 1, i + 3)).toEqual([
-      "    ▶ cl-review #3   3m12s   2 turns   idle 8s   now: model   2k in, 200 out",
-      "    ↳ pass: green",
+    // the cl, its stations, its open attempt live (which try of its role), then why it moved last and who said it
+    const i = body.findIndex((l) => l.startsWith("phase 1  a  green"));
+    expect(body[i]).toMatch(/3 attempts · 5 turns · 8m12s · \$0\.90$/);
+    expect(body.slice(i + 1, i + 4)).toEqual([
+      "  ✓ nail ━━ ✓ hammer ━━ ● review ── ○ land",
+      "  ▶ cl-review · try 1 · 3m12s · 2 turns · idle 8s · now model · 2k in · 200 out",
+      "  ↳ da-hammer, pass: green",
     ]);
-    expect(lines).toContain("  phase 2   is-b   waiting");
-    expect(lines).toContain("  phase 3   is-c   waiting");
+    expect(body).toContain("phase 2  b  waiting");
+    expect(body).toContain(
+      "  waiting ○ nail ── ○ hammer ── ○ review ── ○ land",
+    );
     const role = (r: string) =>
-      lines
-        .find((l) => l.startsWith(`    ${r} `))
+      body
+        .find((l) => l.startsWith(`${r} `))
         ?.split(/\s+/)
         .filter(Boolean);
     expect(role("da-nail")).toEqual([
@@ -158,20 +167,20 @@ describe("factory top", () => {
       "18k",
       "$0.50",
     ]);
-    // the open attempt counts, with its turns so far and no use reported yet
+    // the open attempt counts, with its turns and tokens so far from its trace, and no cost reported yet
     expect(role("cl-review")).toEqual([
       "cl-review",
       "1",
       "2",
       "3m12s",
+      "2k",
       "0",
-      "0",
-      "0",
+      "200",
       "$0.00",
     ]);
   });
 
-  it("shows why a cl waits or is stuck, and the last tool an attempt ran", () => {
+  it("shows a held cl at its station, why it is held, and the last tool an attempt ran", () => {
     const f = compose({ home });
     runsOf = f.runs;
     const { ledger } = f;
@@ -186,8 +195,10 @@ describe("factory top", () => {
       },
       "orchestrator",
     );
-    const lines = screen(ledger, f.runs, new Date(), "v0");
-    expect(lines).toContain("    ↳ escalate: the setup failed: no zod");
+    const body = inside(screen(ledger, f.runs, new Date(), "v0"));
+    // held at the station it was stopped at, with why
+    expect(body).toContain("  ✗ nail ── ○ hammer ── ○ review ── ○ land");
+    expect(body).toContain("  ↳ factory, escalate: the setup failed: no zod");
     const dir = join(home, "t.jsonl");
     writeFileSync(
       dir,
@@ -216,15 +227,44 @@ describe("factory top", () => {
     });
   });
 
-  it("names the phase as landed when every cl of an issue has landed or dropped, and says when there is nothing", () => {
+  it("shows only the issues not ended, says how many ended, and when every cl of one has ended", () => {
     const { ledger, runs } = compose({ home });
-    expect(screen(ledger, runs, new Date(), "v0")).toContain("no issues yet");
+    expect(screen(ledger, runs, new Date(), "v0")).toContain(
+      "nothing in the factory",
+    );
     ledger.addIssue(issue);
     ledger.addCl(cl("is-a", 1, 1), "landed");
     ledger.addCl(cl("is-b", 2, 2), "dropped");
-    expect(screen(ledger, runs, new Date(), "v0")).toContain(
-      "ISSUE is   open   shipped: all 2 phases landed   $0.00",
+    ledger.addIssue({ ...issue, name: "old", note: "_well/old.md" });
+    ledger.apply("old", { word: "drop", reason: "r", findings: [] }, "matt");
+    const lines = screen(ledger, runs, new Date(), "v0");
+    expect(lines.some((l) => l.startsWith("┌ is  open · every cl ended"))).toBe(
+      true,
     );
+    expect(lines.some((l) => l.includes("old"))).toBe(false);
+    expect(lines).toContain("1 ended, not shown");
+    expect(inside(lines)).toContain(
+      "  ✓ nail ━━ ✓ hammer ━━ ✓ review ━━ ✓ land",
+    );
+  });
+
+  it("colors the stations, and cuts a line to the screen's width, its colors kept", () => {
+    const { ledger, runs } = compose({ home });
+    ledger.addIssue({ ...issue, name: "a-very-long-issue-name-".repeat(5) });
+    const lines = screen(ledger, runs, new Date(), "v0", {
+      columns: 60,
+      color: true,
+    });
+    const width = (l: string) =>
+      [
+        ...l.replace(
+          new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"),
+          "",
+        ),
+      ].length;
+    for (const l of lines.filter((x) => x.includes("┌") || x.includes("└")))
+      expect(width(l)).toBe(60);
+    expect(lines.join("\n")).toContain(`${String.fromCharCode(27)}[`);
   });
 
   it("writes tokens and times short", () => {
@@ -241,13 +281,13 @@ describe("factory top", () => {
     ]).toEqual(["45s", "3m12s", "1h03m"]);
   });
 
-  it("names each step's role by the agent that works it, and the land by its step", () => {
+  it("names each step's role by the agent that works it, and the land as the land", () => {
     expect(["ready", "red", "green", "open", "approved"].map(roleOf)).toEqual([
       "da-nail",
       "da-hammer",
       "cl-review",
       "planner",
-      "approved",
+      "land",
     ]);
   });
 });
