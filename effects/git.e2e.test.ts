@@ -22,7 +22,7 @@ import {
   branchOf,
   changed,
   commit,
-  discard,
+  record,
   fresh,
   landedTags,
   sweep,
@@ -118,7 +118,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
     expect(await touched(run(2))).toEqual([]);
   });
 
-  it("keeps a failed attempt's change, new and removed files too, as its diff, and resets to the branch, keeping what git ignores", async () => {
+  it("records a failed attempt's change, new and removed files too, as its diff, and leaves the worktree as it is", async () => {
     const r = run(2);
     mkdirSync(join(r.work, "deps"));
     writeFileSync(join(r.work, "deps/x"), "installed\n");
@@ -128,19 +128,22 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
     expect(await changed(r, ["src/a.ts", "test/a.test.ts"])).toEqual([
       "src/a.ts",
     ]);
-    await discard(r);
+    await record(r);
     const diff = readFileSync(join(r.dir, "change.diff"), "utf8");
     for (const f of ["src/a.ts", "src/stray.ts", "NOTES"])
       expect(diff).toContain(`b/${f}`);
-    expect(await touched(r)).toEqual([]);
-    expect(readFileSync(join(r.work, "src/a.ts"), "utf8")).toBe("passed\n");
-    expect(existsSync(join(r.work, "src/stray.ts"))).toBe(false);
+    expect(diff).not.toContain("deps/x");
+    expect((await touched(r)).sort()).toEqual(
+      ["NOTES", "src/a.ts", "src/stray.ts"].sort(),
+    );
+    expect(readFileSync(join(r.work, "src/a.ts"), "utf8")).toBe("failed\n");
+    expect(existsSync(join(r.work, "src/stray.ts"))).toBe(true);
     expect(existsSync(join(r.work, "deps/x"))).toBe(true);
   });
 
   it("writes no diff for an attempt that changed nothing", async () => {
     const r = run(3);
-    await discard(r);
+    await record(r);
     expect(existsSync(join(r.dir, "change.diff"))).toBe(false);
   });
 

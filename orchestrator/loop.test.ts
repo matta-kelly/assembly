@@ -11,7 +11,7 @@ import { loop, RunFailed, type Runner } from "./loop.ts";
 import { execFileSync } from "node:child_process";
 import {
   commit,
-  discard,
+  record,
   fresh,
   onMain,
   sweep,
@@ -37,7 +37,7 @@ vi.mock("../effects/git.ts", async (original) => ({
   worktree: vi.fn(),
   fresh: vi.fn(),
   commit: vi.fn(),
-  discard: vi.fn(),
+  record: vi.fn(),
   sweep: vi.fn(),
   head: vi.fn(),
   changed: vi.fn(),
@@ -224,16 +224,16 @@ describe("an attempt", () => {
     ]);
   });
 
-  it("keeps the change of a step that edits and did not pass as its record, and resets the worktree", async () => {
+  it("records the change of a step that edits and did not pass, and leaves it in the worktree", async () => {
     message = { word: "retry", reason: "red", findings: [] };
     await once(make(gives(done("x"))));
-    expect(discard).toHaveBeenCalledWith(
+    expect(record).toHaveBeenCalledWith(
       expect.objectContaining({ name: "c", n: 1 }),
     );
     expect(commit).not.toHaveBeenCalled();
   });
 
-  it("resets nothing for a pass, or for a step that only reads", async () => {
+  it("records nothing for a pass, or for a step that only reads", async () => {
     await once(make(gives(done("x"))));
     message = { word: "retry", reason: "red", findings: [] };
     await once(
@@ -241,16 +241,16 @@ describe("an attempt", () => {
         steps: [{ ...step, from: "red", worktree: "ro" }],
       }),
     );
-    expect(discard).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
   });
 
-  it("resets a step that edits whose run failed, so its next attempt starts from the branch", async () => {
+  it("records the change of a step that edits whose run failed", async () => {
     await once(
       make(async () => {
         throw new Error("the model is down");
       }),
     );
-    expect(discard).toHaveBeenCalledOnce();
+    expect(record).toHaveBeenCalledOnce();
   });
 
   it("moves an issue's worktree to main for a new attempt, and sets it up again when main moved", async () => {

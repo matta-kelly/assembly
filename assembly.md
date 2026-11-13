@@ -267,7 +267,7 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 - run: que-pasa's, with the attempt's id, under the attempt's span, on the bin's model
 - check: the step's, on the worktree. Its test run in a container of its own
 - commit: a pass of a step that edits, on the item's branch, titled as crate reads a release. No note is written
-- any other end of a step that edits: its change, new files too, is kept in the attempt's folder as `change.diff`, its record, and the worktree goes back to the branch, keeping what git ignores
+- any other end of a step that edits: its change, new files too, is recorded in the attempt's folder as `change.diff`, and stays in the worktree, so the cl's next attempt goes on from it
 - end: the attempt span is written, then the ledger moves the item, in one transaction with one event, its message
 - across a stop
 	- a stopped orchestrator: ends nothing. Each attempt stays open, and its container stays up

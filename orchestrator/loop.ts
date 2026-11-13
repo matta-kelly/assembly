@@ -8,7 +8,7 @@
  * run goes on from where it stopped. A taken-up attempt goes the same way as a new one.
  *
  * Each item has one worktree, which every attempt of it works in (effects/git.ts): a pass commits there, and any other
- * end of a step that writes keeps its change as the attempt's record and resets it. Opening the loop sweeps away every
+ * end of a step that writes records its change and leaves it there for the next attempt. Opening the loop sweeps away every
  * worktree and branch no live item holds, makes the worktrees of the open attempts, then opens the runner: que-pasa's
  * runtime goes on with their runs at once, and their sandboxes, which come up on a tool's first call, mount those
  * worktrees. Each tick then sweeps again, and does two things:
@@ -36,7 +36,7 @@ import {
   branchOf,
   changed,
   commit,
-  discard,
+  record,
   fresh,
   head,
   mainOf,
@@ -403,13 +403,12 @@ export async function loop({
         findings: [],
       };
     }
-    // Any other end of a step that edits keeps its change as the attempt's record, and the worktree goes back to its
-    // branch, so the next attempt starts from the item's passed work.
+    // Any other end of a step that edits records its change; the change stays in the worktree for the next attempt.
     if (v.word !== "pass" && step.worktree !== "ro")
       try {
-        await discard(r);
+        await record(r);
       } catch (e) {
-        console.error(`the change of ${r.name}/${r.n} was not reset:`, e);
+        console.error(`the change of ${r.name}/${r.n} was not recorded:`, e);
       }
     await traced(r, state, step, {
       message: v,

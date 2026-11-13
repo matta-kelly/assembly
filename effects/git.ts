@@ -5,8 +5,8 @@
  * Main is the land target's: the remote `git land` lands on, `server` or `local` when the repo has it, else `origin`.
  * A cl has one branch, assembly/<name>/head, that holds its passed work, and one worktree on it, beside its attempts'
  * folders, made from main when the cl first needs it. Every step of the cl works there: a pass commits on the branch,
- * and any other end of a step that writes keeps its change as the attempt's record (change.diff) and resets the
- * worktree to the branch. An issue's worktree is detached, and moves to main as it is now at each attempt. A live item
+ * and any other end of a step that writes records its change as the attempt's change.diff and leaves it in the
+ * worktree, where the cl's next attempt goes on from it. An issue's worktree is detached, and moves to main as it is now at each attempt. A live item
  * has its branch and its worktree; the sweep removes every other one under assembly/ and under the runs folder.
  */
 
@@ -156,11 +156,10 @@ export async function commit(r: Tree, message: string) {
 }
 
 /**
- * Ends an attempt that did not pass: its change, new files too, is kept in its folder as its record (change.diff, or
- * <repo>.diff for each repo of an issue with several), and the worktree goes back to its HEAD. Files git ignores, as
- * the installed dependencies, stay.
+ * Records an attempt that did not pass: its change, new files too, as change.diff in its folder (<repo>.diff for each
+ * repo of an issue with several). The worktree keeps the change: the cl's next attempt goes on from it.
  */
-export async function discard(r: Tree) {
+export async function record(r: Tree) {
   for (const p of partsOf(r)) {
     await must("git", ["-C", p.work, "add", "-A"]);
     const diff = await must("git", [
@@ -176,8 +175,7 @@ export async function discard(r: Tree) {
       const name = r.repos?.length ? `${basename(p.work)}.diff` : "change.diff";
       writeFileSync(join(r.dir, name), diff);
     }
-    await must("git", ["-C", p.work, "reset", "-q", "--hard", "HEAD"]);
-    await must("git", ["-C", p.work, "clean", "-q", "-f", "-d"]);
+    await must("git", ["-C", p.work, "reset", "-q"]);
   }
 }
 
@@ -207,7 +205,7 @@ export async function treeOf(r: Tree): Promise<string> {
 }
 
 /**
- * Every file of the worktree that differs from where its attempt started, its HEAD (a failed attempt resets to it):
+ * Every file of the worktree that differs from its HEAD, the item's passed work, an earlier failed attempt's change too:
  * changed, new or removed, as git status sees it. A file git ignores is not one.
  */
 export async function touched(r: Tree): Promise<string[]> {
