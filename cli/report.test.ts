@@ -87,20 +87,135 @@ describe("the factory's reports", () => {
     expect(log.mock.calls[0]![0].split("\n")[0]).toBe("assembly unknown");
   });
 
-  it("blocked: the raised and escalated items, with the reason of their last move", () => {
-    const { ledger } = compose({ home });
-    expect(blocked(ledger)).toEqual(["nothing is blocked"]);
-    ledger.addIssue(issue);
-    ledger.apply(
-      "is",
-      {
-        word: "back",
-        reason: "back, about the issue",
-        findings: [{ about: "issue", what: "no intent", where: "Intent" }],
+  describe("blocked: how long ago each item was raised", () => {
+    const T0 = Date.parse("2025-06-01T12:00:00Z");
+    const SECOND = 1_000;
+    const MINUTE = 60 * SECOND;
+    const HOUR = 60 * MINUTE;
+    const DAY = 24 * HOUR;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const raise = (
+      ledger: ReturnType<typeof compose>["ledger"],
+      reason: string,
+    ) => {
+      ledger.addIssue(issue);
+      ledger.apply(
+        "is",
+        { word: "back", reason, findings: [] },
+        { attempt: ledger.begin("is") },
+      );
+    };
+
+    it("says `nothing is blocked` when nothing is raised or escalated", () => {
+      const { ledger } = compose({ home });
+      expect(blocked(ledger)).toEqual(["nothing is blocked"]);
+    });
+
+    it("says `nothing is blocked` when an item moved on instead of waiting", () => {
+      const { ledger } = compose({ home });
+      ledger.addIssue(issue);
+      ledger.apply(
+        "is",
+        { word: "pass", reason: "the plan lints", findings: [] },
+        { attempt: ledger.begin("is") },
+      );
+      expect(blocked(ledger)).toEqual(["nothing is blocked"]);
+    });
+
+    it.each([
+      ["0s", 0, "0s ago"],
+      ["12s", 12 * SECOND, "12s ago"],
+      ["45s", 45 * SECOND, "45s ago"],
+      ["59s", 59 * SECOND, "59s ago"],
+      ["1m", MINUTE, "1m ago"],
+      ["4m", 4 * MINUTE, "4m ago"],
+      ["59m 59s", 59 * MINUTE + 59 * SECOND, "59m ago"],
+      ["1h", HOUR, "1h ago"],
+      ["3h", 3 * HOUR, "3h ago"],
+      ["23h 59m 59s", 23 * HOUR + 59 * MINUTE + 59 * SECOND, "23h ago"],
+      ["1d", DAY, "1d ago"],
+      ["2d", 2 * DAY, "2d ago"],
+      ["365d", 365 * DAY, "365d ago"],
+    ])(
+      "ends the line with the short age of an item last moved %s ago",
+      (_label, age, expected) => {
+        const { ledger } = compose({ home });
+        raise(ledger, "back, about the issue");
+        vi.setSystemTime(T0 + age);
+        expect(blocked(ledger)).toEqual([
+          `is  raised: back, about the issue ${expected}`,
+        ]);
       },
-      { attempt: ledger.begin("is") },
     );
-    expect(blocked(ledger)).toEqual(["is  raised: back, about the issue"]);
+
+    it("ages an item from its last move, not its first", () => {
+      const { ledger } = compose({ home });
+      ledger.addIssue(issue);
+      ledger.apply(
+        "is",
+        { word: "pass", reason: "the plan lints", findings: [] },
+        { attempt: ledger.begin("is") },
+      );
+      vi.setSystemTime(T0 + 2 * DAY);
+      ledger.apply(
+        "is",
+        { word: "back", reason: "back, about the plan", findings: [] },
+        { attempt: ledger.begin("is") },
+      );
+      vi.setSystemTime(T0 + 2 * DAY + 3 * HOUR);
+      expect(blocked(ledger)).toEqual([
+        "is  raised: back, about the plan 3h ago",
+      ]);
+    });
+
+    it("keeps the cause with the state, before the age", () => {
+      const { ledger } = compose({ home });
+      ledger.addIssue(issue);
+      ledger.apply(
+        "is",
+        {
+          word: "back",
+          reason: "back, about the issue",
+          findings: [],
+          cause: "check_failed",
+        },
+        { attempt: ledger.begin("is") },
+      );
+      vi.setSystemTime(T0 + 4 * MINUTE);
+      expect(blocked(ledger)).toEqual([
+        "is  raised [check_failed]: back, about the issue 4m ago",
+      ]);
+    });
+
+    it("gives each waiting item its own line with its own age", () => {
+      const { ledger } = compose({ home });
+      ledger.addIssue(issue);
+      ledger.apply(
+        "is",
+        { word: "back", reason: "back, about the issue", findings: [] },
+        { attempt: ledger.begin("is") },
+      );
+      vi.setSystemTime(T0 + 2 * DAY);
+      ledger.addIssue({ ...issue, name: "two" });
+      ledger.apply(
+        "two",
+        { word: "back", reason: "back, about the plan", findings: [] },
+        { attempt: ledger.begin("two") },
+      );
+      vi.setSystemTime(T0 + 2 * DAY + 4 * MINUTE);
+      expect(blocked(ledger)).toEqual([
+        "is  raised: back, about the issue 2d ago",
+        "two  raised: back, about the plan 4m ago",
+      ]);
+    });
   });
 
   it("explain: an item's messages with their findings, and each attempt with where its trace is", () => {
