@@ -14,7 +14,7 @@ import { compose } from "../main.ts";
 import { advance } from "../orchestrator/advance.ts";
 import { clOf } from "../process/plan.ts";
 import { type Reader, readerImage } from "../effects/repo.ts";
-import { add, approve, replan, submit } from "./add.ts";
+import { add, approve, replan, retry, submit } from "./add.ts";
 
 let home: string;
 let notes: string;
@@ -500,5 +500,47 @@ describe("approve and replan", () => {
     expect(readFileSync(put("fx-a"), "utf8")).toMatch(/^status: new$/m);
     expect(readFileSync(put("fx-c"), "utf8")).toMatch(/^status: new$/m);
     expect(git("status", "--porcelain")).toBe("");
+  });
+
+  it("retry takes an escalated issue and its escalated cls back to where each was, its plan and spec kept", async () => {
+    specNotes();
+    publish("the spec");
+    expect(submit(factory, "fx", runK()).code).toBe(0);
+    const { ledger } = factory();
+    await advance(ledger);
+    const [a, c] = ledger.cls("fx").map((x) => x.name) as [string, string];
+    const before = ledger.cls("fx").map((x) => x.state);
+    expect(retry(factory, "fx").lines[0]).toMatch(
+      /fx is building: retry takes an item that is escalated/,
+    );
+    ledger.apply(
+      a,
+      { word: "escalate", reason: "setup", findings: [] },
+      "orchestrator",
+    );
+    ledger.apply(
+      "fx",
+      { word: "escalate", reason: "its cl is", findings: [] },
+      "orchestrator",
+    );
+    expect(retry(factory, "fx")).toEqual({
+      code: 0,
+      lines: ["retried fx:", "  fx  building", `  ${a}  ${before[0]}`],
+    });
+    expect(ledger.item("fx").state).toBe("building");
+    expect(ledger.cls("fx").map((x) => x.state)).toEqual(before);
+    expect(ledger.spec("fx")).toBeDefined();
+    // a cl on its own, escalated again: back to where it was, and the issue as it is
+    ledger.apply(
+      a,
+      { word: "escalate", reason: "again", findings: [] },
+      "orchestrator",
+    );
+    expect(retry(factory, a).code).toBe(0);
+    expect(ledger.item(a).state).toBe(before[0]);
+    expect(ledger.item(c).state).toBe(before[1]);
+    expect(retry(factory, "nope").lines).toEqual([
+      "no item nope in the ledger",
+    ]);
   });
 });

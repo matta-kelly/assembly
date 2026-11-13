@@ -100,3 +100,25 @@ describe("next", () => {
     );
   });
 });
+
+describe("resume", () => {
+  it("takes an escalated item back to where it was when it was escalated", () => {
+    const c = { attempts: 0, rounds: 0 };
+    expect(
+      next("escalated", "cl", "resume", [], { ...c, prior: "ready" }),
+    ).toBe("ready");
+    expect(
+      next("escalated", "issue", "resume", [], { ...c, prior: "building" }),
+    ).toBe("building");
+  });
+
+  it("has no row from a state that is not escalated, or with no state to go back to", () => {
+    const c = { attempts: 0, rounds: 0 };
+    expect(() =>
+      next("ready", "cl", "resume", [], { ...c, prior: "ready" }),
+    ).toThrow("no transition from ready on resume");
+    expect(() => next("escalated", "cl", "resume", [], c)).toThrow(
+      "no transition from escalated on resume",
+    );
+  });
+});

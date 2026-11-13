@@ -35,7 +35,8 @@ export type State =
  * orchestrator's and Matt's: drop takes a cl out of its plan, escalate gives an item to Matt, and replan sends an issue
  * Matt holds back to be planned.
  */
-export type Word = "pass" | "retry" | "back" | "drop" | "escalate" | "replan";
+export type Word =
+  "pass" | "retry" | "back" | "drop" | "escalate" | "replan" | "resume";
 
 /** What a finding is about: a spec (the issue, the plan, a cl) or a product (a cl's tests, its code). */
 export type Artifact = "issue" | "plan" | "cl" | "tests" | "code";
@@ -91,6 +92,7 @@ export const top = (about: Artifact[]): Artifact =>
 export interface Counts {
   attempts: number; // this state's attempts since the item last entered it
   rounds: number; // the sends back for another round so far: each back that did not raise
+  prior?: State; // where an escalated item was when it was escalated: what resume takes it back to
 }
 
 /** The next state, from where the item stands, its kind, and the message's word and what its findings are about. */
@@ -110,6 +112,11 @@ export function next(
     if (kind !== "cl" || ends.includes(state))
       throw new Error(`no transition from ${state} on drop`);
     return "dropped";
+  }
+  if (word === "resume") {
+    if (state !== "escalated" || !c.prior)
+      throw new Error(`no transition from ${state} on resume`);
+    return c.prior;
   }
   if (word === "replan") {
     if (kind !== "issue" || (state !== "raised" && state !== "escalated"))

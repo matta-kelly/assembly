@@ -7,6 +7,7 @@
  *   factory submit <issue> [--repo <path>]... [--at <ref>]
  *   factory approve <issue>
  *   factory replan <issue>
+ *   factory retry <item>
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
@@ -34,7 +35,15 @@ import {
   mainRef,
   type Reader,
 } from "../effects/repo.ts";
-import { add, approve, type Done, given, replan, submit } from "./add.ts";
+import {
+  add,
+  approve,
+  type Done,
+  given,
+  replan,
+  retry,
+  submit,
+} from "./add.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
 import { top, version } from "./top.ts";
@@ -50,6 +59,7 @@ export const usage = `factory add <issue.md> [--repo <path>]...
 factory submit <issue> [--repo <path>]... [--at <ref>]
 factory approve <issue>
 factory replan <issue>
+factory retry <item>
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -144,6 +154,9 @@ export async function main(
     case "replan":
       if (!arg) break;
       return print(replan(factory, arg));
+    case "retry":
+      if (!arg) break;
+      return print(retry(factory, arg));
     case "run": {
       const every = Number(values.every);
       if (!Number.isFinite(every) || every <= 0)

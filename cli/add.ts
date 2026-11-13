@@ -223,6 +223,38 @@ export function approve(f: () => Built, name: string): Done {
   return { code: 0, lines: [`approved ${name}, building`] };
 }
 
+/**
+ * retry <item>: an escalated item back to where it was when it was escalated, once its cause is fixed: its plan, its
+ * cls and their attempts as they are. An escalated issue takes its escalated cls back with it.
+ */
+export function retry(f: () => Built, name: string): Done {
+  const { ledger } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (i.state !== "escalated")
+    return refused(
+      `${name} is ${i.state}: retry takes an item that is escalated`,
+    );
+  const items = [
+    i,
+    ...(i.kind === "issue"
+      ? ledger.cls(name).filter((c) => c.state === "escalated")
+      : []),
+  ];
+  const moved: string[] = [];
+  ledger.transaction(() => {
+    for (const x of items) {
+      const to = ledger.apply(
+        x.name,
+        said("resume", "Matt retries it"),
+        "matt",
+      );
+      moved.push(`  ${x.name}  ${to}`);
+    }
+  });
+  return { code: 0, lines: [`retried ${name}:`, ...moved] };
+}
+
 /** replan <issue>: an issue Matt holds, back to open, its live cls not landed dropped, and its spec let go. */
 export function replan(f: () => Built, name: string): Done {
   const { ledger } = f();

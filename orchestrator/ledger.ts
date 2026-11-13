@@ -345,6 +345,16 @@ export function open(file: string) {
     return c;
   }
 
+  /** Where the item was when it was last escalated, or undefined if it never was. */
+  function priorOf(name: string): State | undefined {
+    const row = db
+      .prepare(
+        "SELECT from_state FROM events WHERE name = ? AND to_state = 'escalated' ORDER BY id DESC LIMIT 1",
+      )
+      .get(name) as { from_state: State } | undefined;
+    return row?.from_state;
+  }
+
   return {
     item,
 
@@ -525,6 +535,9 @@ export function open(file: string) {
           const to = next(state, kind, m.word, about, {
             attempts: 0,
             rounds: 0,
+            ...(state === "escalated" && priorOf(name)
+              ? { prior: priorOf(name) as State }
+              : {}),
           });
           moveTo(name, to, m, by);
           return to;
