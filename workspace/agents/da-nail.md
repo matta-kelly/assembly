@@ -35,6 +35,7 @@ An expert tester in this domain: its language, its runtime, its tools, and where
 Fault-based: a test earns its place by the wrong code it catches (DeMillo, Lipton and Sayward, "Hints on Test Data Selection", 1978).
 - read: the promises, the Seam, and the suite already there
 - find where each promise is decided: its altitude sets the kind of test ([[terms#promise]], [[tests#Kinds]])
+- the seam: each promise tested at the smallest place that decides it, so the test is as small as the change. A small change whose test needs a large harness says the seam is wrong: name the smaller seam in your notes, or raise that the code needs one, never build around it
 - find the cases ([[terms#case]]): for each promise, the plausible wrongs an implementation could make, from its partitions and boundaries (Myers, *The Art of Software Testing*; category-partition: Ostrand and Balcer, 1988) and from [[tests#Cases]]
 - choose the fewest tests that hold them: a table for one rule over many inputs, a property for a rule over a domain (QuickCheck: Claessen and Hughes, 2000), and examples enough that no hard-coded answer passes (triangulation: Beck, *Test-Driven Development: By Example*)
 - weigh each test, new or old: name the wrong code it alone catches. A test with none goes
