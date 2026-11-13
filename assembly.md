@@ -169,7 +169,7 @@ An attempt: one step on one item, at one bench. Its run, its sandbox and its wor
 Where it meets other systems, and what crosses each.
 
 - [[que-pasa]]: the harness. assembly gives it agents, each with its tools and its middleware, a model and a context per run; it gives back the result and the usage, keeps the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
-- [[kinetic]]: the work. The spec is kinetic's, assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them from a commit, and writes only the notes of a spec its planner made
+- [[kinetic]]: the work. The spec is kinetic's, of the types of `@mku1tra/work`, which kinetic imports from npm; assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them from a commit, and writes only the notes of a spec its planner made
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, reaches the orchestrator only, never a sandbox, through its environment: `scripts/factory.sh run` refuses to start without it. On the laptop `just factory run` fills it from the vault (`secrets.toml`, through rbw-run); on the server the factory's service fills it. `just smoke-model` makes one real call per model
 - the server: the machine the factory runs on, with its repos cloned under its home. `just factory` there runs the verb in place, over the clones under `ASSEMBLY_REPOS` and the home `ASSEMBLY_HOME`; a laptop reaches it over ssh when `ASSEMBLY_SERVER` is set (`assembly@monkeybusiness`). dazoo sets both, and checks out the release tag, the one crate makes (`v<x.y.z>`)
@@ -215,7 +215,6 @@ What it keeps.
 
 ## Not built
 
-- kinetic on `@mku1tra/work`: kinetic holds its own copy of the work types, until work's first version is on npm
 - the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
 - a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
 - the command line's `retry` and `ask`
