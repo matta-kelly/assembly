@@ -52,15 +52,14 @@ The model: the four things that travel with a job, each with its rules in the pr
 	- its parts: a word, why in one line, a failure's cause, its findings, and notes for the next step
 	- its words: pass, retry or back from a step; pass, drop, escalate or replan from the orchestrator or Matt
 	- its sender: on its event. An attempt as it ends, the orchestrator, or Matt
-	- finding: a fault in one artifact (the issue, the plan, a cl, its tests or its code), with what fails, its evidence and where
+	- the rules a message follows: the spine's ([[spine#Policy]], backpressure): the finding, the owner, back, the raise, escalation and the record. Each is held here
+	- finding: `process/step.ts`'s `Finding`, its `about` the artifact
 	- pass: moves the item on
 	- retry: runs its step again
-	- back: goes up the V to the owner of the artifact its findings are about. Several artifacts: the highest one's owner
-		- the owners: the tests are da-nail's, the code da-hammer's, a cl or the plan the planner's, the issue Matt's
-		- a sender: any step. An agent hands back findings in place of its done result; a check can too (a red suite at acceptance)
-		- raise: a back about a spec (a cl, the plan or the issue). A cl's raise goes to its issue, relayed by the orchestrator (`advance.ts`)
-		- escalation: the item goes to Matt, on its third retry at one state, its third round back, or a move the table has no row for. None of an escalated issue's cls starts an attempt, and a raised cl blocks the phases after it, until Matt answers
-	- routing: `process/table.ts`, as data
+	- back: a sender is any step. An agent hands back findings in place of its done result; a check can too (a red suite at acceptance)
+		- raise: a cl's goes to its issue, relayed by the orchestrator (`advance.ts`)
+		- escalation: none of an escalated issue's cls starts an attempt, and a raised cl blocks the phases after it, until Matt answers
+	- routing: `process/table.ts`, as data: each move, `owner`, the state of each artifact's owner, and the highest artifact a back's findings name
 	- the one door: `ledger.apply`, which every message goes through, whoever sends it
 	- the record: the ledger's events, one per message, appended and never edited. An item's state is their projection, moved in the same transaction
 	- an agent's input: its spec, then its messages, the one that brought the item to its state and each since (`ledger.inbox`). Its product it reads in the worktree

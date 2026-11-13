@@ -41,13 +41,19 @@ What the system is for, and the rules it never trades.
 		- order: the outer promise is written before the work inside it (outside-in: Freeman and Pryce), and a change with seams builds them first, thin and end to end, then fills behind them (walking skeleton: Cockburn)
 		- the shape it forces: none. One cl is its own seam and Done; a cut too big for one cl is an issue of its own, under the same rule
 	- [[backpressure]]: each check pushing a miss back to the level that owns it, so the work reconciles toward the intent
-		- raise: back up to the plan or the issue, never settled below. The plan first, the issue only when the intent itself was wrong, and the outcome said: re-scope, split or drop
+		- a finding: a fault in one artifact (the issue, the plan, a cl, its tests or its code), with what fails, its evidence and where. A check hands back all it found, in one pass
+		- the owner: who made the artifact, and so who fixes it. The tests are da-nail's, the code da-hammer's, a cl and the plan the planner's, the issue Matt's
+		- back: a finding goes up the V to its artifact's owner. Findings about several artifacts go to the highest one's owner, since its fix can change the rest
+		- raise: a back about a spec (a cl, the plan or the issue), never settled below. A cl's raise goes to its plan first, to the issue only when the intent itself was wrong, and the outcome is said: re-scope, split or drop
+		- escalation: the item goes to Matt on its third retry at one state, its third round back, or a move no rule covers, and the work it holds up waits until he answers
 		- spawn: a new issue, outside this one, only when the issue would still be met without it. A piece the issue's Done needs stays in its plan
-		- back: what [[operate]] finds false comes in as a new issue
+		- from the running system: what [[operate]] finds false comes in as a new issue
+		- the record: every message, whoever sends it, goes through one door and is kept, never edited
 		- the ratchet: a finding that comes back becomes a lens, then a lint or a test. Not built
+		- Held by: [[assembly#The paperwork]], which runs each rule as code
 - the properties: what must hold of the system, read as a [[state-machine]], each held by a check, a review or a person
 	- liveness: what must happen in the end
-		- met or dropped: every issue in progress ends one or the other, and a change to its intent is raised, never made quietly. Held by: a budget of three rounds at each level. Across levels, nothing
+		- met or dropped: every issue in progress ends one or the other, and a change to its intent is raised, never made quietly. Held by: a budget of three rounds at each level, then escalation. Across levels, nothing
 		- fairness: a step that stays possible is taken
 	- safety: what must never happen
 		- invariants: true in every state
