@@ -72,9 +72,9 @@ What the system is for, and the rules it never trades.
 		- fairness: a step that stays possible is taken
 	- safety: what must never happen
 		- invariants: true in every state
-			- main: every commit on it passed the full check and a review, by one path. Held by: [[ci]]'s presubmit, the [[repo]]'s ruleset and pre-push hook. Not built: the gate outside dazoo, and a tested push from [[#The dock|the dock]]
+			- main: every commit on it passed the full check and a review, by one path. Held by: [[ci]]'s gate, crate, which checks the tree main becomes on every push to a repo on it, and the [[repo]]'s ruleset, which refuses any other push. Not built: a tested push from [[#The dock|the dock]] for a repo not on crate
 			- isolation: a change never touches another's work. Held by: its [[workspace]]
-			- one owner: open work has at most one worker. Held by: the claim, status `in-progress`, set by the machine
+			- one owner: open work has at most one worker. Held by: the ledger, where an item has at most one attempt open, and each of its agents one conversation
 			- one fact, one place: each fact has one home, and data flows one way. Held by: basis/merge and `just check`
 				- a work note: the spec. Its frontmatter holds the facts a machine acts on, typed in `schema.ts`; its body is prose that no code parses
 				- status: set by hand, or projected one way by a controller from its own record, keyed by the note's name. Not built: the factory reads notes with its own parser (`process/plan.ts`), not basis
@@ -308,7 +308,11 @@ Where it meets other systems, and what crosses each.
 - [[kinetic]]: the work, the notes repo (`ASSEMBLY_NOTES`, else kinetic among the clones). The spec is kinetic's, of the types of `@mku1tra/work`, which kinetic imports from npm; assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them at a commit of its main, pinned on each attempt, and writes only the notes of a spec its planner made, which land on its main as any change does
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, reaches the orchestrator only, never a sandbox, through its environment: `scripts/factory.sh run` refuses to start without it. On the laptop `just factory run` fills it from the vault (`secrets.toml`, through rbw-run); on the server the factory's service fills it. `just smoke-model` makes one real call per model
-- the server: the machine the factory runs on, with its repos cloned under its home. `just factory` there runs the verb in place, over the clones under `ASSEMBLY_REPOS`, the notes repo `ASSEMBLY_NOTES` and the home `ASSEMBLY_HOME`; a laptop reaches it over ssh when `ASSEMBLY_SERVER` is set (`assembly@monkeybusiness`). dazoo sets them, and checks out the release tag, the one crate makes (`v<x.y.z>`)
+- the server: monkeybusiness, where the factory runs, declared in [[dazoo]] (`nodes/mutable/monkeybusiness/assembly/`)
+	- the account: `assembly`, its own user. Its home holds the clones of the repos on crate (`ASSEMBLY_REPOS`, `~/repos`), the notes repo among them (`ASSEMBLY_NOTES`), and the factory's home (`ASSEMBLY_HOME`). It cannot read or write `core`'s files, and its key reaches `core`'s repos for git alone
+	- the service: a user service of the account, `factory.sh run` at a release, the tag crate makes on a land (`v<x.y.z>`). dazoo's `version` file names it, and a commit to it checks the tag out and restarts the factory on it
+	- its keys: the model key and the GitHub token, sealed in dazoo, unsealed by root into the account's `keys.env`, which the service reads
+	- the laptop: reaches it over ssh when `ASSEMBLY_SERVER` is set (`assembly@monkeybusiness`). The laptop's key is forced through `factory-ssh.sh`, which lets through only the commands Matt gives (submit, stop, resume, status, blocked, explain, top), never `run`
 - the host: git and podman
 	- branches: each item's work on `assembly/<name>/head`: a cl's passed work in its repo, an issue's plan in the notes repo. A live item has its branch and its worktree, and nothing else under `assembly/` stays
 	- the orchestrator: its own image (`orchestrator/Containerfile`: node, git, gh, skopeo, the podman client, and the host's git-land and crate mounted read-only), starting containers through the host's podman socket, with host paths at the same path
@@ -332,7 +336,8 @@ What it keeps.
 
 ## Built
 
-- the machine: an issue from open to accepted, proven end to end on scripted models, its plan landed on a real notes repo, with an attempt taken up after a stop, and nothing of the issue left behind once accepted (`just e2e`)
+- the machine: an issue from open to accepted, proven end to end on scripted models, its plan landed on a real notes repo, with an attempt taken up after a stop, its cls landed through crate's own hooks, and nothing of the issue left behind once accepted (`just e2e`)
+- the factory on the server: the service at the release dazoo names, moved by a commit to it; on real models, a cl built, reviewed and landed through crate; Matt's resume; and the sweep, which took away an older scheme's branches and worktrees
 - the command line: `scripts/factory.sh`, which `just factory` calls and the gate tests without `just`: its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, its repos from `$ASSEMBLY_REPOS`, else lot, and its notes repo `$ASSEMBLY_NOTES`, else kinetic among the repos
 	- on the laptop: `ASSEMBLY_SERVER` set runs the verb on the server over ssh, with its exit code and output
 	- each command: a message through the one door, as Matt
@@ -350,9 +355,9 @@ What it keeps.
 ## Not built
 
 - the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
-- a run on a real model: the path is proven (`just smoke-model`), and nothing starts one on a real issue yet
+- an issue whole on the server: from submit to accepted, with no step from Matt. A cl has landed there, never a whole issue
+- an agent's conversation across attempts in que-pasa's runtime: proven in the unit tests only, on a stand-in runner
 - the command line's `ask`
-- a land through crate in `just e2e`: crate's check passes `--cgroup-manager` to `podman run`, which the orchestrator image's podman client refuses, so the crate land cases fail there
 - a thinking level per bin: each model runs at its provider's default
 - a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate

@@ -143,6 +143,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
 
   it("writes no diff for an attempt that changed nothing", async () => {
     const r = run(3);
+    // the attempt before left its change; this one starts from the branch
+    git(r.work, "reset", "-q", "--hard", "HEAD");
+    git(r.work, "clean", "-q", "-f", "-d");
     await record(r);
     expect(existsSync(join(r.dir, "change.diff"))).toBe(false);
   });
