@@ -65,8 +65,8 @@ export const table: Partial<
   approved: { pass: "landed", retry: "approved" },
 };
 
-/** The states an item can leave by drop, escalate or replan. */
-const ends: State[] = ["landed", "dropped", "accepted"];
+/** The states an item ends in: it never leaves them, and its worktree and branch go (effects/git.ts, sweep). */
+export const ends: State[] = ["landed", "dropped", "accepted"];
 
 /**
  * Where back takes an item: the state of the artifact's owner. A cl's tests are da-nail's (ready), its code

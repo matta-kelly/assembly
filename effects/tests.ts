@@ -1,15 +1,14 @@
 /**
- * Test runs: the item's test command, in a container of its own, offline. A test run never runs in the agent's sandbox.
- * A bound attempt's runs on its item's full worktree, with the attempt's change applied (git.ts, stage): the agent's `test` tool and its step's check are the same op, on the tree a pass commits. Any other attempt's
- * runs on its own worktree. Each run is recorded with its inputs (the tree, the command and the image), so the same
- * inputs could be looked up again.
+ * Test runs: the item's test command, in a container of its own, offline, on the item's worktree, with what the
+ * attempt changed in it. A test run never runs in the agent's sandbox, and the agent's `test` tool and its step's check
+ * are the same op, on the tree a pass commits. Each run is recorded with its inputs (the tree, the command and the
+ * image), so the same inputs could be looked up again.
  */
 
 import { createHash } from "node:crypto";
 import type { Run, TestRun } from "../process/step.ts";
-import { fullOf, stage, treeOf } from "./git.ts";
+import { treeOf } from "./git.ts";
 import { partsOf } from "./runs.ts";
-import { prepareFull } from "./setup.ts";
 import { offline } from "./sandbox.ts";
 import { sh } from "./sh.ts";
 
@@ -17,7 +16,7 @@ import { sh } from "./sh.ts";
 export const checkLimitS = 15 * 60;
 
 /**
- * Runs the item's test command, on the attempt's full worktree when it is bound, else on its own. Gives back its output, and the run as the ledger records it. It stops
+ * Runs the item's test command on its worktree. Gives back its output, and the run as the ledger records it. It stops
  * when `signal` aborts.
  */
 export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
@@ -36,13 +35,7 @@ export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
       out: ran.map((t) => t.out).join("\n"),
     };
   }
-  let tree: string;
-  let on = r.work;
-  if (r.checkout) {
-    await prepareFull(r, signal);
-    tree = await stage(r);
-    on = fullOf(r);
-  } else tree = await treeOf(r);
+  const tree = await treeOf(r);
   const at = Date.now();
   const ran = await sh(
     "podman",
@@ -54,7 +47,7 @@ export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
       String(checkLimitS),
       ...offline,
       "-v",
-      `${on}:/work`,
+      `${r.work}:/work`,
       "-w",
       "/work",
       r.image,

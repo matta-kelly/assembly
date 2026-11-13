@@ -28,6 +28,8 @@ import { writeNote } from "../effects/notes.ts";
 import { devImage, type Reader } from "../effects/repo.ts";
 import type { Registry } from "../effects/registry.ts";
 import { move } from "../effects/move.ts";
+import { runOf } from "../effects/runs.ts";
+import { forgetSetup } from "../effects/setup.ts";
 import { top } from "../process/table.ts";
 
 const link = (name: string) => `[[${name}]]`;
@@ -127,12 +129,16 @@ async function guarded(ledger: Ledger, item: Item, move: () => unknown) {
   }
 }
 
-/** What a waiting cl needs to know of the world: its repos' files, the tags a land put on main, and the registry. */
+/**
+ * What a waiting cl needs to know of the world: where the items' folders are, its repos' files, the tags a land put on
+ * main, and the registry.
+ */
 export interface World {
+  runs: string; // the run folders: each item's worktree is in its own, and a move commits in its cl's
   registry: Registry;
   reader: Reader;
-  /** The version tags the land target holds on the commit main took for the landed cl `cl`, of `repo`. */
-  tags(repo: string, cl: string): Promise<string[]>;
+  /** The version tags the land target of `repo` holds on `commit`, the commit main took for a landed cl. */
+  tags(repo: string, commit: string): Promise<string[]>;
   /** The longest a cl waits for a version, counted from the land that made it: 30 minutes when not set. */
   limitMs?: number;
 }
@@ -189,8 +195,8 @@ async function wanted(
   if (!needs.size) return [];
   const moved: Moved[] = [];
   for (const landed of ledger.cls(cl.issue)) {
-    if (landed.state !== "landed") continue;
-    for (const tag of await world.tags(landed.repo, landed.name)) {
+    if (landed.state !== "landed" || !landed.landed) continue;
+    for (const tag of await world.tags(landed.repo, landed.landed)) {
       const [, folder, version] = versionTag.exec(tag) ?? [];
       if (!version) continue;
       const json = world.reader.file(
@@ -238,8 +244,8 @@ async function versionFor(
 }
 
 /**
- * Moves a released cl's repo onto the version it needs, and takes the dev image of the commit its move made, which the
- * cl's attempts run in. The issue's repo entry takes the same image, so the issue's own steps and acceptance run the
+ * Moves a released cl's worktree onto the version it needs, and takes the dev image of the commit its move made, which
+ * the cl's attempts run in, and set up again. The issue's repo entry takes the same image, so the issue's own steps and acceptance run the
  * moved lockfile too. A failure escalates its issue, with the command's output, and leaves the cl waiting. Gives back
  * whether the cl may start.
  */
@@ -251,12 +257,9 @@ async function released(
 ): Promise<boolean> {
   let image: string;
   try {
-    const commit = await move(
-      { name: cl.name, repo: cl.repo },
-      m.package,
-      m.version,
-      world.registry.url,
-    );
+    const tree = runOf(cl, 0, world.runs);
+    const commit = await move(tree, m.package, m.version, world.registry.url);
+    forgetSetup(tree);
     image = await devImage(cl.repo, commit);
   } catch (e) {
     ledger.apply(

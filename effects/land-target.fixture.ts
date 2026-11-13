@@ -31,12 +31,12 @@ export function landTarget(repo: string, dir: string): string {
 
 /**
  * A crate land target for an e2e repo: main's bare repo with crate's hooks on it (`crate init`, from CRATE_ROOT, crate's
- * checkout mounted at the same path), as the repo's `server` remote. The repo's crate.toml and check must be on its
- * main before this: its first push to the target is checked like any other.
+ * install, its bin/ and hooks/), as the repo's `server` remote. The repo's crate.toml and check must be on its main
+ * before this: its first push to the target is checked like any other.
  */
 export function crateTarget(repo: string, dir: string): string {
   const crate = process.env["CRATE_ROOT"];
-  if (!crate) throw new Error("CRATE_ROOT names no crate checkout");
+  if (!crate) throw new Error("CRATE_ROOT names no crate install");
   const bare = join(dir, "server.git");
   execFileSync(join(crate, "bin", "crate"), ["init", bare], {
     timeout: 180_000,

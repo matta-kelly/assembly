@@ -8,16 +8,11 @@ import type { Message, Step } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import type { World } from "./advance.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
-import { commit, worktree } from "../effects/git.ts";
+import { commit, discard, fresh, sweep, worktree } from "../effects/git.ts";
 import { land } from "../effects/land.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
-import {
-  forgetSetup,
-  needsSetup,
-  prepareFull,
-  runSetup,
-} from "../effects/setup.ts";
+import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { ran } from "../process/fake-worktree.ts";
 import { move } from "../effects/move.ts";
 import { devImage } from "../effects/repo.ts";
@@ -25,9 +20,13 @@ import { npmRegistryUrl } from "../effects/registry.ts";
 
 // Podman and git are faked: git, the sandbox, the test runs and the land are the loop's only ways out. runOf is the
 // real one.
-vi.mock("../effects/git.ts", () => ({
+vi.mock("../effects/git.ts", async (original) => ({
+  branchOf: (await original<typeof import("../effects/git.ts")>()).branchOf,
   worktree: vi.fn(),
+  fresh: vi.fn(),
   commit: vi.fn(),
+  discard: vi.fn(),
+  sweep: vi.fn(),
   head: vi.fn(),
   changed: vi.fn(),
   touched: vi.fn(),
@@ -43,7 +42,6 @@ vi.mock("../effects/setup.ts", () => ({
   needsSetup: vi.fn(),
   runSetup: vi.fn(),
   forgetSetup: vi.fn(),
-  prepareFull: vi.fn(),
 }));
 vi.mock("../effects/move.ts", () => ({ move: vi.fn() }));
 vi.mock("../effects/repo.ts", async (original) => ({
@@ -80,7 +78,7 @@ const runnerOf = (run: Run1) => async (): Promise<Runner> => ({
 });
 
 /** A world with nothing to wait for: no repo has a file, no landed cl has a tag. */
-const idle: World = {
+const idle: Omit<World, "runs"> = {
   registry: { url: npmRegistryUrl, published: async () => true },
   reader: { file: () => undefined, onCrate: () => false },
   tags: async () => [],
@@ -92,16 +90,15 @@ const make = (
     steps?: Step<{ word: "done"; text: string }>[];
     concurrent?: number;
     timeoutMs?: number;
-    world?: World;
+    world?: Omit<World, "runs">;
   } = {},
 ) =>
   loop({
     ledger,
     steps: o.steps ?? [step],
     runner: runnerOf(run),
-    runs: join(dir, "runs"),
     ...o,
-    world: o.world ?? idle,
+    world: { ...(o.world ?? idle), runs: join(dir, "runs") },
   });
 type L = Awaited<ReturnType<typeof make>>;
 
@@ -181,69 +178,77 @@ describe("an attempt", () => {
     });
   });
 
-  it("gives a bound step's run its cl's checkout, sets up the full worktree, not its own, and commits the run", async () => {
-    // The issue is building, as it is when its cls are built.
+  it("works every attempt of an item in its one worktree, each with its own folder", async () => {
+    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner);
+    await once(l);
+    await once(l);
+    const [one, two] = runner.mock.calls.map((c) => c[2].run);
+    expect(one?.work).toBe(join(dir, "runs", "i", "cl", "c", "work"));
+    expect(two?.work).toBe(one?.work);
+    expect([one?.dir, two?.dir]).toEqual([
+      join(dir, "runs", "i", "cl", "c", "1"),
+      join(dir, "runs", "i", "cl", "c", "2"),
+    ]);
+  });
+
+  it("keeps the change of a step that edits and did not pass as its record, and resets the worktree", async () => {
+    message = { word: "retry", reason: "red", findings: [] };
+    await once(make(gives(done("x"))));
+    expect(discard).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "c", n: 1 }),
+    );
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("resets nothing for a pass, or for a step that only reads", async () => {
+    await once(make(gives(done("x"))));
+    message = { word: "retry", reason: "red", findings: [] };
+    await once(
+      make(gives(done("x")), {
+        steps: [{ ...step, from: "red", worktree: "ro" }],
+      }),
+    );
+    expect(discard).not.toHaveBeenCalled();
+  });
+
+  it("resets a step that edits whose run failed, so its next attempt starts from the branch", async () => {
+    await once(
+      make(async () => {
+        throw new Error("the model is down");
+      }),
+    );
+    expect(discard).toHaveBeenCalledOnce();
+  });
+
+  it("moves an issue's worktree to main for a new attempt, and sets it up again when main moved", async () => {
     const db = new DatabaseSync(join(dir, "ledger.db"));
-    db.prepare("UPDATE items SET state = 'building' WHERE name = 'i'").run();
+    db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
     db.close();
-    ledger.keepSpec(
-      "i",
-      {
-        cls: [
-          {
-            name: "c",
-            intent: "c",
-            shape: { change: "behavior", checked: "repo" },
-            checkout: ["src/", "test/a.test.ts"],
-            test: "t",
-            promises: ["b1"],
-            seam: "s",
-            checkoutNotes: "n",
-          },
-        ],
-      },
-      "matt",
+    vi.mocked(worktree).mockResolvedValue(false);
+    vi.mocked(fresh).mockResolvedValue(true);
+    await once(
+      make(gives(done("x")), {
+        steps: [{ ...step, from: "open", worktree: "ro" }],
+      }),
     );
-    // the cl named for its issue and its cut, as the spec names it
-    ledger.addCl(
-      {
-        name: "i-c",
-        issue: "i",
-        seq: 2,
-        path: join(dir, "cl.md"),
-        repo: "/repo",
-        image: "img",
-        test: "t",
-      },
-      "ready",
-    );
-    const runner = vi.fn<Run1>(gives(done("x")));
-    await once(make(runner, { steps: [{ ...step, bound: true }] }));
-    const ran = runner.mock.calls.map((c) => c[2].run);
-    expect(ran.find((x) => x.name === "i-c")).toMatchObject({
-      checkout: ["src/", "test/a.test.ts"],
-    });
-    expect(prepareFull).toHaveBeenCalledOnce();
-    expect(runSetup).not.toHaveBeenCalled();
-    expect(vi.mocked(commit).mock.calls[0]?.[0]).toMatchObject({
-      name: "i-c",
-      checkout: ["src/", "test/a.test.ts"],
-    });
+    expect(fresh).toHaveBeenCalledWith(expect.objectContaining({ name: "i" }));
+    expect(forgetSetup).toHaveBeenCalledOnce();
   });
 
-  it("gives a step that is not bound the whole worktree: no checkout", async () => {
-    const runner = vi.fn<Run1>(gives(done("x")));
-    await once(make(runner));
-    expect(runner.mock.calls[0]?.[2].run).not.toHaveProperty("checkout");
-  });
-
-  it("retries a bound step whose cl is not in its issue's spec, before any worktree", async () => {
-    await once(make(gives(done("x")), { steps: [{ ...step, bound: true }] }));
-    expect(last()).toMatchObject({
-      word: "retry",
-      reason: expect.stringMatching(/its spec could not be read/),
-    });
-    expect(worktree).not.toHaveBeenCalled();
+  it("keeps a taken-up issue's worktree where its run left it", async () => {
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
+    db.close();
+    ledger.begin("i");
+    vi.mocked(worktree).mockResolvedValue(false);
+    await once(
+      make(gives(done("x")), {
+        steps: [{ ...step, from: "open", worktree: "ro" }],
+      }),
+    );
+    expect(fresh).not.toHaveBeenCalled();
   });
 
   it("tells the runner a step that must not edit is read-only, as its sandbox is", async () => {
@@ -671,6 +676,65 @@ describe("the tick", () => {
   });
 });
 
+describe("the sweep", () => {
+  it("runs at open and on each tick, in each repo the ledger names, keeping each live item's worktree and branch", async () => {
+    ledger.addCl(
+      {
+        name: "i-gone",
+        issue: "i",
+        seq: 2,
+        path: join(dir, "cl.md"),
+        repo: "/other",
+        image: "img",
+        test: "t",
+      },
+      "ready",
+    );
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'landed' WHERE name = 'i-gone'").run();
+    db.close();
+    const l = await make(gives(done("x")), { steps: [] });
+    expect(sweep).toHaveBeenCalledTimes(2);
+    await l.tick();
+    expect(sweep).toHaveBeenCalledTimes(4);
+    const runs = join(dir, "runs");
+    expect(
+      vi
+        .mocked(sweep)
+        .mock.calls.map((c) => c[0])
+        .sort(),
+    ).toEqual(["/other", "/other", "/repo", "/repo"]);
+    const [, at, keep, branches] = vi.mocked(sweep).mock.calls[0] ?? [];
+    expect(at).toBe(runs);
+    expect([...(keep ?? [])].sort()).toEqual([
+      join(runs, "i", "cl", "c", "work"),
+      join(runs, "i", "issue", "work"),
+    ]);
+    expect([...(branches ?? [])].sort()).toEqual([
+      "assembly/c/head",
+      "assembly/i/head",
+    ]);
+  });
+
+  it("keeps the worktree of an ended item whose attempt is still open", async () => {
+    ledger.begin("c");
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
+    db.close();
+    await make(gives(done("x")), { steps: [] });
+    expect([...(vi.mocked(sweep).mock.calls[0]?.[3] ?? [])]).toContain(
+      "assembly/c/head",
+    );
+  });
+
+  it("goes on when a repo's sweep fails", async () => {
+    vi.mocked(sweep).mockRejectedValue(new Error("no such repo"));
+    const l = await make(gives(done("x")));
+    await expect(once(l)).resolves.toBeUndefined();
+    expect(ledger.item("c").state).toBe("red");
+  });
+});
+
 describe("the world", () => {
   /**
    * Issue j across two repos: a, phase 1, landed with the tag v1.2.0, and b, phase 2, waiting. b's repo depends on the
@@ -694,6 +758,8 @@ describe("the world", () => {
         },
         state,
       );
+    // a's land took a commit: its name stands in for it
+    ledger.landed("j-a", "j-a", []);
     const files: Record<string, string> = {
       "/a:package.json": JSON.stringify({ name: "@x/a", version: "1.2.0" }),
       "/b:package.json": JSON.stringify({
@@ -702,7 +768,7 @@ describe("the world", () => {
       }),
     };
     const registry = { url: npmRegistryUrl, published: vi.fn(published) };
-    const world: World = {
+    const world: Omit<World, "runs"> = {
       registry,
       reader: { file: (r, f) => files[`${r}:${f}`], onCrate: () => true },
       tags: async (repo, cl) =>
@@ -763,7 +829,7 @@ describe("the world", () => {
 
   it("survives a land target that fails to answer: the cl waits, and the tick does not throw", async () => {
     const { world } = across(async () => true);
-    const failing: World = {
+    const failing: Omit<World, "runs"> = {
       ...world,
       tags: async () => {
         throw new Error("git ls-remote failed");
@@ -858,13 +924,14 @@ describe("the world", () => {
           name,
         );
         db.close();
+        ledger.landed(name, name, []);
       }
     }
     // the issue itself starts an attempt: its own steps, acceptance among them, are the ones a move must reach
     const db = new DatabaseSync(join(dir, "ledger.db"));
     db.prepare("UPDATE items SET state = 'ready' WHERE name = 'k'").run();
     db.close();
-    const world: World = {
+    const world: Omit<World, "runs"> = {
       registry: { url: npmRegistryUrl, published: async () => true },
       reader: {
         file: (repo, file) => {
@@ -906,7 +973,6 @@ describe("the world", () => {
         ledger,
         steps: [step],
         runner: runnerOf(gives(done("x"))),
-        runs: join(dir, "runs"),
       });
     expect(withoutWorld).toBeTypeOf("function");
   });

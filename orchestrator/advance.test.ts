@@ -86,6 +86,8 @@ const force = (name: string, to: string) => {
   const db = new DatabaseSync(join(dir, "ledger.db"));
   db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
   db.close();
+  // a landed cl's land took a commit: its name stands in for it
+  if (to === "landed") ledger.landed(name, name, []);
 };
 const read = (name: string) => readFileSync(join(dir, `${name}.md`), "utf8");
 
@@ -418,6 +420,7 @@ describe("advance across repos", () => {
     },
     limitMs?: number,
   ) => ({
+    runs: join(dir, "runs"),
     registry,
     reader: {
       file: (repo: string, file: string) => files[`${repo}:${file}`],
@@ -797,6 +800,7 @@ describe("advance across repos", () => {
       published: (n: string, v: string) => Promise<boolean>;
     },
   ) => ({
+    runs: join(dir, "runs"),
     registry,
     reader: {
       file: (repo: string, file: string) => files[`${repo}:${file}`],

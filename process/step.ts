@@ -63,7 +63,7 @@ export interface TestRun {
  * - test: runs the item's test command, once: asked again, it gives back the same run
  * - changed: which of `files` differ from the item's branch, committed or not
  * - exists: which of `files` are in the worktree
- * - touched: every file that differs from where the attempt started, new and removed ones too
+ * - touched: every file that differs from where the attempt started, the item's branch, new and removed ones too
  */
 export interface Worktree {
   test(): Promise<TestRun>;
@@ -134,8 +134,7 @@ export type Run = {
   test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
   setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
-  work: string; // the worktree, mounted at /work in the attempt's sandbox
-  checkout?: string[]; // a bound step's: the cl's checkout, the only paths on disk in its worktree, a sparse checkout
+  work: string; // the item's one worktree, beside its attempts' folders, mounted at /work in the attempt's sandbox
   // An issue's repos when it has more than one: its own steps see each at work/<name>, and its suite runs in each. Its
   // repo, image, test and setup are then the first's, and its image the one its own steps' sandbox runs.
   repos?: Repo[];
@@ -153,11 +152,6 @@ export interface Step<D extends { word: "done" }> {
    * its plan.
    */
   input?(run: Run, ledger: Ledger): string;
-  /**
-   * A bound step (nail, hammer) works in a sparse checkout of its cl's checkout.
-   * Left out, the agent's worktree is the whole repo, as for a step that explores (the planner) or judges (the reviews).
-   */
-  bound?: true;
   /** The runs this step judges, as the item and the step each passed: its trace links to them. A review has them. */
   judges?(run: Run, ledger: Ledger): { name: string; step: State }[];
 }

@@ -17,7 +17,7 @@ export const daHammer = (model: string) =>
     name: "da-hammer",
     model,
     instructions: instructions("./da-hammer.md", import.meta.url),
-    // its cl's checkout, on disk, and its tests: no shell, so a builder runs only its tests, and on the whole repo
+    // the cl's worktree, and its tests: no shell, so a builder runs only its tests
     tools: [...fileTools, test],
     // how code is written here: always in its context
     middleware: [types("terms", "cl", "code")],

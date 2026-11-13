@@ -1,11 +1,11 @@
 /**
- * The land: an approved cl onto main, the one way a cl's work reaches it. It runs on the cl's full worktree (git.ts),
- * and gives back the message its attempt ends with.
+ * The land: an approved cl onto main, the one way a cl's work reaches it. It runs in the cl's worktree, on its branch
+ * (git.ts), so a rebase there moves the branch, and gives back the message its attempt ends with.
  *
  * Through crate, when the land target is `server`: rebase onto main, then a plain `git push` to main. crate's
  * pre-receive hook runs the repo's check on the exact tree main becomes, so the land runs no test of its own:
  * - a conflict is a back about the plan, and a cl whose change main holds already passes as it is
- * - the hook's red is a back about the code, with its output, and the cl's branch moves to the rebased tree
+ * - the hook's red is a back about the code, with its output, and the cl's branch stays on the rebased tree
  * - main moved while the push waited: fetch, rebase and push again, three times at most, then a retry
  *
  * Through `git land`, for a repo not on crate yet, in four moves:
@@ -13,23 +13,25 @@
  *   the cls of one phase apart is the plan's work, and main does not move
  * - a cl whose change main holds already passes as it is: a land a stop cut off, after its push, is not landed twice
  * - when main moved under the cl, run its test command on the rebased tree. A red is a back about the code, and the
- *   cl's branch moves to the rebased tree, so da-hammer works on the code main will hold
+ *   cl's branch stays on the rebased tree, so da-hammer works on the code main will hold
  * - `git land`, which pushes to main through the repo's gate, as Matt. A land it refuses is a retry
- * On a pass, the cl's branch is the commit main took. A push to GitHub is authenticated by GH_TOKEN, through gh as
- * git's credential helper, set for this one command, so no credential is written to disk.
+ * On a pass, the cl's branch is the commit main took, which the land gives back. A push to GitHub is authenticated by
+ * GH_TOKEN, through gh as git's credential helper, set for this one command, so no credential is written to disk.
  */
 
-import { mkdirSync } from "node:fs";
 import type { Message, Run, TestRun } from "../process/step.ts";
-import { branchOf, fullOf, mainOf, targetOf } from "./git.ts";
-import { prepareFull } from "./setup.ts";
+import { mainOf, targetOf } from "./git.ts";
 import { must, sh } from "./sh.ts";
 import { runTests } from "./tests.ts";
 
-/** A land's outcome: its message, the files the cl changed, and the test run it made, if main had moved. */
+/**
+ * A land's outcome: its message, the files the cl changed, the commit main took on a pass, and the test run it made,
+ * if main had moved.
+ */
 export interface Land {
   message: Message;
   files: string[];
+  commit?: string;
   ran?: TestRun;
 }
 
@@ -90,6 +92,7 @@ async function rebase(
       ready: false,
       done: {
         files,
+        commit: tip,
         message: {
           word: "pass",
           reason: `landed: ${main} holds its change, at ${tip.slice(0, 7)}`,
@@ -99,16 +102,6 @@ async function rebase(
     };
   return { ready: true, head, tip };
 }
-
-/** Points the cl's branch at `commit`, so its next attempt, or what main took, is the branch. */
-const moveBranch = (r: Run, commit: string) =>
-  must("git", [
-    "-C",
-    r.repo,
-    "update-ref",
-    `refs/heads/${branchOf(r.name)}`,
-    commit,
-  ]);
 
 /** crate's hook refused the push because main moved, or the push was not a fast-forward: go again. */
 const moved = (out: string) =>
@@ -131,19 +124,17 @@ async function throughCrate(
       process.env,
       signal,
     );
-    if (pushed.code === 0) {
-      await moveBranch(r, step.head);
+    if (pushed.code === 0)
       return {
         files,
+        commit: step.head,
         message: {
           word: "pass",
           reason: `landed on ${main} at ${step.head.slice(0, 7)}`,
           findings: [],
         },
       };
-    }
     if (moved(pushed.out)) continue;
-    await moveBranch(r, step.head);
     return {
       files,
       message: {
@@ -171,12 +162,9 @@ async function throughCrate(
 }
 
 export async function land(r: Run, signal?: AbortSignal): Promise<Land> {
-  mkdirSync(r.dir, { recursive: true });
-  await prepareFull(r, signal);
-  const at = fullOf(r);
+  const at = r.work;
   const git = (...args: string[]) => must("git", ["-C", at, ...args]);
   const main = await mainOf(r.repo);
-  await git("checkout", "-q", "--force", "--detach", branchOf(r.name));
   const base = (await git("merge-base", "HEAD", main)).trim();
   // The cl's own change: what its branch holds past where it left main.
   const files = lines(await git("diff", "--name-only", base, "HEAD"));
@@ -184,12 +172,11 @@ export async function land(r: Run, signal?: AbortSignal): Promise<Land> {
     return throughCrate(r, at, files, signal);
   const step = await rebase(r, at, main, files);
   if (!step.ready) return step.done;
-  const { head, tip } = step;
+  const { tip } = step;
   let ran: TestRun | undefined;
   if (base !== tip) {
-    ran = await runTests({ ...r, work: at }, signal);
-    if (ran.code !== 0) {
-      await moveBranch(r, head);
+    ran = await runTests(r, signal);
+    if (ran.code !== 0)
       return {
         files,
         ran,
@@ -206,7 +193,6 @@ export async function land(r: Run, signal?: AbortSignal): Promise<Land> {
           ],
         },
       };
-    }
   }
   const landed = await sh(
     "git",
@@ -226,9 +212,9 @@ export async function land(r: Run, signal?: AbortSignal): Promise<Land> {
       },
     };
   const commit = (await git("rev-parse", "HEAD")).trim();
-  await moveBranch(r, commit);
   return {
     files,
+    commit,
     ...(ran ? { ran } : {}),
     message: {
       word: "pass",

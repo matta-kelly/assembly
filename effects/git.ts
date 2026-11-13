@@ -1,29 +1,23 @@
 /**
- * Git: each item's branches, each attempt's worktree, its commits, and main, where each cl lands (land.ts).
+ * Git: each item's one worktree and branch, its commits, main, where each cl lands (land.ts), and the sweep that keeps
+ * nothing else.
  *
- * Main is the land target's: the remote `git land` lands on, `local` when the repo has it, else `origin`. Each item
- * has a branch, assembly/<name>/head, that holds its passed work. An attempt's worktree is a branch of its own,
- * assembly/<name>/<n>, made from a cl's own branch, else from main, fetched as it is made. Both live
- * under assembly/<name>/, since git cannot hold a branch that is also another branch's folder. A pass commits the
- * attempt and moves the item's branch to it, so the next step starts from it. A failed attempt's branch is kept, as its
- * record.
- *
- * A bound attempt (nail, hammer) has a checkout: its worktree is a sparse checkout of its cl's checkout, so only those
- * paths are on disk, and a pass commits what it changed. Its tests run on the item's full worktree, beside the
- * attempts' folders, with that same change applied (stage), so the tree a test sees is the tree the pass commits.
+ * Main is the land target's: the remote `git land` lands on, `server` or `local` when the repo has it, else `origin`.
+ * A cl has one branch, assembly/<name>/head, that holds its passed work, and one worktree on it, beside its attempts'
+ * folders, made from main when the cl first needs it. Every step of the cl works there: a pass commits on the branch,
+ * and any other end of a step that writes keeps its change as the attempt's record (change.diff) and resets the
+ * worktree to the branch. An issue's worktree is detached, and moves to main as it is now at each attempt. A live item
+ * has its branch and its worktree; the sweep removes every other one under assembly/ and under the runs folder.
  */
 
-import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join, normalize, relative } from "node:path";
 import type { Run } from "../process/step.ts";
 import { partsOf } from "./runs.ts";
 import { must, sh } from "./sh.ts";
 
 /** The branch that holds an item's passed work. */
 export const branchOf = (name: string) => `assembly/${name}/head`;
-
-/** The branch of one attempt. */
-const attemptOf = (r: Run) => `assembly/${r.name}/${r.n}`;
 
 /** Whether the repo has the branch. */
 async function has(repo: string, branch: string) {
@@ -38,7 +32,7 @@ async function has(repo: string, branch: string) {
   return r.code === 0;
 }
 
-/** Whether a path is one of `entries`, or under a folder of them: how git's sparse checkout reads a plain path. */
+/** Whether a path is one of `entries`, or under a folder of them: a plain path, matched as git matches one. */
 export const within = (entries: string[], path: string) => {
   const p = normalize(path).replace(/\/+$/, "");
   return entries.some((e) => {
@@ -46,10 +40,6 @@ export const within = (entries: string[], path: string) => {
     return p === x || p.startsWith(`${x}/`);
   });
 };
-
-/** A checkout's entries as sparse-checkout patterns: each anchored at the repo's root, a file or a folder. */
-const patterns = (checkout: string[]) =>
-  checkout.map((e) => `/${normalize(e).replace(/^\/+|\/+$/g, "")}`);
 
 /**
  * The remote a cl lands on: `server`, main's bare repo guarded by crate's hooks, when the repo has it; else `local`, a
@@ -71,19 +61,9 @@ export async function mainOf(repo: string): Promise<string> {
 }
 
 /**
- * Where an attempt's worktree starts: a cl's own passed work, else main. An issue's steps only read, so an issue
- * always starts from main, where its cls have landed.
- */
-async function baseOf(r: Run): Promise<string> {
-  if (r.kind === "cl" && (await has(r.repo, branchOf(r.name))))
-    return branchOf(r.name);
-  return mainOf(r.repo);
-}
-
-/**
- * Makes the attempt's run folder and its worktree, or keeps the one it has. A worktree that is gone while git still has
- * its registration is pruned, and an attempt's branch that is there already is checked out again, with its commits.
- * Gives back whether it made one: a new worktree holds nothing a setup installed.
+ * Makes the item's worktree, or keeps the one it has: a cl's on its branch, made from main when it has none; an
+ * issue's detached at main. A worktree that is gone while git still has its registration is pruned. Gives back
+ * whether it made one: a new worktree holds nothing a setup installed.
  */
 export async function worktree(r: Run): Promise<boolean> {
   // An issue with several repos: a worktree of each, side by side in its own.
@@ -93,168 +73,78 @@ export async function worktree(r: Run): Promise<boolean> {
     for (const p of partsOf(r)) made = (await worktree(p)) || made;
     return made;
   }
-  mkdirSync(r.dir, { recursive: true });
   if (existsSync(join(r.work, ".git"))) return false;
   await must("git", ["-C", r.repo, "worktree", "prune"]);
-  // A sparse one is added with nothing on disk, its patterns set, then checked out: only its checkout's paths appear.
-  const sparse = r.checkout ? ["--no-checkout"] : [];
-  await must(
-    "git",
-    (await has(r.repo, attemptOf(r)))
-      ? ["-C", r.repo, "worktree", "add", ...sparse, r.work, attemptOf(r)]
-      : [
-          "-C",
-          r.repo,
-          "worktree",
-          "add",
-          ...sparse,
-          "-b",
-          attemptOf(r),
-          r.work,
-          await baseOf(r),
-        ],
-  );
-  if (r.checkout) {
-    // In a linked worktree, git keeps the sparse setting in the worktree's own config, so the repo stays whole.
+  const add = ["-C", r.repo, "worktree", "add", "-q"];
+  if (r.kind === "issue")
+    await must("git", [...add, "--detach", r.work, await mainOf(r.repo)]);
+  else if (await has(r.repo, branchOf(r.name)))
+    await must("git", [...add, r.work, branchOf(r.name)]);
+  else
     await must("git", [
-      "-C",
+      ...add,
+      "-b",
+      branchOf(r.name),
       r.work,
-      "sparse-checkout",
-      "set",
-      "--no-cone",
-      ...patterns(r.checkout),
+      await mainOf(r.repo),
     ]);
-    await must("git", ["-C", r.work, "checkout"]);
-  }
-  return true;
-}
-
-/** The item's full worktree: one per cl, detached, beside its attempts' folders, where its tests run. */
-export const fullOf = (r: Run) => join(dirname(r.dir), "full");
-
-/** Makes the item's full worktree, or keeps the one it has. Gives back whether it made one. */
-export async function full(r: Run): Promise<boolean> {
-  if (existsSync(join(fullOf(r), ".git"))) return false;
-  await must("git", ["-C", r.repo, "worktree", "prune"]);
-  await must("git", [
-    "-C",
-    r.repo,
-    "worktree",
-    "add",
-    "--detach",
-    fullOf(r),
-    await baseOf(r),
-  ]);
   return true;
 }
 
 /**
- * A scratch index for the worktree, seeded from its own index: in a sparse worktree that one marks each path outside
- * the checkout skip-worktree, so `add -A` leaves those paths as they are and does not stage them as removed.
+ * Moves an issue's worktree to main as the land target has it now: its cls land there, and its steps only read. Gives
+ * back whether it moved, so a setup on the main before is run again.
  */
-async function scratch<T>(
-  r: Run,
-  name: string,
-  use: (env: NodeJS.ProcessEnv) => Promise<T>,
-): Promise<T> {
-  const index = join(r.dir, name);
-  const own = (
+export async function fresh(r: Run): Promise<boolean> {
+  let moved = false;
+  for (const p of partsOf(r)) {
+    const was = await head(p);
     await must("git", [
       "-C",
-      r.work,
-      "rev-parse",
-      "--path-format=absolute",
-      "--git-path",
-      "index",
-    ])
-  ).trim();
-  copyFileSync(own, index);
-  try {
-    return await use({ ...process.env, GIT_INDEX_FILE: index });
-  } finally {
-    rmSync(index, { force: true });
+      p.work,
+      "checkout",
+      "-q",
+      "--force",
+      "--detach",
+      await mainOf(p.repo),
+    ]);
+    moved = (await head(p)) !== was || moved;
   }
+  return moved;
 }
 
-/**
- * The tree of a sparse attempt's HEAD with its changes: what a pass commits and what its tests see. Built in a scratch
- * index from HEAD, by path, so the worktree's own index is left as it is and no path outside the checkout is staged
- * as removed.
- */
-async function changedTree(r: Run): Promise<string> {
-  const these = await touched(r);
-  const index = join(r.dir, "stage.index");
-  const env = { ...process.env, GIT_INDEX_FILE: index };
-  try {
-    await must("git", ["-C", r.work, "read-tree", "HEAD"], env);
-    if (these.length)
-      await must(
-        "git",
-        ["-C", r.work, "update-index", "--add", "--remove", "--", ...these],
-        env,
-      );
-    return (await must("git", ["-C", r.work, "write-tree"], env)).trim();
-  } finally {
-    rmSync(index, { force: true });
-  }
-}
-
-/**
- * Puts the attempt's change into the item's full worktree: its HEAD, with what it changed. Files git
- * ignores there, as the installed dependencies, stay. Gives back the tree, the one the test run sees.
- */
-export async function stage(r: Run): Promise<string> {
-  const tree = await changedTree(r);
-  await must("git", ["-C", fullOf(r), "read-tree", "-u", "--reset", tree]);
-  return tree;
-}
-
-/**
- * Commits what the agent left in the worktree, and moves the item's branch to it. Nothing to commit is not an error.
- * A bound attempt commits the tree its tests saw.
- */
+/** Commits what the agent left in the worktree, on its branch, so the next step starts from it. Nothing to commit is not an error. */
 export async function commit(r: Run, message: string) {
-  if (r.checkout) {
-    const tree = await changedTree(r);
-    const at = (await must("git", ["-C", r.work, "rev-parse", "HEAD"])).trim();
-    const was = (
-      await must("git", ["-C", r.work, "rev-parse", `${at}^{tree}`])
-    ).trim();
-    if (tree !== was) {
-      const made = (
-        await must("git", [
-          "-C",
-          r.work,
-          "commit-tree",
-          tree,
-          "-p",
-          at,
-          "-m",
-          message,
-        ])
-      ).trim();
-      await must("git", ["-C", r.work, "update-ref", "HEAD", made]);
-    }
-  } else {
-    await must("git", ["-C", r.work, "add", "-A"]);
-    const staged = await sh("git", [
+  await must("git", ["-C", r.work, "add", "-A"]);
+  const staged = await sh("git", ["-C", r.work, "diff", "--cached", "--quiet"]);
+  if (staged.code !== 0)
+    await must("git", ["-C", r.work, "commit", "-q", "-m", message]);
+}
+
+/**
+ * Ends an attempt that did not pass: its change, new files too, is kept in its folder as its record (change.diff, or
+ * <repo>.diff for each repo of an issue with several), and the worktree goes back to its HEAD. Files git ignores, as
+ * the installed dependencies, stay.
+ */
+export async function discard(r: Run) {
+  for (const p of partsOf(r)) {
+    await must("git", ["-C", p.work, "add", "-A"]);
+    const diff = await must("git", [
       "-C",
-      r.work,
+      p.work,
       "diff",
       "--cached",
-      "--quiet",
+      "--binary",
+      "HEAD",
     ]);
-    if (staged.code !== 0)
-      await must("git", ["-C", r.work, "commit", "-m", message]);
+    if (diff) {
+      mkdirSync(r.dir, { recursive: true });
+      const name = r.repos?.length ? `${basename(p.work)}.diff` : "change.diff";
+      writeFileSync(join(r.dir, name), diff);
+    }
+    await must("git", ["-C", p.work, "reset", "-q", "--hard", "HEAD"]);
+    await must("git", ["-C", p.work, "clean", "-q", "-f", "-d"]);
   }
-  const head = (await must("git", ["-C", r.work, "rev-parse", "HEAD"])).trim();
-  await must("git", [
-    "-C",
-    r.repo,
-    "update-ref",
-    `refs/heads/${branchOf(r.name)}`,
-    head,
-  ]);
 }
 
 /** The worktree's HEAD, or undefined when it has none: the end state an attempt's trace points at. */
@@ -266,20 +156,25 @@ export async function head(r: Run): Promise<string | undefined> {
 }
 
 /**
- * The worktree's tree hash, with what is not committed: staged into a scratch index, so the worktree's own index is
- * left as it is.
+ * The worktree's tree hash, with what is not committed: staged into a scratch index in the attempt's folder, so the
+ * worktree's own index is left as it is.
  */
 export async function treeOf(r: Run): Promise<string> {
-  return scratch(r, "check.index", async (env) => {
+  mkdirSync(r.dir, { recursive: true });
+  const index = join(r.dir, "check.index");
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  try {
+    await must("git", ["-C", r.work, "read-tree", "HEAD"], env);
     await must("git", ["-C", r.work, "add", "-A"], env);
     return (await must("git", ["-C", r.work, "write-tree"], env)).trim();
-  });
+  } finally {
+    rmSync(index, { force: true });
+  }
 }
 
 /**
- * Every file of the worktree that differs from where its attempt started (its HEAD: an agent never commits): changed,
- * new or removed, as git status sees it. In a sparse worktree it never counts a path outside the checkout as removed,
- * and it does count a file written outside it. A file git ignores is not one.
+ * Every file of the worktree that differs from where its attempt started, its HEAD (a failed attempt resets to it):
+ * changed, new or removed, as git status sees it. A file git ignores is not one.
  */
 export async function touched(r: Run): Promise<string[]> {
   const out = await must("git", [
@@ -297,40 +192,81 @@ export async function touched(r: Run): Promise<string[]> {
     .map((line) => line.slice(3));
 }
 
-/** A version tag crate puts on a commit: `v<version>` for the package at `.`, `<folder>-v<version>` for one in a folder. */
-const versionTag = /^(?:(.+)-)?v(\d+\.\d+\.\d+\S*)$/;
-
-/**
- * The version tags the land target holds on the commit main took for the landed cl `cl` (its branch), of `repo`. Asked
- * from the land target, never from the repo's local tags.
- */
-export async function landedTags(repo: string, cl: string): Promise<string[]> {
-  const took = (
-    await must("git", ["-C", repo, "rev-parse", `refs/heads/${branchOf(cl)}`])
-  ).trim();
-  const remote = await targetOf(repo);
-  const out = await must("git", ["-C", repo, "ls-remote", "--tags", remote]);
-  // An annotated tag is listed twice: itself, and its commit as `<tag>^{}`. A light tag is listed once, as its commit.
-  const tags = new Set<string>();
-  for (const line of out.split("\n")) {
-    const [sha, ref] = line.split("\t");
-    if (sha !== took || !ref?.startsWith("refs/tags/")) continue;
-    const tag = ref.slice("refs/tags/".length).replace(/\^\{\}$/, "");
-    if (versionTag.test(tag)) tags.add(tag);
-  }
-  return [...tags];
-}
-
-/** Which of `files` differ in the worktree from the item's branch, committed or not. */
+/** Which of `files` differ in the worktree from the item's branch, its HEAD, committed or not. */
 export async function changed(r: Run, files: string[]): Promise<string[]> {
   const out = await must("git", [
     "-C",
     r.work,
     "diff",
     "--name-only",
-    branchOf(r.name),
+    "HEAD",
     "--",
     ...files,
   ]);
   return out.split("\n").filter(Boolean);
+}
+
+/** A version tag crate puts on a commit: `v<version>` for the package at `.`, `<folder>-v<version>` for one in a folder. */
+const versionTag = /^(?:(.+)-)?v(\d+\.\d+\.\d+\S*)$/;
+
+/** The version tags the land target of `repo` holds on `commit`, the commit main took for a cl. Never the local tags. */
+export async function landedTags(
+  repo: string,
+  commit: string,
+): Promise<string[]> {
+  const remote = await targetOf(repo);
+  const out = await must("git", ["-C", repo, "ls-remote", "--tags", remote]);
+  // An annotated tag is listed twice: itself, and its commit as `<tag>^{}`. A light tag is listed once, as its commit.
+  const tags = new Set<string>();
+  for (const line of out.split("\n")) {
+    const [sha, ref] = line.split("\t");
+    if (sha !== commit || !ref?.startsWith("refs/tags/")) continue;
+    const tag = ref.slice("refs/tags/".length).replace(/\^\{\}$/, "");
+    if (versionTag.test(tag)) tags.add(tag);
+  }
+  return [...tags];
+}
+
+/**
+ * The sweep of one repo: removes every worktree under `runs` that is not in `keep`, then every assembly/ branch not
+ * in `branches`. What an item left when it ended, what a crash between moves left, and what an older scheme made all
+ * go by this one rule. A worktree outside the runs folder is never touched. Safe to run again. One removal that fails
+ * stops none of the others: it throws at the end, with each failure, for the caller to log.
+ */
+export async function sweep(
+  repo: string,
+  runs: string,
+  keep: Set<string>,
+  branches: Set<string>,
+) {
+  const failed: string[] = [];
+  const remove = async (args: string[]) => {
+    const r = await sh("git", ["-C", repo, ...args]);
+    if (r.code !== 0) failed.push(`git ${args.join(" ")}: ${r.out.trim()}`);
+  };
+  await must("git", ["-C", repo, "worktree", "prune"]);
+  const listed = await must("git", [
+    "-C",
+    repo,
+    "worktree",
+    "list",
+    "--porcelain",
+  ]);
+  for (const line of listed.split("\n")) {
+    if (!line.startsWith("worktree ")) continue;
+    const path = normalize(line.slice("worktree ".length));
+    const under = relative(runs, path);
+    if (!under || under.startsWith("..") || keep.has(path)) continue;
+    await remove(["worktree", "remove", "--force", path]);
+  }
+  const refs = await must("git", [
+    "-C",
+    repo,
+    "for-each-ref",
+    "--format=%(refname:short)",
+    "refs/heads/assembly/",
+  ]);
+  for (const branch of refs.split("\n").filter(Boolean))
+    if (!branches.has(branch)) await remove(["branch", "-q", "-D", branch]);
+  if (failed.length) throw new Error(failed.join("\n"));
 }

@@ -30,8 +30,8 @@ type Lint = Omit<Message, "findings">;
 export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 /**
- * A path of a cl, from its repo's root: a file, or a folder for all under it, as git's sparse checkout takes it. A
- * plain path, no glob or negation: assembly matches it as git does, by the path or a folder over it.
+ * A path of a cl, from its repo's root: a file, or a folder for all under it. A plain path, no glob or negation:
+ * assembly matches it as git does, by the path or a folder over it.
  */
 const path = z
   .string()
@@ -75,7 +75,7 @@ export const clSpec = z.object({
     .array(path)
     .min(1)
     .describe(
-      "every path conceivably relevant to the cut, from the repo's root: what its builders get on disk. They see nothing else, so err wide",
+      "every path conceivably relevant to the cut, from the repo's root: where its change lives, and where its builders start. Err wide: they read past it only when the work needs it",
     ),
   test: z
     .string()

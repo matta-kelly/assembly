@@ -25,10 +25,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
   const main = () => git(bare, "rev-parse", "main");
   const onMain = (path: string) => git(bare, "show", `main:${path}`);
 
-  /** A cl's passed work: its branch, made from main as the target has it, with `files` written in one commit. */
+  /** The cl's one worktree, which every attempt of it, its land too, works in. */
+  const workOf = (cut: string) => join(dir, "runs", "is", "cl", cut, "work");
+
+  /** A cl's passed work: its branch and worktree, made from main as the target has it, with `files` in one commit. */
   const built = (cut: string, files: Record<string, string>) => {
     git(repo, "fetch", "-q", "local", "main");
-    const work = join(dir, "build", cut);
+    const work = workOf(cut);
     git(
       repo,
       "worktree",
@@ -47,7 +50,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
     git(work, "commit", "-q", "-m", `da-hammer(is-${cut})`);
   };
 
-  /** The land's attempt of a cl: its run folder beside the cl's full worktree. */
+  /** The land's attempt of a cl: its run folder beside the cl's worktree. */
   const run = (cut: string, n = 1): Run => {
     const at = join(dir, "runs", "is", "cl", cut, String(n));
     return {
@@ -62,7 +65,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
       test: `node --test test/${cut}.test.mjs`,
       setup: "",
       dir: at,
-      work: join(at, "work"),
+      work: workOf(cut),
     };
   };
 
@@ -98,6 +101,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
     expect(out.files.sort()).toEqual(["src/a.mjs", "test/a.test.mjs"]);
     expect(onMain("src/a.mjs")).toBe("export const a = 1;");
     expect(git(repo, "rev-parse", branchOf("is-a"))).toBe(main());
+    expect(out.commit).toBe(main());
     // main had not moved under it: no test run
     expect(out.ran).toBeUndefined();
   });
@@ -107,6 +111,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
     const out = await land(run("a", 2));
     expect(out.message.word).toBe("pass");
     expect(out.message.reason).toMatch(/holds its change/);
+    expect(out.commit).toBe(before);
     expect(main()).toBe(before);
   });
 

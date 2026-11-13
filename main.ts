@@ -66,8 +66,8 @@ export function compose(f: Factory) {
             f.models ?? hostModels(),
             join(f.home, "pi.db"),
           ),
-        runs,
         world: {
+          runs,
           registry: f.registry ?? npmRegistry(),
           reader: gitReader,
           tags: landedTags,

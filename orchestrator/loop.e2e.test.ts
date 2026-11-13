@@ -280,7 +280,7 @@ const plain = (last: string) => {
 };
 
 /**
- * What value's da-hammer saw when it reached past its cl, before it coded: a file outside its checkout, and the root.
+ * What value's da-hammer saw when it read past its cl's checkout, before it coded: a file outside it, and the root.
  */
 const probed: string[] = [];
 const probes = [
@@ -288,7 +288,7 @@ const probes = [
   fauxToolCall("ls", { path: "." }),
 ];
 
-/** da-hammer makes its cut's test pass. value's first reaches past its cut. */
+/** da-hammer makes its cut's test pass. value's first reads past its cut's checkout. */
 const hammerScript = (input: string, at: number, last: string) => {
   const lone = /The cut (alpha|beta) of/.exec(input)?.[1];
   if (lone)
@@ -632,19 +632,16 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
         await l.tick();
 
-        // Each of is's own attempts, and each review, was set up once, before its agent, in its own worktree. A bound
-        // attempt (nail, hammer) holds only its cl's checkout, so its cl's full worktree, where its tests run, was set
-        // up once instead: value's test imports what setup installed there.
+        // Each item's one worktree was set up once, before its first agent: value's test imports what setup installed.
         const attemptsOf = (under: string) =>
           readdirSync(under)
             .filter((n) => /^\d+$/.test(n))
             .map((n) => join(under, n));
-        for (const a of attemptsOf(join(runs, "is", "issue")))
-          expect(existsSync(join(a, "setup.done"))).toBe(true);
+        expect(existsSync(join(runs, "is", "issue", "setup.done"))).toBe(true);
         for (const c of ["value", "double"]) {
-          expect(
-            existsSync(join(runs, "is", "cl", c, "full.setup", "setup.done")),
-          ).toBe(true);
+          expect(existsSync(join(runs, "is", "cl", c, "setup.done"))).toBe(
+            true,
+          );
           const logs = attemptsOf(join(runs, "is", "cl", c))
             .map((a) =>
               existsSync(join(a, "log"))
@@ -652,22 +649,18 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
                 : "",
             )
             .join("\n");
-          expect(logs.match(/^set up in \d+ s$/gm)).not.toBeNull();
+          expect(logs.match(/^set up in \d+ s$/gm)).toHaveLength(1);
         }
 
-        // value's da-hammer held only its cl's checkout: NOTES, in the repo but not in the checkout, is not on disk;
-        // the root holds only the checkout's paths.
-        expect(probed[0]).toMatch(/NOTES/);
-        // (the worktree's .git file points at the repo, which is not mounted)
-        expect(probed[1]).toBe(".git\nREADME\nsrc/\ntest/");
-        const valueRuns = join(runs, "is", "cl", "value");
-        // its nail and hammer attempts are bound; its review keeps the whole tree, read-only
-        const bound = ledger
-          .attemptsOf("is-value")
-          .filter((x) => x.step === "ready" || x.step === "red")
-          .map((x) => join(valueRuns, String(x.n), "work"));
-        expect(bound.length).toBeGreaterThan(1);
-        expect(bound.filter((w) => existsSync(join(w, "NOTES")))).toEqual([]);
+        // value's da-hammer had the whole repo: NOTES, in no cut's checkout, is there to read, and so is the root.
+        expect(probed[0]).toMatch(/not in any cut/);
+        expect(probed[1]).toMatch(/NOTES/);
+
+        // Accepted, the issue leaves nothing behind: no worktree, and no branch.
+        expect(git(repo, "worktree", "list", "--porcelain")).not.toMatch(
+          /runs\/is\//,
+        );
+        expect(git(repo, "branch", "--list", "assembly/is*")).toBe("");
 
         // The issue went through each of its steps once, in order, and each cl through its own.
         const moves = (name: string) =>
@@ -1223,17 +1216,12 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           git(rb.bare, "ls-tree", "-r", "--name-only", "main"),
         ).not.toMatch(/alpha/);
 
-        // the issue's own attempts saw both repos, each set up with its own setup
+        // the issue's worktree held both repos, each set up once with its own setup
         const issueRuns = join(f.runs, "mr", "issue");
-        for (const n of readdirSync(issueRuns).filter((x) => /^\d+$/.test(x)))
-          for (const r of ["ra", "rb"]) {
-            expect(existsSync(join(issueRuns, n, "work", r, "README"))).toBe(
-              true,
-            );
-            expect(
-              existsSync(join(issueRuns, n, "repos", r, "setup.done")),
-            ).toBe(true);
-          }
+        for (const r of ["ra", "rb"])
+          expect(existsSync(join(issueRuns, "repos", r, "setup.done"))).toBe(
+            true,
+          );
 
         // acceptance ran each repo's suite on main: both green, alpha's and beta's tests among them
         const db = new DatabaseSync(join(at, "ledger.db"));
@@ -1605,13 +1593,13 @@ One and two, each exported, with b on the versions ra published.
           expect(b[held]?.reason).toMatch(/@e2e\/one.*1\.2\.0.*not on npm yet/);
           expect(held).toBeLessThan(b.findIndex((e) => e.to_state === "ready"));
 
-          // Its branch holds the moves first, then its own work: one build commit per package, the second on the
-          // first, and no version of its own.
+          // Main took its branch: the moves first, then its own work, one build commit per package, the second on
+          // the first, and no version of its own.
           const commits = git(
-            rb,
+            rbBare,
             "log",
             "--format=%H %s",
-            `${rbStart}..assembly/dp-b/head`,
+            `${rbStart}..main`,
           )
             .split("\n")
             .map((line) => {
@@ -1628,16 +1616,16 @@ One and two, each exported, with b on the versions ra published.
           const newest = builds[0];
           const oldest = builds[1];
           // the second move's commit sits on the first's
-          expect(git(rb, "rev-parse", `${newest?.sha}^`)).toBe(oldest?.sha);
+          expect(git(rbBare, "rev-parse", `${newest?.sha}^`)).toBe(oldest?.sha);
           const manifest = JSON.parse(
-            git(rb, "show", "assembly/dp-b/head:package.json"),
+            git(rbBare, "show", "main:package.json"),
           ) as { dependencies: Record<string, string> };
           expect(manifest.dependencies).toMatchObject({
             "@e2e/one": "^1.2.0",
             "@e2e/two": "^1.0.0",
           });
           const lock = JSON.parse(
-            git(rb, "show", "assembly/dp-b/head:package-lock.json"),
+            git(rbBare, "show", "main:package-lock.json"),
           ) as { packages: Record<string, { version?: string }> };
           expect(lock.packages["node_modules/@e2e/one"]?.version).toBe("1.2.0");
           expect(lock.packages["node_modules/@e2e/two"]?.version).toBe("1.0.0");
@@ -1664,11 +1652,9 @@ One and two, each exported, with b on the versions ra published.
             ledger.item("dp").repos.find((r) => r.name === "rb")?.image,
           ).toBe(moved);
           // b's attempts had their dependencies installed, offline, from that image's cache.
-          expect(
-            existsSync(
-              join(f.runs, "dp", "cl", "b", "full.setup", "setup.done"),
-            ),
-          ).toBe(true);
+          expect(existsSync(join(f.runs, "dp", "cl", "b", "setup.done"))).toBe(
+            true,
+          );
 
           // Each landed on its own repo's main, and only there.
           expect(git(raBare, "show", "main:one/index.js")).toContain("one = 2");

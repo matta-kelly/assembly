@@ -30,6 +30,7 @@ export interface Item {
   setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
   repos: Repo[]; // an issue's repos when it has more than one, else none; a cl's always none
   state: State;
+  landed: string | null; // the commit main took for it, once it landed
 }
 
 /** What an attempt's model calls used, when the run reports it. */
@@ -106,7 +107,7 @@ const tables = `
   CREATE TABLE IF NOT EXISTS items (
     name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
     repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
-    phase INTEGER, repos TEXT NOT NULL DEFAULT '[]'
+    phase INTEGER, repos TEXT NOT NULL DEFAULT '[]', landed TEXT
   );
   CREATE TABLE IF NOT EXISTS specs (
     issue TEXT PRIMARY KEY REFERENCES items(name), spec TEXT NOT NULL, by TEXT NOT NULL, commit_sha TEXT
@@ -147,6 +148,9 @@ export function open(file: string) {
   }[];
   if (!columns.some((c) => c.name === "repos"))
     db.exec("ALTER TABLE items ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
+  // A ledger made before a land kept its commit has no column for it.
+  if (!columns.some((c) => c.name === "landed"))
+    db.exec("ALTER TABLE items ADD COLUMN landed TEXT");
   // A ledger made before a spec kept its commit has no column for it.
   const specColumns = db.prepare("PRAGMA table_info(specs)").all() as {
     name: string;
@@ -403,7 +407,7 @@ export function open(file: string) {
 
     /** Adds a cl of an issue, at `state`: ready, or waiting for the phase before it. A lone cl is phase 1. */
     addCl(
-      i: Omit<Item, "kind" | "state" | "setup" | "phase" | "repos"> &
+      i: Omit<Item, "kind" | "state" | "setup" | "phase" | "repos" | "landed"> &
         Partial<Pick<Item, "setup" | "phase">>,
       state: State,
     ) {
@@ -627,9 +631,13 @@ export function open(file: string) {
       });
     },
 
-    /** Records the files a cl changed, once landed. */
-    paths(name: string, paths: string[]) {
+    /** Records a land: the commit main took for the cl, and the files it changed. */
+    landed(name: string, commit: string | undefined, paths: string[]) {
       tx(() => {
+        db.prepare("UPDATE items SET landed = ? WHERE name = ?").run(
+          commit ?? null,
+          name,
+        );
         for (const path of paths)
           db.prepare(
             "INSERT OR IGNORE INTO paths (name, path) VALUES (?, ?)",

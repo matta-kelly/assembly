@@ -15,19 +15,20 @@ const runArgs = () =>
   vi.mocked(sh).mock.calls.find((c) => c[1][0] === "run")?.[1] ?? [];
 
 let r: Run;
+let item: string;
 beforeEach(() => {
   vi.resetAllMocks();
-  const dir = mkdtempSync(join(tmpdir(), "setup-"));
+  item = mkdtempSync(join(tmpdir(), "setup-"));
   r = {
     name: "is-a",
     n: 1,
-    dir,
-    work: join(dir, "work"),
+    dir: join(item, "1"),
+    work: join(item, "work"),
     image: "ghcr.io/x/repo-dev:main",
     setup: "npm ci --offline",
   } as Run;
 });
-afterEach(() => rmSync(r.dir, { recursive: true, force: true }));
+afterEach(() => rmSync(item, { recursive: true, force: true }));
 
 describe("an attempt's setup", () => {
   it("runs the setup in a container of its own, offline, on the worktree, and marks it done", async () => {
@@ -54,7 +55,7 @@ describe("an attempt's setup", () => {
       stdout: "",
     });
     await expect(runSetup(r)).rejects.toThrow(/^exit 1: npm ERR! oops$/);
-    expect(existsSync(join(r.dir, "setup.done"))).toBe(false);
+    expect(existsSync(join(item, "setup.done"))).toBe(false);
     expect(needsSetup(r)).toBe(true);
   });
 
@@ -93,6 +94,14 @@ describe("an attempt's setup", () => {
       /left files git does not ignore.*: node_modules\/a\/index\.js$/,
     );
     expect(needsSetup(r)).toBe(true);
+  });
+
+  it("is marked once per worktree, in the item's folder: the next attempt needs none", async () => {
+    vi.mocked(sh).mockResolvedValue({ code: 0, out: "", stdout: "" });
+    vi.mocked(touched).mockResolvedValue([]);
+    await runSetup(r);
+    expect(existsSync(join(item, "setup.done"))).toBe(true);
+    expect(needsSetup({ ...r, n: 2, dir: join(item, "2") })).toBe(false);
   });
 
   it("is forgotten when its worktree is made again", async () => {

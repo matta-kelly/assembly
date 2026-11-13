@@ -44,8 +44,6 @@ export const changedOf = (ledger: Ledger, cl: string): string =>
 export const hammer: Step<Done> = {
   from: "red",
   agent: "da-hammer",
-  // a sparse checkout of its cl's checkout
-  bound: true,
   done,
   about: ["tests", "cl", "plan", "issue"],
   input: (r, ledger) => [read(r.path), "", testsOf(ledger, r.name)].join("\n"),

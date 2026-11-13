@@ -7,9 +7,11 @@
  * orchestrator leaves its attempts open in the ledger, and the next one takes each one up: its sandbox again, and its
  * run goes on from where it stopped. A taken-up attempt goes the same way as a new one.
  *
- * Opening the loop makes the worktrees of the open attempts first, then opens the runner: que-pasa's runtime goes on
- * with their runs at once, and their sandboxes, which come up on a tool's first call, mount those worktrees. Each tick
- * then does two things:
+ * Each item has one worktree, which every attempt of it works in (effects/git.ts): a pass commits there, and any other
+ * end of a step that writes keeps its change as the attempt's record and resets it. Opening the loop sweeps away every
+ * worktree and branch no live item holds, makes the worktrees of the open attempts, then opens the runner: que-pasa's
+ * runtime goes on with their runs at once, and their sandboxes, which come up on a tool's first call, mount those
+ * worktrees. Each tick then sweeps again, and does two things:
  * - it makes the orchestrator's own moves (advance.ts): a building issue's cls, phase by phase, and their issue built.
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
  *   then a new one for each item waiting in a state that has a step, except the cls of an issue escalated to Matt: they
@@ -28,17 +30,22 @@
 import { z } from "zod";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
-import { changed, commit, head, touched, worktree } from "../effects/git.ts";
+import {
+  branchOf,
+  changed,
+  commit,
+  discard,
+  fresh,
+  head,
+  sweep,
+  touched,
+  worktree,
+} from "../effects/git.ts";
 import { land } from "../effects/land.ts";
 import { read } from "../effects/notes.ts";
-import { log, runOf } from "../effects/runs.ts";
+import { log, partsOf, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
-import {
-  forgetSetup,
-  needsSetup,
-  prepareFull,
-  runSetup,
-} from "../effects/setup.ts";
+import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { runTests } from "../effects/tests.ts";
 import {
   checkSpan,
@@ -55,8 +62,7 @@ import {
   type TestRun,
   type Worktree,
 } from "../process/step.ts";
-import { clOf } from "../process/plan.ts";
-import { type State, top } from "../process/table.ts";
+import { ends, type State, top } from "../process/table.ts";
 import { advance, type World } from "./advance.ts";
 import { titleOf } from "./title.ts";
 import type { Event, Ledger, Usage } from "./ledger.ts";
@@ -101,12 +107,14 @@ export class RunFailed extends Error {
   }
 }
 
+/** A setup that failed: its attempt ends with missing_dependency. */
+class Setup extends Error {}
+
 export interface Loop {
   ledger: Ledger;
   steps: AnyStep[];
   runner: () => Promise<Runner>; // opened once the open attempts' worktrees are there
-  runs: string; // where run folders go
-  world: World; // what a waiting cl needs of the world: registry, repos' files, landed tags
+  world: World; // where run folders go, and what a waiting cl needs of the world: registry, repos' files, landed tags
   concurrent?: number; // attempts at once, at most
   timeoutMs?: number; // the most one attempt may take
 }
@@ -176,11 +184,11 @@ export async function loop({
   ledger,
   steps,
   runner: openRunner,
-  runs,
   world,
   concurrent = 4,
   timeoutMs = 30 * 60_000,
 }: Loop) {
+  const { runs } = world;
   const stepAt = (s: State) => steps.find((x) => x.from === s);
   const running = new Map<string, Promise<void>>();
   const timers = new Set<NodeJS.Timeout>();
@@ -304,9 +312,8 @@ export async function loop({
           ran = at.ran();
           if (ran) checkSpan(span, state, ran);
         }
-        // A pass of a step that edits the worktree is its product: the attempt is committed, and becomes the item's
-        // branch.
-        // Its title is the form crate reads for a release: the code of a feature or a fix lands as one.
+        // A pass of a step that edits the worktree is its product: it is committed on the item's branch. Its title is
+        // the form crate reads for a release: the code of a feature or a fix lands as one.
         if (v.word === "pass" && step.worktree !== "ro") {
           const issuePath = ledger
             .items()
@@ -337,6 +344,14 @@ export async function loop({
         findings: [],
       };
     }
+    // Any other end of a step that edits keeps its change as the attempt's record, and the worktree goes back to its
+    // branch, so the next attempt starts from the item's passed work.
+    if (v.word !== "pass" && step.worktree !== "ro")
+      try {
+        await discard(r);
+      } catch (e) {
+        console.error(`the change of ${r.name}/${r.n} was not reset:`, e);
+      }
     await traced(r, state, step, {
       message: v,
       ...(usage ? { usage } : {}),
@@ -356,19 +371,24 @@ export async function loop({
     let error: string | undefined;
     const span = ledger.span(r.name, r.n);
     try {
-      const out = await land(r, AbortSignal.any([signal, closed.signal]));
+      const stop = AbortSignal.any([signal, closed.signal]);
+      await prepared(r, stop);
+      const out = await land(r, stop);
       v = out.message;
       ran = out.ran?.check;
       if (ran) checkSpan(span, landing, ran);
-      if (v.word === "pass") {
-        ledger.paths(r.name, out.files);
-      }
+      if (v.word === "pass") ledger.landed(r.name, out.commit, out.files);
     } catch (e) {
       if (closing) return;
       error = (e as Error).message;
+      const cause = signal.aborted
+        ? ("budget_exceeded" as const)
+        : e instanceof Setup
+          ? ("missing_dependency" as const)
+          : undefined;
       v = {
         word: "retry",
-        ...(signal.aborted ? { cause: "budget_exceeded" as const } : {}),
+        ...(cause ? { cause } : {}),
         reason: `the land failed: ${error.slice(0, 400)}`,
         findings: [],
       };
@@ -408,12 +428,39 @@ export async function loop({
     running.set(key, settled);
   }
 
+  /**
+   * The sweep, in every repo the ledger names: each live item keeps its worktree and its branch, and every other one
+   * goes. Live is an item not ended, or one with an attempt open. A repo that fails is logged, and the rest go on.
+   */
+  async function swept() {
+    const items = ledger.items();
+    const open = new Set(ledger.open().map((a) => a.name));
+    const live = items.filter(
+      (i) => !ends.includes(i.state) || open.has(i.name),
+    );
+    const trees = live.map((i) => runOf(i, 0, runs));
+    const keep = new Set(
+      trees.flatMap((r) => [r.work, ...partsOf(r).map((p) => p.work)]),
+    );
+    const branches = new Set(live.map((i) => branchOf(i.name)));
+    const repos = new Set(
+      items.flatMap((i) => [i.repo, ...i.repos.map((p) => p.repo)]),
+    );
+    for (const repo of repos)
+      try {
+        await sweep(repo, runs, keep, branches);
+      } catch (e) {
+        console.error(`the sweep of ${repo} failed:`, e);
+      }
+  }
+
   // One tick at a time: a second one would start an attempt a first one is still opening.
   let ticking = false;
   async function tick() {
     if (ticking || closing) return;
     ticking = true;
     try {
+      await swept();
       await advance(ledger, world);
       await start();
     } finally {
@@ -422,41 +469,49 @@ export async function loop({
   }
 
   /**
-   * Readies an attempt: its worktree, its setup once (effects/setup.ts), and its sandbox. Each failure ends it as a
-   * retry, before any agent: a setup's with missing_dependency, since a fault in the image or the lockfile fails every
-   * attempt the same way. Gives back whether it is ready. One the loop's closing stopped is left open, unended.
+   * The item's worktree, made or kept, and its setup, once (effects/setup.ts). A new attempt of an issue moves its
+   * worktree to main as it is now. Throws a Setup when the setup fails.
+   */
+  async function prepared(r: Run, signal: AbortSignal) {
+    if (await worktree(r)) forgetSetup(r);
+    else if (
+      r.kind === "issue" &&
+      !ledger.resumed(r.name, r.n) &&
+      (await fresh(r))
+    )
+      forgetSetup(r);
+    if (!needsSetup(r)) return;
+    const at = Date.now();
+    try {
+      await runSetup(r, signal);
+    } catch (e) {
+      throw new Setup((e as Error).message);
+    }
+    log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
+  }
+
+  /**
+   * Readies an attempt: its worktree, its setup once, and its sandbox. Each failure ends it as a retry, before any
+   * agent: a setup's with missing_dependency, since a fault in the image or the lockfile fails every attempt the same
+   * way. Gives back whether it is ready. One the loop's closing stopped is left open, unended.
    */
   async function ready(r: Run, state: State, step: AnyStep): Promise<boolean> {
     try {
-      if (await worktree(r)) forgetSetup(r);
+      await prepared(r, closed.signal);
     } catch (e) {
+      // a setup the loop's closing stopped is not a failure: the attempt is set up when it is taken up
+      if (closed.signal.aborted) return false;
+      // setup.ts keeps the tail of its output, where the failure is
       end(r, state, {
         word: "retry",
-        reason: `the worktree was not made: ${(e as Error).message.slice(0, 400)}`,
+        ...(e instanceof Setup ? { cause: "missing_dependency" as const } : {}),
+        reason:
+          e instanceof Setup
+            ? `the setup failed: ${e.message}`
+            : `the worktree was not made: ${(e as Error).message.slice(0, 400)}`,
         findings: [],
       });
       return false;
-    }
-    // A bound attempt's sparse worktree holds no install: its tests run on the item's full worktree, set up once.
-    if (r.checkout || needsSetup(r)) {
-      const at = Date.now();
-      let ran = true;
-      try {
-        if (r.checkout) ran = await prepareFull(r, closed.signal);
-        else await runSetup(r, closed.signal);
-      } catch (e) {
-        // a setup the loop's closing stopped is not a failure: the attempt is set up when it is taken up
-        if (closed.signal.aborted) return false;
-        // setup.ts keeps the tail of its output, where the failure is
-        end(r, state, {
-          word: "retry",
-          cause: "missing_dependency",
-          reason: `the setup failed: ${(e as Error).message}`,
-          findings: [],
-        });
-        return false;
-      }
-      if (ran) log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
     }
     if (closed.signal.aborted) return false;
     try {
@@ -511,18 +566,6 @@ export async function loop({
   const left = () =>
     ledger.open().filter((a) => !running.has(`${a.name}/${a.n}`));
 
-  /** The attempt's run, with its cl's checkout when its step is bound. */
-  const runFor = (
-    i: Parameters<typeof runOf>[0],
-    n: number,
-    step?: AnyStep,
-  ): Run => {
-    const r = runOf(i, n, runs);
-    if (!step?.bound || i.kind !== "cl") return r;
-    const c = clOf(ledger, i);
-    return { ...r, checkout: c.checkout };
-  };
-
   async function start() {
     for (const a of left()) {
       if (running.size >= concurrent) return;
@@ -534,17 +577,7 @@ export async function loop({
         continue;
       }
       const step = stepAt(a.step);
-      let r: Run;
-      try {
-        r = runFor(ledger.item(a.name), a.n, step);
-      } catch (e) {
-        end(runOf(ledger.item(a.name), a.n, runs), a.step, {
-          word: "retry",
-          reason: `its spec could not be read: ${(e as Error).message}`,
-          findings: [],
-        });
-        continue;
-      }
+      const r = runOf(ledger.item(a.name), a.n, runs);
       if (!step) {
         end(r, a.step, {
           word: "retry",
@@ -567,28 +600,17 @@ export async function loop({
         launchLand(runOf(i, n, runs));
         continue;
       }
-      const step = stepAt(i.state) as AnyStep;
-      let r: Run;
-      try {
-        r = runFor(i, n, step);
-      } catch (e) {
-        end(runOf(i, n, runs), i.state, {
-          word: "retry",
-          reason: `its spec could not be read: ${(e as Error).message}`,
-          findings: [],
-        });
-        continue;
-      }
-      launch(r, i.state, step);
+      launch(runOf(i, n, runs), i.state, stepAt(i.state) as AnyStep);
     }
   }
 
   // The open attempts' worktrees are there before the runner: it goes on with their runs as it opens, and their
   // sandboxes mount them. One whose worktree or sandbox can't be had is ended when its attempt is taken up.
+  await swept();
   for (const a of left()) {
     if (!stepAt(a.step)) continue;
     try {
-      const r = runFor(ledger.item(a.name), a.n, stepAt(a.step));
+      const r = runOf(ledger.item(a.name), a.n, runs);
       if (await worktree(r)) forgetSetup(r);
     } catch {
       // taken up, and ended, at the first tick
