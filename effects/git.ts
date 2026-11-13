@@ -5,13 +5,12 @@
  * Main is the land target's: the remote `git land` lands on, `server` or `local` when the repo has it, else `origin`.
  * A cl has one branch, assembly/<name>/head, that holds its passed work, and one worktree on it, beside its attempts'
  * folders, made from main when the cl first needs it. Every step of the cl works there: a pass commits on the branch,
- * and any other end of a step that writes records its change as the attempt's change.diff and leaves it in the
- * worktree, where the cl's next attempt goes on from it. An issue's worktree is detached, and moves to main as it is now at each attempt. A live item
+ * and any other end of a step leaves its change in the worktree, where the cl's next attempt goes on from it. An issue's worktree is detached, and moves to main as it is now at each attempt. A live item
  * has its branch and its worktree; the sweep removes every other one under assembly/ and under the runs folder.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, normalize, relative } from "node:path";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { join, normalize, relative } from "node:path";
 import type { Tree } from "../process/step.ts";
 import { partsOf } from "./runs.ts";
 import { must, sh } from "./sh.ts";
@@ -153,30 +152,6 @@ export async function commit(r: Tree, message: string) {
   const staged = await sh("git", ["-C", r.work, "diff", "--cached", "--quiet"]);
   if (staged.code !== 0)
     await must("git", ["-C", r.work, "commit", "-q", "-m", message]);
-}
-
-/**
- * Records an attempt that did not pass: its change, new files too, as change.diff in its folder (<repo>.diff for each
- * repo of an issue with several). The worktree keeps the change: the cl's next attempt goes on from it.
- */
-export async function record(r: Tree) {
-  for (const p of partsOf(r)) {
-    await must("git", ["-C", p.work, "add", "-A"]);
-    const diff = await must("git", [
-      "-C",
-      p.work,
-      "diff",
-      "--cached",
-      "--binary",
-      "HEAD",
-    ]);
-    if (diff) {
-      mkdirSync(r.dir, { recursive: true });
-      const name = r.repos?.length ? `${basename(p.work)}.diff` : "change.diff";
-      writeFileSync(join(r.dir, name), diff);
-    }
-    await must("git", ["-C", p.work, "reset", "-q"]);
-  }
 }
 
 /** The worktree's HEAD, or undefined when it has none: the end state an attempt's trace points at. */

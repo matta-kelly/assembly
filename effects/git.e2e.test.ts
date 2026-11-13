@@ -22,7 +22,6 @@ import {
   branchOf,
   changed,
   commit,
-  record,
   fresh,
   landedTags,
   sweep,
@@ -118,7 +117,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
     expect(await touched(run(2))).toEqual([]);
   });
 
-  it("records a failed attempt's change, new and removed files too, as its diff, and leaves the worktree as it is", async () => {
+  it("sees a failed attempt's change, new and removed files too, and keeps it, with what git ignores", async () => {
     const r = run(2);
     mkdirSync(join(r.work, "deps"));
     writeFileSync(join(r.work, "deps/x"), "installed\n");
@@ -128,26 +127,16 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
     expect(await changed(r, ["src/a.ts", "test/a.test.ts"])).toEqual([
       "src/a.ts",
     ]);
-    await record(r);
-    const diff = readFileSync(join(r.dir, "change.diff"), "utf8");
-    for (const f of ["src/a.ts", "src/stray.ts", "NOTES"])
-      expect(diff).toContain(`b/${f}`);
-    expect(diff).not.toContain("deps/x");
     expect((await touched(r)).sort()).toEqual(
       ["NOTES", "src/a.ts", "src/stray.ts"].sort(),
     );
+    expect(await worktree(r)).toBe(false);
     expect(readFileSync(join(r.work, "src/a.ts"), "utf8")).toBe("failed\n");
     expect(existsSync(join(r.work, "src/stray.ts"))).toBe(true);
     expect(existsSync(join(r.work, "deps/x"))).toBe(true);
-  });
-
-  it("writes no diff for an attempt that changed nothing", async () => {
-    const r = run(3);
-    // the attempt before left its change; this one starts from the branch
+    // the next case starts from the branch
     git(r.work, "reset", "-q", "--hard", "HEAD");
     git(r.work, "clean", "-q", "-f", "-d");
-    await record(r);
-    expect(existsSync(join(r.dir, "change.diff"))).toBe(false);
   });
 
   it("is made again on its branch, with its commits, when its folder is gone", async () => {

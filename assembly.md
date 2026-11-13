@@ -270,7 +270,7 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 	- the attempt's run: written to the item's folder before each run (`<agent>.run.json`), where the sandbox and the test tool read it
 - check: the step's, on the worktree. Its test run in a container of its own
 - commit: a pass of a step that edits, on the item's branch, titled as crate reads a release. No note is written
-- any other end of a step that edits: its change, new files too, is recorded in the attempt's folder as `change.diff`, and stays in the worktree, so the cl's next attempt goes on from it
+- any other end of a step that edits: its change stays in the worktree, uncommitted, and the cl's next attempt goes on from it
 - end: the attempt span is written, then the ledger moves the item, in one transaction with one event, its message
 - across a stop
 	- a stopped orchestrator: ends nothing. Each attempt stays open, and its container stays up
@@ -328,7 +328,7 @@ What it keeps.
 	- paths: the files each cl changed, once landed
 	- check runs: command, image, tree, input hash, exit code, duration
 - pi's store (`pi.db`): que-pasa's conversations and runs, so a run goes on after a stop
-- a run folder: per item, by issue (`runs/<issue>/issue/`, `runs/<issue>/cl/<cut>/`), with its worktree (`work/`, and an issue's `notes/` for its plan's land), its setup's mark, each agent's attempt going on (`<agent>.run.json`), and a folder per attempt (`<n>/`) with its log, its trace and, when it did not pass, its `change.diff`. The folders stay when the worktree goes
+- a run folder: per item, by issue (`runs/<issue>/issue/`, `runs/<issue>/cl/<cut>/`), with its worktree (`work/`, and an issue's `notes/` for its plan's land), its setup's mark, each agent's attempt going on (`<agent>.run.json`), and a folder per attempt (`<n>/`) with its log and its trace. The folders stay when the worktree goes
 - the trace (`trace.jsonl`): each attempt as one OpenTelemetry trace, OTLP JSON, semconv 1.43.0
 	- the attempt span: the root, holding what only assembly knows (issue, cl, attempt, step, word, cause, cost, the end commit, the sandbox's image and id), and links to the attempts a review judged. Made at begin, written at end, so a stop cannot lose it
 	- que-pasa's spans: under it, live, in the GenAI conventions. An invoke_agent span per process on the run, a chat span per model call, an execute_tool span per tool call, with the messages

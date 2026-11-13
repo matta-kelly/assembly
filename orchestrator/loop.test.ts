@@ -9,14 +9,7 @@ import { open as openLedger, type Ledger } from "./ledger.ts";
 import type { World } from "./advance.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
 import { execFileSync } from "node:child_process";
-import {
-  commit,
-  record,
-  fresh,
-  onMain,
-  sweep,
-  worktree,
-} from "../effects/git.ts";
+import { commit, fresh, onMain, sweep, worktree } from "../effects/git.ts";
 import { land } from "../effects/land.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
@@ -38,7 +31,6 @@ vi.mock("../effects/git.ts", async (original) => ({
   worktree: vi.fn(),
   fresh: vi.fn(),
   commit: vi.fn(),
-  record: vi.fn(),
   sweep: vi.fn(),
   head: vi.fn(),
   changed: vi.fn(),
@@ -241,33 +233,10 @@ describe("an attempt", () => {
     ]);
   });
 
-  it("records the change of a step that edits and did not pass, and leaves it in the worktree", async () => {
+  it("commits nothing for a step that edits and did not pass: its change stays for the next attempt", async () => {
     message = { word: "retry", reason: "red", findings: [] };
     await once(make(gives(done("x"))));
-    expect(record).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "c", n: 1 }),
-    );
     expect(commit).not.toHaveBeenCalled();
-  });
-
-  it("records nothing for a pass, or for a step that only reads", async () => {
-    await once(make(gives(done("x"))));
-    message = { word: "retry", reason: "red", findings: [] };
-    await once(
-      make(gives(done("x")), {
-        steps: [{ ...step, from: "red", worktree: "ro" }],
-      }),
-    );
-    expect(record).not.toHaveBeenCalled();
-  });
-
-  it("records the change of a step that edits whose run failed", async () => {
-    await once(
-      make(async () => {
-        throw new Error("the model is down");
-      }),
-    );
-    expect(record).toHaveBeenCalledOnce();
   });
 
   it("moves an issue's worktree to main for a new attempt, and sets it up again when main moved", async () => {

@@ -36,7 +36,6 @@ import {
   branchOf,
   changed,
   commit,
-  record,
   fresh,
   head,
   mainOf,
@@ -430,13 +429,6 @@ export async function loop({
         findings: [],
       };
     }
-    // Any other end of a step that edits records its change; the change stays in the worktree for the next attempt.
-    if (v.word !== "pass" && step.worktree !== "ro")
-      try {
-        await record(r);
-      } catch (e) {
-        console.error(`the change of ${r.name}/${r.n} was not recorded:`, e);
-      }
     await traced(r, state, step, {
       message: v,
       ...(usage ? { usage } : {}),

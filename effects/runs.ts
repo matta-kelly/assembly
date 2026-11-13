@@ -1,8 +1,8 @@
 /**
  * Run folders: each item's files, under its issue, so every trial of an issue is in one place. An item's folder holds
- * its one worktree, `work`, and a folder per attempt, `<n>`, with the attempt's log (the orchestrator's own lines), its
- * trace (each tool call) and, when it did not pass, its change; and, for each agent's conversation on the item, the run
- * of its attempt going on (`<agent>.run.json`).
+ * its one worktree, `work`; a folder per attempt, `<n>`, with the attempt's log (the orchestrator's own lines) and its
+ * trace (each tool call); and, for each agent's conversation on the item, the run of its attempt going on
+ * (`<agent>.run.json`).
  */
 
 import {
