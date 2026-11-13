@@ -9,7 +9,7 @@ Playbook: a proven way to do one kind of change, at one level. At the plan, it s
 - [[#Cutting a change]] the plan's catalog: known ways to cut
 - [[#Building a cut]] the cl's catalog: poteto-mode's playbooks, mapped in
 
-- [[kinetic#The split]], [[kinetic#The build]]: the map, at the plan and the cl
+- [[spine#The split]], [[spine#The build]]: the map, at the plan and the cl
 - [[plan]], [[cl]]: what a playbook's phases and cuts become; a playbook's Out meets their bar
 - [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]]: the roles that use them
 
@@ -74,12 +74,12 @@ A cl's playbook follows its shape. These are poteto-mode's, p-stack's router (`m
 - a measure: Perf issue (one slowness, against a baseline), Hillclimb (one metric, loop by loop, one commit per win)
 - a decision: Prototype, a throwaway sketch that settles a design fork by observing it
 - knowing, not changing: Investigation, Runtime forensics, Trace forensics. Their deliverable is understanding: the planner's probes use them
-- not run here, since kinetic does the job another way
+- not run here, since the [[spine]] does the job another way
 	- Multi-phase plan: the plan, cut by [[#Cutting a change]]
 	- Opening a PR, Babysit, Shipping: the CL lands through [[assembly#The dock|the dock]] and [[ci]]
 	- Autonomous run, Orchestrate, Autopilot-full, Autopilot-stack, Session pickup, Pause safely, Worktree cleanup: the controller's work ([[assembly]])
 	- Authoring a skill, Eval: changes to agents, outside the cl loop
 - the edge: p-stack is written for Cursor and pull requests, so each name is mapped here, not in its files (an anti-corruption layer: Evans, *Domain-Driven Design*)
-	- where poteto-mode and [[kinetic]] disagree, kinetic wins: it holds the intent and the checks
+	- where poteto-mode and the [[spine]] disagree, the spine wins: it holds the intent and the checks
 	- a PR is a CL; `Task` and `poteto-agent` are a subagent of this harness; a model slug is the model this harness gives the role; `AskQuestion` is asking the operator
 	- `cursor-team-kit` and Bugbot are not installed: skip the step and say so

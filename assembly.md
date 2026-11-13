@@ -3,9 +3,10 @@ type: moc
 description: "Root of assembly, the software factory: a deployment of que-pasa that moves an issue through its plan and its cls to accepted. Read for how the factory works as a system, where it meets other systems, what it records, and what is built."
 status: active
 ---
-assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through [[kinetic]]'s process, its plan and its cls, phase by phase, each cl onto main, to accepted. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
+assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through the [[spine]], its plan and its cls, phase by phase, each cl onto main, to accepted. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
+- [[spine]]: the process it runs: its policy, the V, the split, the build and the checks
 - the types: what a role works to and is judged against
 	- the work's: [[issue]], [[plan]] and [[cl]], each the type note of a work type, in `work/types/`, which says what each part of its notes holds
 	- the factory's: each a note in `workspace/types/`
@@ -78,7 +79,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 		- an issue: open → planned (the planner cuts it) → building (plan-review approves, or Matt does) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review or a cl's raise can send it back to the planner. An issue Matt submits passes open and planned by his passes
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 	- a step: one per state, with its agent, its result's shape and its check (`process/*.ts`, listed in `process/index.ts`)
-		- the steps: plan (the issue has Done items, and the spec lints: kinetic's rules, and the repo's), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
+		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (red at an assertion), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
 		- a bound step: nail's and hammer's. The attempt's worktree is a sparse checkout of the cl's checkout (`effects/git.ts`), so only its paths are on disk, and to them nothing else exists. The planner explored, so they do not
 			- a file outside the checkout: a raise

@@ -12,7 +12,7 @@ Like an issue, a CL is a piece of intent plus the check that says it is met: its
 - [[#Parts]] workspace, branch, commits
 - [[#Joining main]] the review and the gate
 
-- [[kinetic#The checks]]: the map, a cl landed on main
+- [[spine#The checks]]: the map, a cl landed on main
 - [[issue]]: where a CL comes from
 - [[plan]]: how CLs are cut from an issue, and how they link
 - [[cl]]: the type of its note

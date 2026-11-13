@@ -46,6 +46,6 @@ Then the lenses, on a whole the evidence did not send back.
 ## Not yours
 
 - whether the intent is what is wanted, and the validation: Matt's
-- the running system: proven after deploy, kept by its monitor ([[kinetic#The checks]])
+- the running system: proven after deploy, kept by its monitor ([[spine#The checks]])
 - the fix: the planner's, then the cls'
 - landing: the dock's, each cl before you run ([[assembly#The dock]])

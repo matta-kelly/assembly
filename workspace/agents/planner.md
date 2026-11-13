@@ -39,7 +39,7 @@ The issue is the top contract; you replace it with smaller ones that, chained, k
 	- its phase: what must land before it
 	- its repo: the one it changes, when the issue has several. A cl lands in one repo, so a change across repos is a cl per repo
 	- its context: its checkout, every path conceivably relevant, each said what it is and why, and one exemplar. They explore nothing you already found, so err wide
-- prove the chain: every issue promise kept by a cl, every cl serving one, each promise with one owner ([[kinetic#Policy]], the promise rule), each phase's cls apart. Then attack it: assume it failed at its second cut, and find why. Fix it, or say it in Does not fit
+- prove the chain: every issue promise kept by a cl, every cl serving one, each promise with one owner ([[spine#Policy]], the promise rule), each phase's cls apart. Then attack it: assume it failed at its second cut, and find why. Fix it, or say it in Does not fit
 
 ## Not yours
 

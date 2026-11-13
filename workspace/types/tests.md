@@ -10,7 +10,7 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 - [[#Cases]] which inputs a test takes
 - [[#Runner config]] per language
 
-- [[kinetic#The checks]]: the map, a gate of the cl's check
+- [[spine#The checks]]: the map, a gate of the cl's check
 - [[terms#promise|promise]] and [[terms#case|case]]: what a test checks, and on what
 - [[daworks/assembly/workspace/agents/da-nail|da-nail]]: who writes a cl's tests
 - [[agent-verification]]: the checks an agent cannot change; [[backpressure]]: a check as a force on the work

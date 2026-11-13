@@ -20,7 +20,7 @@ The issue's promises ([[terms#promise]]), at the system altitude: the state that
 - it says where it is checked, set by where the promise lives and how long it must hold
 	- in the code, from then on: the acceptance test, on main. CI keeps it from then on
 		- one CL: that CL's tests, in its cl note
-		- more than one CL: each promise's test, carried by the cl that completes it ([[kinetic#Policy]], the promise rule). The [[plan]] names that cl
+		- more than one CL: each promise's test, carried by the cl that completes it ([[spine#Policy]], the promise rule). The [[plan]] names that cl
 	- in the running system, once: proven where it runs, read from the running system after deploy (a request, a query, a log line). Main proves the code, not the fleet. Skipped only for code that runs nowhere
 	- in the running system, from then on: kept, by a monitor that keeps checking it, and where it alerts. Only when the promise can break again after met
 - the test of a good list: someone who did not write it can check every promise without asking
