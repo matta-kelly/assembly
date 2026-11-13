@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
+import { main } from "./index.ts";
 import { blocked, explain, status } from "./report.ts";
+import * as top from "./top.ts";
 
 let home: string;
 beforeEach(() => {
@@ -32,7 +34,8 @@ describe("the factory's reports", () => {
       { attempt: ledger.begin("is"), ...{ usage: { cost: 0.5 } } },
     );
     ledger.begin("is");
-    expect(status(ledger)).toEqual([
+    expect(status(ledger, "v1.2.3")).toEqual([
+      "assembly v1.2.3",
       "is  open",
       "",
       "open attempts: is/2 (open)",
@@ -45,11 +48,43 @@ describe("the factory's reports", () => {
     ledger.addIssue(issue);
     ledger.addIssue({ ...issue, name: "two" });
     ledger.addCl({ ...issue, name: "is-one", issue: "is", seq: 1 }, "ready");
-    expect(status(ledger).slice(0, 3)).toEqual([
+    expect(status(ledger, "v1.2.3").slice(1, 4)).toEqual([
       "is  open",
       "  is-one  ready",
       "two  open",
     ]);
+  });
+
+  it("status: opens with `assembly <version>` and keeps the report as today", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(top, "version").mockReturnValue("v7");
+    const { ledger } = compose({ home });
+    ledger.addIssue(issue);
+    await main(["status"], { ASSEMBLY_HOME: home });
+    expect(log).toHaveBeenCalledOnce();
+    const lines = log.mock.calls[0]![0].split("\n");
+    expect(lines[0]).toBe("assembly v7");
+    expect(lines.slice(1)).toEqual([
+      "is  open",
+      "",
+      "open attempts: none",
+      "spent: $0.0000",
+    ]);
+  });
+
+  it("status: the version it opens with is the one the factory runs", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ran = vi.spyOn(top, "version").mockReturnValue("v9.9.9");
+    await main(["status"], { ASSEMBLY_HOME: home });
+    expect(ran).toHaveBeenCalled();
+    expect(log.mock.calls[0]![0].split("\n")[0]).toBe("assembly v9.9.9");
+  });
+
+  it("status: opens with `assembly unknown` when git cannot describe the checkout", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(top, "version").mockReturnValue("unknown");
+    await main(["status"], { ASSEMBLY_HOME: home });
+    expect(log.mock.calls[0]![0].split("\n")[0]).toBe("assembly unknown");
   });
 
   it("blocked: the raised and escalated items, with the reason of their last move", () => {
