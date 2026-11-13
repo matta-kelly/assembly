@@ -29,7 +29,7 @@
 
 import { z } from "zod";
 import { existsSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { basename, isAbsolute, join, normalize } from "node:path";
 import {
   branchOf,
   changed,
@@ -37,13 +37,21 @@ import {
   discard,
   fresh,
   head,
+  mainOf,
+  onMain,
   sweep,
   touched,
   worktree,
 } from "../effects/git.ts";
 import { land } from "../effects/land.ts";
-import { read } from "../effects/notes.ts";
-import { log, partsOf, runOf } from "../effects/runs.ts";
+import { commitOf, notesOf } from "../effects/notes.ts";
+import {
+  CrateError,
+  NotOnCrate,
+  readerImage,
+  settingsAt,
+} from "../effects/repo.ts";
+import { folderOf, log, partsOf, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
 import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { runTests } from "../effects/tests.ts";
@@ -53,19 +61,24 @@ import {
   openTracing,
   within,
 } from "../effects/trace.ts";
+import { clOf } from "../process/plan.ts";
 import {
+  type Cause,
   type CheckRun,
   type Message,
+  type NotesAt,
+  type Repo,
   resultOf,
   type Run,
   type Step,
   type TestRun,
+  type Tree,
   type Worktree,
 } from "../process/step.ts";
 import { ends, type State, top } from "../process/table.ts";
-import { advance, type World } from "./advance.ts";
+import { advance, type World, writePlan } from "./advance.ts";
 import { titleOf } from "./title.ts";
-import type { Event, Ledger, Usage } from "./ledger.ts";
+import type { Event, Item, Ledger, Usage } from "./ledger.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
 type AnyStep = Step<{ word: "done" }>;
@@ -107,14 +120,56 @@ export class RunFailed extends Error {
   }
 }
 
-/** A setup that failed: its attempt ends with missing_dependency. */
-class Setup extends Error {}
+/** Why an attempt could not be readied, and the cause its retry carries, when it is one on the list. */
+class Unready extends Error {
+  readonly why: Cause | undefined;
+
+  constructor(message: string, why?: Cause) {
+    super(message);
+    this.why = why;
+  }
+}
+
+/** Runs `f`, and makes its failure an Unready: `what` failed, with the failure's cause when `causeOf` names one. */
+async function readying<T>(
+  what: string,
+  f: () => Promise<T>,
+  causeOf: (e: unknown) => Cause | undefined = () => undefined,
+): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    throw new Unready(
+      `${what}: ${(e as Error).message.slice(0, 1_500)}`,
+      causeOf(e),
+    );
+  }
+}
+
+/** A worktree of one repo: the tree without its several repos, which a run carries with their settings. */
+const one = (t: Tree): Omit<Tree, "repos"> => ({
+  name: t.name,
+  kind: t.kind,
+  issue: t.issue,
+  n: t.n,
+  repo: t.repo,
+  dir: t.dir,
+  work: t.work,
+});
+
+/** The cause of settings that do not read: a repo not on crate breaks the item's contract, crate's failure a dependency. */
+const unreadable = (e: unknown): Cause | undefined =>
+  e instanceof NotOnCrate
+    ? "contract_invalid"
+    : e instanceof CrateError
+      ? "missing_dependency"
+      : undefined;
 
 export interface Loop {
   ledger: Ledger;
   steps: AnyStep[];
   runner: () => Promise<Runner>; // opened once the open attempts' worktrees are there
-  world: World; // where run folders go, and what a waiting cl needs of the world: registry, repos' files, landed tags
+  world: World; // where run folders go, the notes repo, and what a waiting cl needs: registry, repos' files, landed tags
   concurrent?: number; // attempts at once, at most
   timeoutMs?: number; // the most one attempt may take
 }
@@ -203,7 +258,7 @@ export async function loop({
         "the orchestrator";
   // An attempt ends through the ledger's one door, which routes its message by the table.
   const end = (
-    r: Run,
+    r: Pick<Tree, "name" | "n">,
     _state: State,
     v: Message,
     o: {
@@ -267,7 +322,7 @@ export async function loop({
     try {
       // Its spec, then the messages it answers: the one that brought the item here, and each retry since.
       const input =
-        (step.input ? step.input(r, ledger) : read(r.path)) +
+        (step.input ? step.input(r, ledger) : notesOf(r).text(r.note)) +
         messagesText(ledger.inbox(r.name, state), fromOf);
       // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
       const out = await abortable(
@@ -315,13 +370,15 @@ export async function loop({
         // A pass of a step that edits the worktree is its product: it is committed on the item's branch. Its title is
         // the form crate reads for a release: the code of a feature or a fix lands as one.
         if (v.word === "pass" && step.worktree !== "ro") {
-          const issuePath = ledger
-            .items()
-            .find((i) => i.name === r.issue)?.path;
-          const note = (p?: string) => (p && existsSync(p) ? read(p) : "");
+          const notes = notesOf(r);
           await commit(
             r,
-            titleOf(step.agent, r.name, note(issuePath), note(r.path)),
+            titleOf(
+              step.agent,
+              r.name,
+              notes.text(ledger.item(r.issue).note),
+              notes.text(r.note),
+            ),
           );
         }
       }
@@ -362,29 +419,54 @@ export async function loop({
   }
 
   /**
-   * One land, from its push to its move in the ledger. It never throws: a failure is a retry, with its reason. A land
-   * the loop's closing stopped is left open, and taken up by the next process: a land is safe to run again.
+   * The issue's land as a run in the notes repo: its worktree there, on the issue's branch, put at the notes' main as
+   * it is now, with its planner's spec written as notes and committed. Its settings are the notes repo's, from it.
    */
-  async function landed(r: Run, signal: AbortSignal) {
+  async function planned(t: Tree): Promise<Run> {
+    const item = ledger.item(t.name);
+    const at = {
+      ...one(t),
+      repo: world.notes,
+      work: join(folderOf(item, runs), "notes"),
+    };
+    const notes = await readying("the notes were not read", () => pinned(t));
+    await readying("the notes' worktree was not made", () => onMain(at));
+    writePlan(ledger, item, at.work);
+    await commit(at, `docs(${t.name}): its plan`);
+    const settings = await readying(
+      "the notes repo's settings were not read",
+      () => settingsAt(at.work, basename(world.notes)),
+      unreadable,
+    );
+    return { ...at, seq: item.seq, note: item.note, notes, ...settings };
+  }
+
+  /**
+   * One land, from its push to its move in the ledger: a cl's onto its repo's main, an issue's plan onto the notes'
+   * main. It never throws: a failure is a retry, with its reason. A land the loop's closing stopped is left open, and
+   * taken up by the next process: a land is safe to run again.
+   */
+  async function landed(t: Tree, signal: AbortSignal) {
     let v: Message;
     let ran: CheckRun | undefined;
     let error: string | undefined;
-    const span = ledger.span(r.name, r.n);
+    let r: Run | undefined;
+    const span = ledger.span(t.name, t.n);
     try {
       const stop = AbortSignal.any([signal, closed.signal]);
-      await prepared(r, stop);
+      r = t.kind === "issue" ? await planned(t) : await prepared(t, stop);
       const out = await land(r, stop);
       v = out.message;
       ran = out.ran?.check;
       if (ran) checkSpan(span, landing, ran);
-      if (v.word === "pass") ledger.landed(r.name, out.commit, out.files);
+      if (v.word === "pass") ledger.landed(t.name, out.commit, out.files);
     } catch (e) {
       if (closing) return;
       error = (e as Error).message;
       const cause = signal.aborted
         ? ("budget_exceeded" as const)
-        : e instanceof Setup
-          ? ("missing_dependency" as const)
+        : e instanceof Unready
+          ? e.why
           : undefined;
       v = {
         word: "retry",
@@ -393,20 +475,25 @@ export async function loop({
         findings: [],
       };
     }
-    await traced(r, landing, lander, {
-      message: v,
-      ...(error !== undefined ? { error } : {}),
-    });
-    end(r, landing, v, { ran });
+    if (r)
+      await traced(r, landing, lander, {
+        message: v,
+        ...(error !== undefined ? { error } : {}),
+      });
+    end(t, landing, v, { ran });
   }
 
   // The lands of each repo: each one waits for the one before it.
   const repos = new Map<string, Promise<void>>();
 
-  /** Runs a land as a task, after the repo's land before it, under the time limit, counted from its turn. */
-  function launchLand(r: Run) {
-    const key = `${r.name}/${r.n}`;
-    const task = (repos.get(r.repo) ?? Promise.resolve()).then(async () => {
+  /**
+   * Runs a land as a task, after the land before it onto the same main, under the time limit, counted from its turn. An
+   * issue's lands onto the notes' main.
+   */
+  function launchLand(t: Tree) {
+    const key = `${t.name}/${t.n}`;
+    const onto = t.kind === "issue" ? world.notes : t.repo;
+    const task = (repos.get(onto) ?? Promise.resolve()).then(async () => {
       if (closing) return;
       const limit = new AbortController();
       const timer = setTimeout(
@@ -415,7 +502,7 @@ export async function loop({
       );
       timers.add(timer);
       try {
-        await landed(r, limit.signal);
+        await landed(t, limit.signal);
       } finally {
         clearTimeout(timer);
         timers.delete(timer);
@@ -424,13 +511,14 @@ export async function loop({
     const settled = task
       .catch((e: unknown) => console.error(`land ${key} failed:`, e))
       .finally(() => running.delete(key));
-    repos.set(r.repo, settled);
+    repos.set(onto, settled);
     running.set(key, settled);
   }
 
   /**
-   * The sweep, in every repo the ledger names: each live item keeps its worktree and its branch, and every other one
-   * goes. Live is an item not ended, or one with an attempt open. A repo that fails is logged, and the rest go on.
+   * The sweep, in the notes repo and every repo the ledger names: each live item keeps its worktree, an issue its
+   * notes' worktree too, and its branch, and every other one goes. Live is an item not ended, or one with an attempt
+   * open. A repo that fails is logged, and the rest go on.
    */
   async function swept() {
     const items = ledger.items();
@@ -438,14 +526,21 @@ export async function loop({
     const live = items.filter(
       (i) => !ends.includes(i.state) || open.has(i.name),
     );
-    const trees = live.map((i) => runOf(i, 0, runs));
     const keep = new Set(
-      trees.flatMap((r) => [r.work, ...partsOf(r).map((p) => p.work)]),
+      live.flatMap((i) => {
+        const t = runOf(i, 0, runs);
+        return [
+          t.work,
+          ...partsOf(t).map((p) => p.work),
+          ...(i.kind === "issue" ? [join(folderOf(i, runs), "notes")] : []),
+        ];
+      }),
     );
     const branches = new Set(live.map((i) => branchOf(i.name)));
-    const repos = new Set(
-      items.flatMap((i) => [i.repo, ...i.repos.map((p) => p.repo)]),
-    );
+    const repos = new Set([
+      world.notes,
+      ...items.flatMap((i) => [i.repo, ...i.repos]),
+    ]);
     for (const repo of repos)
       try {
         await sweep(repo, runs, keep, branches);
@@ -468,52 +563,108 @@ export async function loop({
     }
   }
 
-  /**
-   * The item's worktree, made or kept, and its setup, once (effects/setup.ts). A new attempt of an issue moves its
-   * worktree to main as it is now. Throws a Setup when the setup fails.
-   */
-  async function prepared(r: Run, signal: AbortSignal) {
-    if (await worktree(r)) forgetSetup(r);
-    else if (
-      r.kind === "issue" &&
-      !ledger.resumed(r.name, r.n) &&
-      (await fresh(r))
-    )
-      forgetSetup(r);
-    if (!needsSetup(r)) return;
-    const at = Date.now();
-    try {
-      await runSetup(r, signal);
-    } catch (e) {
-      throw new Setup((e as Error).message);
+  /** The notes the attempt reads: the commit of the notes' main pinned when it started, else main as it is now. */
+  async function pinned(t: Tree): Promise<NotesAt> {
+    let commit = ledger.pinned(t.name, t.n);
+    if (!commit) {
+      const main = await mainOf(world.notes);
+      commit = commitOf(world.notes, main);
+      if (!commit) throw new Error(`${world.notes} has no ${main}`);
+      ledger.pin(t.name, t.n, commit);
     }
-    log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
+    return { repo: world.notes, commit };
   }
 
   /**
-   * Readies an attempt: its worktree, its setup once, and its sandbox. Each failure ends it as a retry, before any
-   * agent: a setup's with missing_dependency, since a fault in the image or the lockfile fails every attempt the same
-   * way. Gives back whether it is ready. One the loop's closing stopped is left open, unended.
+   * The attempt's run: its notes, and each repo's settings read from its worktree (effects/repo.ts). A cl's test
+   * command is its note's, at the notes' commit.
    */
-  async function ready(r: Run, state: State, step: AnyStep): Promise<boolean> {
+  async function runFor(t: Tree, item: Item): Promise<Run> {
+    const notes = await readying("the notes were not read", () => pinned(t));
+    const repos: Repo[] = [];
+    for (const p of partsOf(t)) {
+      const name = basename(p.repo);
+      const s = await readying(
+        `${name}'s settings were not read`,
+        () => settingsAt(p.work, name),
+        unreadable,
+      );
+      repos.push({ name, repo: p.repo, ...s });
+    }
+    const [first] = repos as [Repo, ...Repo[]];
+    const test =
+      t.kind === "cl"
+        ? await readying(
+            "its note is not a cl",
+            async () =>
+              clOf(notesOf({ notes }), { ...t, note: item.note }).test,
+            () => "contract_invalid",
+          )
+        : first.test;
+    return {
+      ...one(t),
+      seq: item.seq,
+      note: item.note,
+      notes,
+      image: repos.length > 1 ? readerImage : first.image,
+      test,
+      setup: first.setup,
+      ...(repos.length > 1 ? { repos } : {}),
+    };
+  }
+
+  /**
+   * Readies an attempt's run: the item's worktree, made or kept, its notes and settings, and its setup, once
+   * (effects/setup.ts). A new attempt of an issue moves its worktree to main as it is now. Throws an Unready, with the
+   * cause its retry carries: a setup's is missing_dependency, since a fault in the image or the lockfile fails every
+   * attempt the same way.
+   */
+  async function prepared(t: Tree, signal: AbortSignal): Promise<Run> {
+    const made = await readying("the worktree was not made", () => worktree(t));
+    if (made) forgetSetup(t);
+    else if (
+      t.kind === "issue" &&
+      !ledger.resumed(t.name, t.n) &&
+      (await readying("the worktree did not move to main", () => fresh(t)))
+    )
+      forgetSetup(t);
+    const r = await runFor(t, ledger.item(t.name));
+    if (!needsSetup(r)) return r;
+    const at = Date.now();
+    // setup.ts keeps the tail of its output, where the failure is
+    await readying(
+      "the setup failed",
+      () => runSetup(r, signal),
+      () => "missing_dependency",
+    );
+    log(r, `set up in ${Math.round((Date.now() - at) / 1000)} s`);
+    return r;
+  }
+
+  /**
+   * Readies an attempt: its run, and its sandbox. Each failure ends it as a retry, before any agent. Gives back its
+   * run when it is ready. One the loop's closing stopped is left open, unended.
+   */
+  async function ready(
+    t: Tree,
+    state: State,
+    step: AnyStep,
+  ): Promise<Run | undefined> {
+    let r: Run;
     try {
-      await prepared(r, closed.signal);
+      r = await prepared(t, closed.signal);
     } catch (e) {
       // a setup the loop's closing stopped is not a failure: the attempt is set up when it is taken up
-      if (closed.signal.aborted) return false;
-      // setup.ts keeps the tail of its output, where the failure is
-      end(r, state, {
+      if (closed.signal.aborted) return undefined;
+      end(t, state, {
         word: "retry",
-        ...(e instanceof Setup ? { cause: "missing_dependency" as const } : {}),
-        reason:
-          e instanceof Setup
-            ? `the setup failed: ${e.message}`
-            : `the worktree was not made: ${(e as Error).message.slice(0, 400)}`,
+        ...(e instanceof Unready && e.why ? { cause: e.why } : {}),
+        reason: (e as Error).message,
         findings: [],
       });
-      return false;
+      return undefined;
     }
-    if (closed.signal.aborted) return false;
+    if (closed.signal.aborted) return undefined;
     try {
       await open(r, { readOnly: step.worktree === "ro" });
     } catch (e) {
@@ -528,19 +679,20 @@ export async function loop({
         reason: `the sandbox did not open: ${(e as Error).message.slice(0, 400)}`,
         findings: [],
       });
-      return false;
+      return undefined;
     }
-    return true;
+    return r;
   }
 
   /**
    * Runs an attempt as a task, so a tick never waits on one: readied, then its run under the time limit, which each
    * process gives afresh. The loop's settling and its cap count it from the start, setup included.
    */
-  function launch(r: Run, state: State, step: AnyStep) {
-    const key = `${r.name}/${r.n}`;
+  function launch(t: Tree, state: State, step: AnyStep) {
+    const key = `${t.name}/${t.n}`;
     const task = async () => {
-      if (!(await ready(r, state, step))) return;
+      const r = await ready(t, state, step);
+      if (!r) return;
       const limit = new AbortController();
       const timer = setTimeout(
         () => limit.abort(new Error(`timed out after ${timeoutMs} ms`)),

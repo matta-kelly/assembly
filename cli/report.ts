@@ -50,15 +50,16 @@ export function blocked(ledger: Ledger): string[] {
   });
 }
 
-/** An item's whole record: the commit its spec was read at (a submitted issue), its messages, each with its findings, and each attempt with what it did, what it cost and where its trace is. */
+/**
+ * An item's whole record: its note, its messages, each with its findings, and each attempt with what it did, what it
+ * cost, the notes' commit it read, and where its trace is.
+ */
 export function explain(ledger: Ledger, runs: string, name: string): string[] {
   const item = ledger.item(name);
   const moves = ledger.events(name);
-  const commit = item.kind === "issue" ? ledger.spec(name)?.commit : undefined;
   return [
     `${item.name} (${item.kind}${item.kind === "cl" ? ` of ${item.issue}` : ""})  ${item.state}`,
-    `note: ${item.path}`,
-    ...(commit ? [`spec read at commit: ${commit}`] : []),
+    `note: ${item.note}`,
     "",
     "messages:",
     ...moves.flatMap((e) => [
@@ -72,6 +73,7 @@ export function explain(ledger: Ledger, runs: string, name: string): string[] {
       .attemptsOf(name)
       .flatMap((a) => [
         `  ${a.n}  ${a.step}  ${a.ended ? `${a.word}${a.cause ? ` [${a.cause}]` : ""}: ${a.reason ?? ""}` : "open"}${a.cost !== null ? `  ${money(a.cost)}` : ""}${a.resumed ? `  taken up ${a.resumed}x` : ""}`,
+        ...(a.notes ? [`     notes: ${a.notes}`] : []),
         `     trace: ${traceFile(runOf(item, a.n, runs))}`,
       ]),
   ];

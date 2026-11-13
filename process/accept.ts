@@ -5,8 +5,8 @@
  */
 
 import { z } from "zod";
-import { read } from "../effects/notes.ts";
-import { planPath, specOf } from "./plan.ts";
+import { notesOf } from "../effects/notes.ts";
+import { planPath } from "./plan.ts";
 import type { Step } from "./step.ts";
 
 // Accept: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to Matt (the
@@ -42,16 +42,16 @@ export const accept: Step<Done> = {
   done,
   about: ["plan", "issue"],
   input(r, ledger) {
+    const notes = notesOf(r);
+    const plan = notes.text(planPath(r.note, r.name));
     const cls = ledger.cls(r.name).filter((c) => c.state === "landed");
     // the lone cl of an issue that takes one has no plan note: its cl is its plan
     return [
-      read(r.path),
+      notes.text(r.note),
       "",
-      ...(specOf(ledger, r.name)?.spec.plan
-        ? ["# The plan", read(planPath(r.path, r.name)), ""]
-        : []),
+      ...(plan ? ["# The plan", plan, ""] : []),
       "# Its cls, each landed on main",
-      ...cls.map((c) => read(c.path)),
+      ...cls.map((c) => notes.text(c.note)),
     ].join("\n");
   },
   async check(r, d, at) {

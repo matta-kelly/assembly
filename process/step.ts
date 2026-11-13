@@ -110,8 +110,9 @@ export function back(about: Artifact[]) {
 export type Back = { word: "back"; findings: Finding[] };
 
 /**
- * A repo an issue may change, with what its attempts need: the image its sandbox and checks run in, its full suite, and
- * the setup that installs its dependencies into a new worktree ('' for none). Its name is its folder's, as a cl names it.
+ * A repo an issue may change, with what its attempts need, read from its worktree at each attempt (effects/repo.ts):
+ * the image its sandbox and checks run in, its full suite, and the setup that installs its dependencies into the
+ * worktree ('' for none). Its name is its folder's, as a cl names it.
  */
 export type Repo = {
   name: string;
@@ -121,22 +122,37 @@ export type Repo = {
   setup: string;
 };
 
-/** One attempt of one step on one item, and where its files are on the host. Plain JSON: it is a run's context. */
-export type Run = {
+/**
+ * An item's worktree, where an attempt works, before the attempt reads its settings: the item, the attempt's folder,
+ * and, for an issue of several repos, each repo, its worktree at work/<name>.
+ */
+export type Tree = {
   name: string; // the item's name: the issue's, or the cl's
   kind: "issue" | "cl";
   issue: string; // the issue it is, or belongs to
-  seq: number; // a cl's place in its plan's order
   n: number; // the attempt, from 1, never reused
-  path: string; // the item's note, which the orchestrator writes
-  repo: string; // the repo the item changes
-  image: string; // the repo's image: the sandbox and the checks run in it
-  test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
-  setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
+  repo: string; // the repo the item changes: an issue's first, when it has several
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
   work: string; // the item's one worktree, beside its attempts' folders, mounted at /work in the attempt's sandbox
+  repos?: { name: string; repo: string }[];
+};
+
+/** The notes an attempt reads: the notes repo, at the commit of its main the attempt started from. */
+export type NotesAt = { repo: string; commit: string };
+
+/**
+ * One attempt of one step on one item: its worktree, its note, the notes' commit it reads, and the settings read at
+ * its start. Plain JSON: it is a run's context.
+ */
+export type Run = Omit<Tree, "repos"> & {
+  seq: number; // a cl's place in its plan's order
+  note: string; // the item's note, from the notes repo's root: _well/<name>.md
+  notes: NotesAt;
+  image: string; // the repo's image: the sandbox and the checks run in it
+  test: string; // a cl: the command that runs its test files, from its note. An issue: the repo's full suite
+  setup: string; // the command that installs the repo's dependencies into the worktree, offline. '' for none
   // An issue's repos when it has more than one: its own steps see each at work/<name>, and its suite runs in each. Its
-  // repo, image, test and setup are then the first's, and its image the one its own steps' sandbox runs.
+  // repo, test and setup are then the first's, and its image the one its own steps' sandbox runs.
   repos?: Repo[];
 };
 

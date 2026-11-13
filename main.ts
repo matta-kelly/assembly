@@ -3,8 +3,8 @@
  *
  * compose builds the system from its three layers: the process (the steps, and the agents they name, each put on its
  * bin here), the engine (the ledger and the loop) and the effects (the runner on the bins' models; git, the sandbox and
- * the test runs, which the loop calls). Everything the factory keeps is under one home: the ledger (ledger.db), pi's store (pi.db) and the run
- * folders (runs/).
+ * the test runs, which the loop calls). Everything the factory keeps is under one home: the ledger (ledger.db), pi's
+ * store (pi.db) and the run folders (runs/). What it builds is in the notes repo, kinetic: the only spec.
  *
  * The e2e test builds through compose too, with scripted models in place of the bins'.
  */
@@ -25,6 +25,7 @@ import { loop } from "./orchestrator/loop.ts";
 
 export interface Factory {
   home: string; // where the factory keeps everything
+  notes?: string; // the notes repo, whose main holds the spec: the loop needs it, a report does not
   agents?: Agents; // the agents and the model each attempt runs on: the bins' when left out
   models?: Models; // the providers those models come from: the host's when left out
   steps?: Step<{ word: "done" }>[]; // every step when left out
@@ -56,8 +57,12 @@ export function compose(f: Factory) {
   return {
     ledger,
     runs,
-    loop: () =>
-      loop({
+    loop: () => {
+      if (!f.notes)
+        throw new Error(
+          "the factory runs on a notes repo: ASSEMBLY_NOTES, or kinetic under ASSEMBLY_REPOS",
+        );
+      return loop({
         ledger,
         steps: f.steps ?? all,
         runner: () =>
@@ -68,6 +73,7 @@ export function compose(f: Factory) {
           ),
         world: {
           runs,
+          notes: f.notes,
           registry: f.registry ?? npmRegistry(),
           reader: gitReader,
           tags: landedTags,
@@ -75,7 +81,8 @@ export function compose(f: Factory) {
         },
         ...(f.concurrent !== undefined ? { concurrent: f.concurrent } : {}),
         ...(f.timeoutMs !== undefined ? { timeoutMs: f.timeoutMs } : {}),
-      }),
+      });
+    },
   };
 }
 

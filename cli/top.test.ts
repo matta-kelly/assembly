@@ -16,19 +16,14 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-const issue = {
-  name: "is",
-  path: "/work/is.md",
-  repo: "/repo",
-  image: "img",
-  test: "suite",
-};
+const issue = { name: "is", note: "_well/is.md", repos: ["/repo"] };
 const cl = (name: string, seq: number, phase: number) => ({
-  ...issue,
   name,
   issue: "is",
   seq,
   phase,
+  note: `_well/${name}.md`,
+  repo: "/repo",
 });
 
 /** One OTLP export line of spans with these names, the last of them ending at `lastEnd`. */

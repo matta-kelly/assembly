@@ -1,17 +1,18 @@
 /**
- * A repo's settings, as the factory runs it, read from the repo's main, so an issue names nothing of them and nothing can
- * disagree with them. An issue that names no repos may change any repo on crate, and its planner picks:
+ * A repo's settings, as the factory runs it, read from the item's worktree at each attempt, so an issue names nothing
+ * of them and nothing can disagree with them. An issue that names no repos may change any repo on crate, and its
+ * planner picks:
  * - the image: its `crate.toml`'s `image`, the one crate checks it in. `dev` is its own dev image, which crate makes
- *   in the orchestrator's image, from crate's install the host mounts there (devImage)
+ *   from the worktree, in the orchestrator's image, from crate's install the host mounts there (devImage)
  * - the full suite: `scripts/check.sh all`, every set of its check
  * - the setup: `npm ci` from the dev image's cache, offline, when it has a lockfile; none when it has not
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Repo } from "../process/step.ts";
-import { must, sh } from "./sh.ts";
+import { sh } from "./sh.ts";
 
 /** The image an issue's own steps run in when it has several repos: they only read. Assembly's own check's. */
 export const readerImage =
@@ -29,9 +30,12 @@ function tomlValue(toml: string, key: string): string | undefined {
 }
 
 /** Where a repo on crate keeps main: its `server` remote, crate's bare repo on the server. */
-export const mainRef = "server/main";
+const mainRef = "server/main";
 
-/** How a repo is read: a file of its main, and whether it is on crate. Git's in the factory; a test's own in a test. */
+/**
+ * How a repo is read: a file of its main, and whether it is on crate. Git's in the factory; a test's own in a test.
+ * What a waiting cl's repo depends on, and what a landed package is named, are read this way (orchestrator/advance.ts).
+ */
 export interface Reader {
   file(path: string, file: string): string | undefined;
   onCrate(path: string): boolean;
@@ -61,44 +65,42 @@ export const gitReader: Reader = {
   },
 };
 
+/** A repo that is not on crate as the factory runs it: no crate.toml, no image, or no full suite. */
+export class NotOnCrate extends Error {}
+
+/** crate's failure: the exit code it gave, and its output, as a person reads it. */
+export class CrateError extends Error {
+  readonly exitCode: number;
+  readonly output: string;
+  constructor(exitCode: number, output: string) {
+    super(output);
+    this.exitCode = exitCode;
+    this.output = output;
+  }
+}
+
 /**
- * The repo at `path`, with its settings as its main holds them, where the factory builds from, or why it can't be run.
- * `dev` maps a repo's name to its dev image's tag, as the factory resolved it with crate.
+ * The settings of the repo `name` in the worktree `work`, as its files there hold them: its image, a dev repo's made
+ * by crate from the worktree; its full suite; and its setup. Throws a NotOnCrate when the worktree has no crate.toml,
+ * no image or no scripts/check.sh, and a CrateError when crate cannot make the dev image.
  */
-export function settingsOf(
-  path: string,
-  dev: Record<string, string> = {},
-  read: Reader = gitReader,
-): { ok: true; repo: Repo } | { ok: false; error: string } {
-  const name = basename(path);
-  const toml = read.file(path, "crate.toml");
+export async function settingsAt(
+  work: string,
+  name: string,
+): Promise<Pick<Repo, "image" | "test" | "setup">> {
+  const file = (f: string) =>
+    existsSync(join(work, f)) ? readFileSync(join(work, f), "utf8") : undefined;
+  const toml = file("crate.toml");
   if (toml === undefined)
-    return {
-      ok: false,
-      error: `${path} is not on crate: its ${mainRef} has no crate.toml`,
-    };
+    throw new NotOnCrate(`${name} is not on crate: it has no crate.toml`);
   const image = tomlValue(toml, "image");
-  if (!image)
-    return { ok: false, error: `${name}'s crate.toml names no image` };
-  if (image === "dev" && !dev[name])
-    return {
-      ok: false,
-      error: `${name}'s image is its dev image, and no tag was given for it: crate could not make it`,
-    };
-  if (read.file(path, "scripts/check.sh") === undefined)
-    return {
-      ok: false,
-      error: `${name} has no scripts/check.sh, its full suite`,
-    };
+  if (!image) throw new NotOnCrate(`${name}'s crate.toml names no image`);
+  if (file("scripts/check.sh") === undefined)
+    throw new NotOnCrate(`${name} has no scripts/check.sh, its full suite`);
   return {
-    ok: true,
-    repo: {
-      name,
-      repo: path,
-      image: image === "dev" ? (dev[name] as string) : image,
-      test: fullSuite,
-      setup: read.file(path, "package-lock.json") === undefined ? "" : npmSetup,
-    },
+    image: image === "dev" ? await devImage(work, name) : image,
+    test: fullSuite,
+    setup: file("package-lock.json") === undefined ? "" : npmSetup,
   };
 }
 
@@ -123,59 +125,20 @@ export function reposOn(root: string, read: Reader = gitReader): string[] {
   return found.sort();
 }
 
-/** The dev repos among `paths`, by name and path: those whose crate.toml names `dev`, read from their main. */
-export function devReposOf(
-  paths: string[],
-  read: Reader = gitReader,
-): { name: string; path: string }[] {
-  return paths.flatMap((path) => {
-    const toml = read.file(path, "crate.toml");
-    return toml !== undefined && tomlValue(toml, "image") === "dev"
-      ? [{ name: basename(path), path }]
-      : [];
-  });
-}
-
-/** crate's failure: the exit code it gave, and its output, as a person reads it. */
-export class CrateError extends Error {
-  readonly exitCode: number;
-  readonly output: string;
-  constructor(exitCode: number, output: string) {
-    super(output);
-    this.exitCode = exitCode;
-    this.output = output;
-  }
-}
-
-/** The commit a repo's checkout is at, or undefined when it has none. */
-function checkedOut(path: string): string | undefined {
-  try {
-    return execFileSync("git", ["-C", path, "rev-parse", "HEAD"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return undefined;
-  }
-}
-
-/** Whether `commit` is on main, or one of its ancestors, so its image may already be in the registry. */
-function onMain(repo: string, commit: string): boolean {
-  try {
-    execFileSync(
-      "git",
-      ["-C", repo, "merge-base", "--is-ancestor", commit, mainRef],
-      { stdio: "ignore" },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** The tag crate gives back: its last line of output. A failure, or no tag, is a CrateError. */
-async function crateTag(at: string, args: string[]): Promise<string> {
-  const ran = await sh("crate", ["-C", at, ...args]).catch((e: unknown) => {
+/**
+ * The tag of the dev image crate makes from the worktree `work`, for the repo `name`: `crate dev-image local`, run in
+ * the orchestrator's image from the host's crate install. Its last line of output is the tag. A failure, or no tag, is
+ * a CrateError, with crate's output and exit code.
+ */
+export async function devImage(work: string, name: string): Promise<string> {
+  const ran = await sh("crate", [
+    "-C",
+    work,
+    "dev-image",
+    "local",
+    "--name",
+    name,
+  ]).catch((e: unknown) => {
     throw new CrateError(127, `crate: ${(e as Error).message}`);
   });
   const tag =
@@ -187,43 +150,4 @@ async function crateTag(at: string, args: string[]): Promise<string> {
   if (ran.code !== 0 || tag === "")
     throw new CrateError(ran.code || 1, ran.out.trim());
   return tag;
-}
-
-/**
- * The tag crate gives the repo's dev image, made in the orchestrator's image from the host's crate install: from a
- * checkout at `commit`, a registry lookup when that commit is main's, else from a checkout crate makes at the commit.
- * Throws a CrateError when it fails.
- */
-export async function devImage(repo: string, commit?: string): Promise<string> {
-  const name = basename(repo);
-  if (commit === undefined || checkedOut(repo) === commit)
-    return crateTag(repo, ["dev-image", "local", "--name", name]);
-  // A commit the registry may hold: a lookup, which never builds. A branch commit may not be there yet.
-  if (onMain(repo, commit))
-    return crateTag(repo, [
-      "dev-image",
-      "ref",
-      "--rev",
-      commit,
-      "--name",
-      name,
-    ]);
-  // A commit no image has yet: crate builds it from a checkout at it, inside the repo so podman reaches the path.
-  const work = mkdtempSync(join(repo, ".assembly-image-"));
-  rmSync(work, { recursive: true, force: true });
-  try {
-    await must("git", [
-      "-C",
-      repo,
-      "worktree",
-      "add",
-      "--detach",
-      work,
-      commit,
-    ]);
-    return await crateTag(work, ["dev-image", "local", "--name", name]);
-  } finally {
-    await sh("git", ["-C", repo, "worktree", "remove", "--force", work]);
-    rmSync(work, { recursive: true, force: true });
-  }
 }

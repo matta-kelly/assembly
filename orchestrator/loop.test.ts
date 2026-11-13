@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
@@ -8,20 +8,32 @@ import type { Message, Step } from "../process/step.ts";
 import { open as openLedger, type Ledger } from "./ledger.ts";
 import type { World } from "./advance.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
-import { commit, discard, fresh, sweep, worktree } from "../effects/git.ts";
+import { execFileSync } from "node:child_process";
+import {
+  commit,
+  discard,
+  fresh,
+  onMain,
+  sweep,
+  worktree,
+} from "../effects/git.ts";
 import { land } from "../effects/land.ts";
 import { close, open } from "../effects/sandbox.ts";
 import { runTests } from "../effects/tests.ts";
 import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { ran } from "../process/fake-worktree.ts";
 import { move } from "../effects/move.ts";
-import { devImage } from "../effects/repo.ts";
+import { CrateError, NotOnCrate, settingsAt } from "../effects/repo.ts";
+import { notesRepo } from "../effects/notes.fixture.ts";
 import { npmRegistryUrl } from "../effects/registry.ts";
 
 // Podman and git are faked: git, the sandbox, the test runs and the land are the loop's only ways out. runOf is the
 // real one.
 vi.mock("../effects/git.ts", async (original) => ({
   branchOf: (await original<typeof import("../effects/git.ts")>()).branchOf,
+  // the notes repo's main is its own: it has no remote to fetch
+  mainOf: vi.fn(async () => "main"),
+  onMain: vi.fn(),
   worktree: vi.fn(),
   fresh: vi.fn(),
   commit: vi.fn(),
@@ -46,14 +58,39 @@ vi.mock("../effects/setup.ts", () => ({
 vi.mock("../effects/move.ts", () => ({ move: vi.fn() }));
 vi.mock("../effects/repo.ts", async (original) => ({
   ...(await original<typeof import("../effects/repo.ts")>()),
-  devImage: vi.fn(),
+  settingsAt: vi.fn(),
 }));
 
-const cl = "## Promises\n\n- b1\n\n## Tests\n\nold\n\n## Code\n\nkeep\n";
+/** The cl note every cl of these tests reads: its test command is `t`. */
+const cl = `---
+type: cl
+belongsTo: "[[i]]"
+status: new
+shape: { change: behavior, checked: repo }
+checkout: [src/a.ts]
+test: t
+---
+It works.
+
+---
+## Promises
+
+- b1
+
+## Seam
+
+s
+
+## Checkout
+
+- src/a.ts: the code
+`;
+const issueNote = "---\ntype: issue\n---\nIt.\n\n---\n## Done\n\n- it works\n";
 
 let dir: string;
 let ledger: Ledger;
 let message: Message;
+let notes: ReturnType<typeof notesRepo>;
 const step: Step<{ word: "done"; text: string }> = {
   from: "ready",
   agent: "fake",
@@ -78,7 +115,7 @@ const runnerOf = (run: Run1) => async (): Promise<Runner> => ({
 });
 
 /** A world with nothing to wait for: no repo has a file, no landed cl has a tag. */
-const idle: Omit<World, "runs"> = {
+const idle: Omit<World, "runs" | "notes"> = {
   registry: { url: npmRegistryUrl, published: async () => true },
   reader: { file: () => undefined, onCrate: () => false },
   tags: async () => [],
@@ -90,7 +127,7 @@ const make = (
     steps?: Step<{ word: "done"; text: string }>[];
     concurrent?: number;
     timeoutMs?: number;
-    world?: Omit<World, "runs">;
+    world?: Omit<World, "runs" | "notes">;
   } = {},
 ) =>
   loop({
@@ -98,34 +135,27 @@ const make = (
     steps: o.steps ?? [step],
     runner: runnerOf(run),
     ...o,
-    world: { ...(o.world ?? idle), runs: join(dir, "runs") },
+    world: { ...(o.world ?? idle), runs: join(dir, "runs"), notes: notes.repo },
   });
 type L = Awaited<ReturnType<typeof make>>;
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(move).mockResolvedValue("c0ffee");
-  vi.mocked(devImage).mockResolvedValue("localhost/b-dev:moved");
-  dir = mkdtempSync(join(tmpdir(), "loop-"));
-  writeFileSync(join(dir, "cl.md"), cl);
-  ledger = openLedger(join(dir, "ledger.db"));
-  ledger.addIssue({
-    name: "i",
-    path: join(dir, "issue.md"),
-    repo: "/repo",
+  vi.mocked(settingsAt).mockResolvedValue({
     image: "img",
     test: "suite",
+    setup: "",
   });
+  dir = mkdtempSync(join(tmpdir(), "loop-"));
+  notes = notesRepo(
+    { "_well/c.md": cl, "_well/i.md": issueNote },
+    join(dir, "notes"),
+  );
+  ledger = openLedger(join(dir, "ledger.db"));
+  ledger.addIssue({ name: "i", note: "_well/i.md", repos: ["/repo"] });
   ledger.addCl(
-    {
-      name: "c",
-      issue: "i",
-      seq: 1,
-      path: join(dir, "cl.md"),
-      repo: "/repo",
-      image: "img",
-      test: "t",
-    },
+    { name: "c", issue: "i", seq: 1, note: "_well/c.md", repo: "/repo" },
     "ready",
   );
   message = { word: "pass", reason: "red at an assertion", findings: [] };
@@ -146,7 +176,8 @@ const last = () =>
     reason: string;
     cause: string | null;
   };
-const doc = () => readFileSync(join(dir, "cl.md"), "utf8");
+/** The cl note on disk in the notes repo: an attempt never writes it. */
+const doc = () => readFileSync(join(notes.repo, "_well", "c.md"), "utf8");
 
 describe("an attempt", () => {
   it("opens a sandbox, gives the agent the cl, and closes the sandbox when it ends", async () => {
@@ -449,10 +480,8 @@ describe("an attempt's setup", () => {
         name: "d",
         issue: "i",
         seq: 2,
-        path: join(dir, "cl.md"),
+        note: "_well/c.md",
         repo: "/repo",
-        image: "img",
-        test: "t",
       },
       "ready",
     );
@@ -466,15 +495,14 @@ describe("an attempt's setup", () => {
     vi.mocked(runSetup).mockImplementation(
       () => new Promise<void>((resolve) => (finish = resolve)),
     );
+    ledger.addIssue({ name: "j", note: "_well/i.md", repos: ["/repo"] });
     ledger.addCl(
       {
         name: "d",
         issue: "j",
         seq: 1,
-        path: join(dir, "cl.md"),
+        note: "_well/c.md",
         repo: "/repo",
-        image: "img",
-        test: "t",
       },
       "ready",
     );
@@ -514,6 +542,140 @@ describe("an attempt's setup", () => {
   });
 });
 
+describe("the notes", () => {
+  /** The cl's note, changed so its test command is `command`, committed on the notes' main. */
+  const edit = (command: string) =>
+    notes.commit({ "_well/c.md": cl.replace("test: t", `test: ${command}`) });
+
+  it("are read at the notes' main as an attempt starts, the commit pinned on it, and an edit is read by the next attempt", async () => {
+    message = { word: "retry", reason: "red", findings: [] };
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner);
+    await once(l);
+    const later = edit("node --test b.test.mjs");
+    await once(l);
+    const [one, two] = runner.mock.calls.map((c) => c[2].run);
+    expect(one?.notes).toEqual(notes.first);
+    expect(one?.test).toBe("t");
+    expect(two?.notes).toEqual(later);
+    expect(two?.test).toBe("node --test b.test.mjs");
+    expect(runner.mock.calls[1]?.[1]).toContain("It works.");
+    expect(ledger.pinned("c", 1)).toBe(notes.first.commit);
+    expect(ledger.pinned("c", 2)).toBe(later.commit);
+  });
+
+  it("are read by a taken-up attempt at the commit it pinned, not at main", async () => {
+    ledger.begin("c");
+    ledger.pin("c", 1, notes.first.commit);
+    edit("node --test b.test.mjs");
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner));
+    expect(runner.mock.calls[0]?.[2].run).toMatchObject({
+      notes: notes.first,
+      test: "t",
+    });
+  });
+
+  it("end an attempt whose cl note is not a cl as a retry, contract_invalid, before its sandbox", async () => {
+    notes.commit({ "_well/c.md": "---\ntype: cl\n---\nno fields\n" });
+    const runner = vi.fn<Run1>(gives(done("x")));
+    await once(make(runner));
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "contract_invalid",
+      reason: expect.stringMatching(/its note is not a cl/),
+    });
+    expect(open).not.toHaveBeenCalled();
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("give way to settings read from the item's worktree: a repo not on crate breaks its contract, crate's failure is a dependency", async () => {
+    vi.mocked(settingsAt).mockRejectedValueOnce(
+      new NotOnCrate("repo is not on crate: it has no crate.toml"),
+    );
+    await once(make(gives(done("x"))));
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "contract_invalid",
+      reason: expect.stringMatching(/no crate\.toml/),
+    });
+    vi.mocked(settingsAt).mockRejectedValueOnce(
+      new CrateError(1, "its Containerfile has no bake"),
+    );
+    await once(make(gives(done("x"))));
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "missing_dependency",
+      reason: expect.stringMatching(/no bake/),
+    });
+    expect(vi.mocked(settingsAt)).toHaveBeenCalledWith(
+      join(dir, "runs", "i", "cl", "c", "work"),
+      "repo",
+    );
+  });
+
+  it("land an issue's plan: its planner's spec written as notes in the issue's notes' worktree, committed, and landed", async () => {
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
+    db.close();
+    ledger.apply(
+      "i",
+      { word: "pass", reason: "lints", findings: [] },
+      {
+        attempt: ledger.begin("i"),
+        result: {
+          word: "done",
+          cls: [
+            {
+              name: "seam",
+              intent: "the seam holds",
+              shape: { change: "behavior", checked: "repo" },
+              checkout: ["src/a.ts"],
+              test: "t",
+              promises: ["given a, then b"],
+              seam: "s",
+              checkoutNotes: "- src/a.ts: it",
+            },
+          ],
+        },
+      },
+    );
+    ledger.apply(
+      "i",
+      { word: "pass", reason: "approved", findings: [] },
+      { attempt: ledger.begin("i") },
+    );
+    const work = join(dir, "runs", "i", "issue", "notes");
+    vi.mocked(onMain).mockImplementation(async (t) => {
+      execFileSync("git", ["clone", "-q", notes.repo, t.work]);
+    });
+    vi.mocked(land).mockResolvedValue({
+      message: { word: "pass", reason: "landed on main", findings: [] },
+      files: ["_well/i-seam.md"],
+      commit: "d".repeat(40),
+    });
+    await once(make(gives(done("x")), { steps: [] }));
+    expect(onMain).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "i", repo: notes.repo, work }),
+    );
+    expect(readFileSync(join(work, "_well", "i-seam.md"), "utf8")).toContain(
+      "the seam holds",
+    );
+    expect(commit).toHaveBeenCalledWith(
+      expect.objectContaining({ work }),
+      "docs(i): its plan",
+    );
+    expect(land).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "i", repo: notes.repo, work }),
+      expect.anything(),
+    );
+    expect(ledger.item("i")).toMatchObject({
+      state: "building",
+      landed: "d".repeat(40),
+    });
+  });
+});
+
 describe("a retry", () => {
   it("tells the runner a state's first attempt from its retries, so a retry runs on the bin's fallback", async () => {
     message = { word: "retry", reason: "promise 1 has no test", findings: [] };
@@ -549,10 +711,8 @@ describe("the tick", () => {
         name: "d",
         issue: "i",
         seq: 2,
-        path: join(dir, "cl.md"),
+        note: "_well/c.md",
         repo: "/repo",
-        image: "img",
-        test: "t",
       },
       "ready",
     );
@@ -580,7 +740,11 @@ describe("the tick", () => {
     await l.settled();
     expect(ledger.open()).toEqual([{ name: "c", n: 1, step: "ready" }]);
     expect(close).not.toHaveBeenCalled();
-    expect(await (await make(gives(done("x")))).tick()).toBeUndefined();
+    // the next process takes it up
+    const next = await make(gives(done("x")));
+    expect(await next.tick()).toBeUndefined();
+    await next.settled();
+    expect(ledger.attempt("c", 1)).toMatchObject({ resumed: 1, word: "pass" });
   });
 
   it("stops a check that is running when it closes, and leaves its attempt open, unwritten", async () => {
@@ -634,10 +798,8 @@ describe("the tick", () => {
           name,
           issue: "i",
           seq: name === "d" ? 2 : 3,
-          path: join(dir, "cl.md"),
+          note: "_well/c.md",
           repo: "/repo",
-          image: "img",
-          test: "t",
         },
         "ready",
       );
@@ -683,10 +845,8 @@ describe("the sweep", () => {
         name: "i-gone",
         issue: "i",
         seq: 2,
-        path: join(dir, "cl.md"),
+        note: "_well/c.md",
         repo: "/other",
-        image: "img",
-        test: "t",
       },
       "ready",
     );
@@ -694,20 +854,23 @@ describe("the sweep", () => {
     db.prepare("UPDATE items SET state = 'landed' WHERE name = 'i-gone'").run();
     db.close();
     const l = await make(gives(done("x")), { steps: [] });
-    expect(sweep).toHaveBeenCalledTimes(2);
+    expect(sweep).toHaveBeenCalledTimes(3);
     await l.tick();
-    expect(sweep).toHaveBeenCalledTimes(4);
+    expect(sweep).toHaveBeenCalledTimes(6);
     const runs = join(dir, "runs");
+    // the notes repo first, then each repo the ledger names
     expect(
       vi
         .mocked(sweep)
         .mock.calls.map((c) => c[0])
-        .sort(),
-    ).toEqual(["/other", "/other", "/repo", "/repo"]);
+        .slice(0, 3),
+    ).toEqual([notes.repo, "/repo", "/other"]);
     const [, at, keep, branches] = vi.mocked(sweep).mock.calls[0] ?? [];
     expect(at).toBe(runs);
+    // a live issue keeps its notes' worktree too, where its plan's land writes
     expect([...(keep ?? [])].sort()).toEqual([
       join(runs, "i", "cl", "c", "work"),
+      join(runs, "i", "issue", "notes"),
       join(runs, "i", "issue", "work"),
     ]);
     expect([...(branches ?? [])].sort()).toEqual([
@@ -741,6 +904,7 @@ describe("the world", () => {
    * package a's repo ships, `@x/a`.
    */
   const across = (published: () => Promise<boolean>) => {
+    ledger.addIssue({ name: "j", note: "_well/i.md", repos: ["/a", "/b"] });
     for (const [name, seq, phase, repo, state] of [
       ["j-a", 1, 1, "/a", "landed"],
       ["j-b", 2, 2, "/b", "waiting"],
@@ -751,10 +915,8 @@ describe("the world", () => {
           issue: "j",
           seq,
           phase,
-          path: join(dir, "cl.md"),
+          note: "_well/c.md",
           repo,
-          image: "img",
-          test: "t",
         },
         state,
       );
@@ -768,7 +930,7 @@ describe("the world", () => {
       }),
     };
     const registry = { url: npmRegistryUrl, published: vi.fn(published) };
-    const world: Omit<World, "runs"> = {
+    const world: Omit<World, "runs" | "notes"> = {
       registry,
       reader: { file: (r, f) => files[`${r}:${f}`], onCrate: () => true },
       tags: async (repo, cl) =>
@@ -829,7 +991,7 @@ describe("the world", () => {
 
   it("survives a land target that fails to answer: the cl waits, and the tick does not throw", async () => {
     const { world } = across(async () => true);
-    const failing: Omit<World, "runs"> = {
+    const failing: Omit<World, "runs" | "notes"> = {
       ...world,
       tags: async () => {
         throw new Error("git ls-remote failed");
@@ -851,118 +1013,29 @@ describe("the world", () => {
     expect(ranFor(runner, "j-b")).toBe(true);
   });
 
-  it("moves a cl's package before its attempt, and runs the attempt in the dev image of the moved commit", async () => {
+  it("moves a cl's package before its attempt, and reads the attempt's settings from the moved worktree", async () => {
     let on = false;
     const { world } = across(async () => on);
     const runner = vi.fn<Run1>(gives(done("x")));
     const l = await make(runner, { world });
     await once(l);
-    // it waited: nothing moved, and it stayed in its repo's image
+    // it waited: nothing moved
     expect(move).not.toHaveBeenCalled();
-    expect(ledger.item("j-b").image).toBe("img");
     on = true;
     await once(l);
+    const work = join(dir, "runs", "j", "cl", "b", "work");
     expect(vi.mocked(move)).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "j-b", repo: "/b" }),
+      expect.objectContaining({ name: "j-b", repo: "/b", work }),
       "@x/a",
       "1.2.0",
       npmRegistryUrl,
     );
-    expect(vi.mocked(devImage)).toHaveBeenCalledWith("/b", "c0ffee");
-    // the item's repo took the moved commit's image, and its attempt ran in it
-    expect(ledger.item("j-b").image).toBe("localhost/b-dev:moved");
-    const attempt = runner.mock.calls.find((c) => c[2].run.name === "j-b");
-    expect(attempt?.[2].run.image).toBe("localhost/b-dev:moved");
-    expect(open).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "j-b",
-        image: "localhost/b-dev:moved",
-      }),
-      { readOnly: false },
-    );
-    // the move is the orchestrator's, and it comes before the worktree of the attempt it precedes
-    const at = vi
-      .mocked(worktree)
-      .mock.calls.findIndex((c) => c[0].name === "j-b");
+    // the move is the orchestrator's, and it comes before the settings of the attempt it precedes, read from it
+    const at = vi.mocked(settingsAt).mock.calls.findIndex((c) => c[0] === work);
     expect(at).toBeGreaterThanOrEqual(0);
+    expect(vi.mocked(settingsAt).mock.calls[at]).toEqual([work, "b"]);
     expect(vi.mocked(move).mock.invocationCallOrder[0] as number).toBeLessThan(
-      vi.mocked(worktree).mock.invocationCallOrder[at] as number,
-    );
-  });
-
-  it("runs the issue's own step in the moved commit's dev image, so its setup installs the moved lockfile offline", async () => {
-    // an issue of one repo, whose cl waits on a package a landed cl of the issue released there
-    writeFileSync(join(dir, "k.md"), "## Promises\n\n- b1\n");
-    ledger.addIssue({
-      name: "k",
-      path: join(dir, "k.md"),
-      repo: "/b",
-      image: "img",
-      test: "suite",
-      setup: "npm ci --offline",
-    });
-    for (const [name, phase, to] of [
-      ["k-a", 1, "landed"],
-      ["k-b", 2, "waiting"],
-    ] as const) {
-      ledger.addCl(
-        {
-          name,
-          issue: "k",
-          seq: phase,
-          phase,
-          path: join(dir, "k.md"),
-          repo: "/b",
-          image: "img",
-          test: "t",
-        },
-        "waiting",
-      );
-      if (to === "landed") {
-        const db = new DatabaseSync(join(dir, "ledger.db"));
-        db.prepare("UPDATE items SET state = 'landed' WHERE name = ?").run(
-          name,
-        );
-        db.close();
-        ledger.landed(name, name, []);
-      }
-    }
-    // the issue itself starts an attempt: its own steps, acceptance among them, are the ones a move must reach
-    const db = new DatabaseSync(join(dir, "ledger.db"));
-    db.prepare("UPDATE items SET state = 'ready' WHERE name = 'k'").run();
-    db.close();
-    const world: Omit<World, "runs"> = {
-      registry: { url: npmRegistryUrl, published: async () => true },
-      reader: {
-        file: (repo, file) => {
-          const files: Record<string, string> = {
-            "/b:lib/package.json": JSON.stringify({
-              name: "lib",
-              version: "0.0.0",
-            }),
-            "/b:package.json": JSON.stringify({
-              name: "k",
-              dependencies: { lib: "^1.0.0" },
-            }),
-          };
-          return files[`${repo}:${file}`];
-        },
-        onCrate: () => true,
-      },
-      tags: async (_repo, cl) => (cl === "k-a" ? ["lib-v1.2.0"] : []),
-    };
-    // the setup runs, so which image it is given is seen
-    vi.mocked(needsSetup).mockReturnValue(true);
-    const runner = vi.fn<Run1>(gives(done("x")));
-    const l = await make(runner, { world });
-    await once(l);
-    // the issue's own image is the moved commit's, so its offline setup finds the moved lockfile in that cache
-    expect(ledger.item("k").image).toBe("localhost/b-dev:moved");
-    const own = runner.mock.calls.find((c) => c[2].run.name === "k");
-    expect(own?.[2].run.image).toBe("localhost/b-dev:moved");
-    expect(runSetup).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "k", image: "localhost/b-dev:moved" }),
-      expect.anything(),
+      vi.mocked(settingsAt).mock.invocationCallOrder[at] as number,
     );
   });
 
@@ -980,13 +1053,7 @@ describe("the world", () => {
 
 describe("a message with no move", () => {
   it("escalates the item, with why, and leaves no attempt open to run again", async () => {
-    ledger.addIssue({
-      name: "j",
-      path: join(dir, "cl.md"),
-      repo: "/repo",
-      image: "img",
-      test: "suite",
-    });
+    ledger.addIssue({ name: "j", note: "_well/i.md", repos: ["/repo"] });
     message = {
       word: "back",
       reason: "r",
@@ -1011,10 +1078,8 @@ describe("an issue escalated to Matt", () => {
           issue: "i",
           seq,
           phase,
-          path: join(dir, "cl.md"),
+          note: "_well/c.md",
           repo: "/repo",
-          image: "img",
-          test: "t",
         },
         "waiting",
       );
@@ -1081,10 +1146,8 @@ describe("a review's send-back", () => {
         name: "g",
         issue: "i",
         seq: 4,
-        path: join(dir, "cl.md"),
+        note: "_well/c.md",
         repo: "/repo",
-        image: "img",
-        test: "t",
       },
       "green",
     );
@@ -1108,25 +1171,25 @@ describe("a review's send-back", () => {
 });
 
 describe("a land", () => {
-  /** An approved cl of the issue, in `repo`, with a note of its own. */
-  const approved = (name: string, repo = "/repo") => {
-    const path = join(dir, `${name}.md`);
-    writeFileSync(path, "---\ntype: cl\nstatus: in-progress\n---\nIt.\n");
+  /** An approved cl of the issue, in `repo`. */
+  const approved = (name: string, repo = "/repo") =>
     ledger.addCl(
-      { name, issue: "i", seq: 2, path, repo, image: "img", test: "t" },
+      { name, issue: "i", seq: 2, note: "_well/c.md", repo },
       "approved",
     );
-    return path;
-  };
   const landed = (files: string[] = []) =>
     vi.mocked(land).mockResolvedValue({
       message: { word: "pass", reason: "landed on local/main", findings: [] },
       files,
     });
 
-  it("lands an approved cl with no agent: it is landed, its note as it was, and the files it changed kept", async () => {
-    const path = approved("e");
-    landed(["src/e.ts"]);
+  it("lands an approved cl with no agent: it is landed, its note as it was, and the commit and files it changed kept", async () => {
+    approved("e");
+    vi.mocked(land).mockResolvedValue({
+      message: { word: "pass", reason: "landed on local/main", findings: [] },
+      files: ["src/e.ts"],
+      commit: "c".repeat(40),
+    });
     const run = vi.fn<Run1>(gives(done("x")));
     await once(make(run));
     expect(land).toHaveBeenCalledWith(
@@ -1143,9 +1206,8 @@ describe("a land", () => {
       step: "approved",
       word: "pass",
     });
-    expect(readFileSync(path, "utf8")).toBe(
-      "---\ntype: cl\nstatus: in-progress\n---\nIt.\n",
-    );
+    expect(doc()).toBe(cl);
+    expect(ledger.item("e").landed).toBe("c".repeat(40));
     const db = new DatabaseSync(join(dir, "ledger.db"));
     expect(db.prepare("SELECT path FROM paths WHERE name = 'e'").all()).toEqual(
       [{ path: "src/e.ts" }],
@@ -1154,7 +1216,7 @@ describe("a land", () => {
   });
 
   it("sends a red on main back to the code, and leaves the note as it is", async () => {
-    const path = approved("e");
+    approved("e");
     vi.mocked(land).mockResolvedValue({
       message: {
         word: "back",
@@ -1166,7 +1228,7 @@ describe("a land", () => {
     });
     await once(make(gives(done("x"))));
     expect(ledger.item("e").state).toBe("red");
-    expect(readFileSync(path, "utf8")).toMatch(/^status: in-progress$/m);
+    expect(doc()).toBe(cl);
   });
 
   it("retries a land that throws, with why", async () => {

@@ -12,15 +12,13 @@ const f = (about: Finding["about"]): Finding => ({
   where: "x",
 });
 
-const at = { repo: "/repo", image: "img" };
-const issue = { name: "is", path: "/is.md", test: "suite", ...at };
+const issue = { name: "is", note: "_well/is.md", repos: ["/repo"] };
 const cl = (name: string, seq: number) => ({
   name,
   issue: "is",
   seq,
-  path: `/${name}.md`,
-  test: "t",
-  ...at,
+  note: `_well/${name}.md`,
+  repo: "/repo",
 });
 
 let dir: string;
@@ -323,18 +321,59 @@ describe("ledger", () => {
     const l = open(file);
     l.addIssue(issue);
     l.addCl(cl("is-a", 1), "waiting");
-    const say = (word: "pass" | "drop" | "escalate" | "replan") => ({
+    const say = (word: "pass" | "drop" | "escalate" | "resume") => ({
       word,
       reason: "r",
       findings: [],
     });
     expect(l.apply("is-a", say("pass"), "orchestrator")).toBe("ready");
-    expect(() => l.apply("is-a", say("replan"), "orchestrator")).toThrow(
+    expect(() => l.apply("is-a", say("resume"), "orchestrator")).toThrow(
       /no transition/,
     );
     expect(l.apply("is-a", say("drop"), "orchestrator")).toBe("dropped");
     expect(l.apply("is", say("escalate"), "orchestrator")).toBe("escalated");
-    expect(l.apply("is", say("replan"), "matt")).toBe("open");
+    expect(l.apply("is", say("resume"), "matt", "building")).toBe("building");
+  });
+
+  it("resumes a held item, by default, to where it was before it was held", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    l.addCl(cl("is-a", 1), "red");
+    const said = (word: "escalate" | "resume" | "back") => ({
+      word,
+      reason: "r",
+      findings: word === "back" ? [f("cl")] : [],
+    });
+    l.apply("is-a", said("escalate"), "matt");
+    expect(l.prior("is-a")).toBe("red");
+    expect(l.apply("is-a", said("resume"), "matt")).toBe("red");
+    l.apply("is-a", said("back"), { attempt: l.begin("is-a") });
+    expect(l.item("is-a").state).toBe("raised");
+    expect(l.apply("is-a", said("resume"), "matt")).toBe("red");
+  });
+
+  it("gives a resumed item a fresh budget: its rounds count from Matt's last move", () => {
+    const l = open(file);
+    l.addIssue(issue);
+    l.addCl(cl("is-a", 1), "green");
+    const back = { word: "back" as const, reason: "r", findings: [f("code")] };
+    l.apply("is-a", back, { attempt: l.begin("is-a") });
+    l.apply(
+      "is-a",
+      { word: "pass", reason: "r", findings: [] },
+      { attempt: l.begin("is-a") },
+    );
+    l.apply("is-a", back, { attempt: l.begin("is-a") });
+    expect(l.rounds("is-a")).toBe(2);
+    l.apply("is-a", { word: "escalate", reason: "stop", findings: [] }, "matt");
+    l.apply(
+      "is-a",
+      { word: "resume", reason: "go", findings: [] },
+      "matt",
+      "green",
+    );
+    expect(l.rounds("is-a")).toBe(0);
+    expect(l.attempts("is-a", "green")).toBe(0);
   });
 
   it("escalates an attempt whose word the table has no row for, with why, and ends the attempt", () => {
@@ -352,27 +391,88 @@ describe("ledger", () => {
     expect(l.events("is").at(-1)?.reason).toMatch(/no owner of code for issue/);
   });
 
-  it("keeps an issue's spec with who made it, and lets it go", () => {
+  it("pins the notes' commit an attempt reads, once, and keeps it after a reopen", () => {
     const l = open(file);
     l.addIssue(issue);
-    expect(l.spec("is")).toBeUndefined();
-    l.keepSpec("is", { cls: [] }, "matt", "a".repeat(40));
-    expect(l.spec("is")).toEqual({
-      spec: { cls: [] },
-      by: "matt",
-      commit: "a".repeat(40),
-    });
-    l.dropSpec("is");
-    expect(l.spec("is")).toBeUndefined();
+    const n = l.begin("is");
+    expect(l.pinned("is", n)).toBeUndefined();
+    l.pin("is", n, "1".repeat(40));
+    l.pin("is", n, "2".repeat(40));
+    expect(open(file).pinned("is", n)).toBe("1".repeat(40));
+    expect(l.attemptsOf("is")[0]?.notes).toBe("1".repeat(40));
   });
 
-  it("keeps the commit a spec was read at, in place of the one before, and it survives a reopen", () => {
+  it("records a land: the commit main took, and the files it changed", () => {
     const l = open(file);
     l.addIssue(issue);
-    l.keepSpec("is", { cls: [] }, "matt", "1".repeat(40));
-    l.keepSpec("is", { cls: [] }, "matt", "2".repeat(40));
-    expect(l.spec("is")?.commit).toBe("2".repeat(40));
-    expect(open(file).spec("is")?.commit).toBe("2".repeat(40));
+    l.addCl(cl("is-a", 1), "approved");
+    l.landed("is-a", "c".repeat(40), ["src/a.ts"]);
+    expect(l.item("is-a").landed).toBe("c".repeat(40));
+  });
+
+  it("adds an issue of several repos with each repo's path, its first as its repo, and one at building", () => {
+    const l = open(file);
+    l.addIssue(
+      { name: "two", note: "_well/two.md", repos: ["/a", "/b"] },
+      "building",
+    );
+    expect(l.item("two")).toMatchObject({
+      repo: "/a",
+      repos: ["/a", "/b"],
+      state: "building",
+    });
+    l.addIssue(issue);
+    expect(l.item("is").repos).toEqual([]);
+  });
+
+  it("brings a ledger made when it kept specs and settings to the notes' shape, keeping its items and attempts", () => {
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE items (
+        name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
+        repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
+        phase INTEGER, repos TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE TABLE specs (issue TEXT PRIMARY KEY, spec TEXT NOT NULL, by TEXT NOT NULL, commit_sha TEXT);
+      CREATE TABLE attempts (
+        name TEXT NOT NULL, n INTEGER NOT NULL, step TEXT NOT NULL, started TEXT NOT NULL, ended TEXT, duration_ms INTEGER,
+        resumed INTEGER NOT NULL DEFAULT 0, word TEXT, reason TEXT, cause TEXT, tokens INTEGER, tokens_in INTEGER,
+        tokens_out INTEGER, cached_in INTEGER, cost REAL, result TEXT, trace_id TEXT, span_id TEXT, PRIMARY KEY (name, n)
+      );
+      INSERT INTO items VALUES ('is', 'issue', 'is', 0, '/home/a/lot/kinetic/_well/is.md', '/a', 'img', 's', '',
+        'building', NULL, '[{"name":"a","repo":"/a","image":"i","test":"t","setup":""},{"name":"b","repo":"/b","image":"i","test":"t","setup":""}]');
+      INSERT INTO items VALUES ('is-x', 'cl', 'is', 1, '/home/a/lot/kinetic/_well/is-x.md', '/a', 'img', 't', '', 'red', 1, '[]');
+      INSERT INTO specs VALUES ('is', '{}', 'matt', NULL);
+      INSERT INTO attempts (name, n, step, started) VALUES ('is-x', 1, 'ready', '2026-01-01T00:00:00Z');
+    `);
+    db.close();
+    const l = open(file);
+    expect(l.item("is")).toEqual({
+      name: "is",
+      kind: "issue",
+      issue: "is",
+      seq: 0,
+      note: "_well/is.md",
+      repo: "/a",
+      state: "building",
+      phase: null,
+      repos: ["/a", "/b"],
+      landed: null,
+    });
+    expect(l.item("is-x")).toMatchObject({
+      note: "_well/is-x.md",
+      state: "red",
+    });
+    expect(l.attemptsOf("is-x")).toHaveLength(1);
+    const after = new DatabaseSync(file);
+    expect(
+      after
+        .prepare("SELECT name FROM sqlite_master WHERE name = 'specs'")
+        .all(),
+    ).toEqual([]);
+    after.close();
+    // and once more, as a reopen does: nothing left to change
+    expect(open(file).item("is").note).toBe("_well/is.md");
   });
 
   it("keeps a cl's phase, and a lone cl's is 1", () => {

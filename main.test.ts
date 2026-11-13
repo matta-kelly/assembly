@@ -30,13 +30,7 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-const issue = {
-  name: "is",
-  path: "/work/is.md",
-  repo: "/repo",
-  image: "img",
-  test: "suite",
-};
+const issue = { name: "is", note: "_well/is.md", repos: ["/repo"] };
 
 describe("the factory's agents", () => {
   it("each run on a bin there is, and a retry on its fallback", () => {
@@ -49,9 +43,14 @@ describe("the factory's agents", () => {
 
 describe("the factory's world", () => {
   const world = () => {
-    void compose({ home }).loop();
+    void compose({ home, notes: "/notes" }).loop();
     return (vi.mocked(loop).mock.calls.at(-1)?.[0] as Loop).world;
   };
+
+  it("gives the loop the notes repo, and refuses to run without one", () => {
+    expect(world().notes).toBe("/notes");
+    expect(() => compose({ home }).loop()).toThrow(/notes repo/);
+  });
 
   it("gives the loop npm's registry and git's reader", () => {
     const registry = {
@@ -63,13 +62,13 @@ describe("the factory's world", () => {
     expect(world().reader).toBe(gitReader);
   });
 
-  it("answers a landed cl's tags from the land target's, for the repo and the cl asked", async () => {
-    vi.mocked(landedTags).mockImplementation(async (repo, cl) =>
-      repo === "/r" && cl === "is-a" ? ["v1.0.0"] : ["lib-v2.1.0"],
+  it("answers a landed cl's tags from the land target's, for the repo and the commit main took", async () => {
+    vi.mocked(landedTags).mockImplementation(async (repo, commit) =>
+      repo === "/r" && commit === "c1" ? ["v1.0.0"] : ["lib-v2.1.0"],
     );
-    expect(await world().tags("/r", "is-a")).toEqual(["v1.0.0"]);
-    expect(await world().tags("/o", "is-b")).toEqual(["lib-v2.1.0"]);
-    expect(landedTags).toHaveBeenCalledWith("/o", "is-b");
+    expect(await world().tags("/r", "c1")).toEqual(["v1.0.0"]);
+    expect(await world().tags("/o", "c2")).toEqual(["lib-v2.1.0"]);
+    expect(landedTags).toHaveBeenCalledWith("/o", "c2");
   });
 });
 
@@ -77,6 +76,7 @@ describe("the factory's wait limit", () => {
   const limit = (waitLimitMs?: number) => {
     void compose({
       home,
+      notes: "/notes",
       ...(waitLimitMs === undefined ? {} : { waitLimitMs }),
     }).loop();
     return (vi.mocked(loop).mock.calls.at(-1)?.[0] as Loop).world.limitMs;

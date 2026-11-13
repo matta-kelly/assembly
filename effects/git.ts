@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, normalize, relative } from "node:path";
-import type { Run } from "../process/step.ts";
+import type { Tree } from "../process/step.ts";
 import { partsOf } from "./runs.ts";
 import { must, sh } from "./sh.ts";
 
@@ -65,7 +65,7 @@ export async function mainOf(repo: string): Promise<string> {
  * issue's detached at main. A worktree that is gone while git still has its registration is pruned. Gives back
  * whether it made one: a new worktree holds nothing a setup installed.
  */
-export async function worktree(r: Run): Promise<boolean> {
+export async function worktree(r: Tree): Promise<boolean> {
   // An issue with several repos: a worktree of each, side by side in its own.
   if (r.repos?.length) {
     mkdirSync(r.work, { recursive: true });
@@ -92,10 +92,44 @@ export async function worktree(r: Run): Promise<boolean> {
 }
 
 /**
+ * Makes or keeps a worktree on the item's branch, and puts the branch at main as the land target has it now, with
+ * nothing else in it: where the orchestrator writes the notes an issue's land commits and lands.
+ */
+export async function onMain(r: Tree) {
+  const main = await mainOf(r.repo);
+  if (!existsSync(join(r.work, ".git"))) {
+    await must("git", ["-C", r.repo, "worktree", "prune"]);
+    await must("git", [
+      "-C",
+      r.repo,
+      "worktree",
+      "add",
+      "-q",
+      "-B",
+      branchOf(r.name),
+      r.work,
+      main,
+    ]);
+    return;
+  }
+  await must("git", [
+    "-C",
+    r.work,
+    "checkout",
+    "-q",
+    "-f",
+    "-B",
+    branchOf(r.name),
+    main,
+  ]);
+  await must("git", ["-C", r.work, "clean", "-q", "-f", "-d"]);
+}
+
+/**
  * Moves an issue's worktree to main as the land target has it now: its cls land there, and its steps only read. Gives
  * back whether it moved, so a setup on the main before is run again.
  */
-export async function fresh(r: Run): Promise<boolean> {
+export async function fresh(r: Tree): Promise<boolean> {
   let moved = false;
   for (const p of partsOf(r)) {
     const was = await head(p);
@@ -114,7 +148,7 @@ export async function fresh(r: Run): Promise<boolean> {
 }
 
 /** Commits what the agent left in the worktree, on its branch, so the next step starts from it. Nothing to commit is not an error. */
-export async function commit(r: Run, message: string) {
+export async function commit(r: Tree, message: string) {
   await must("git", ["-C", r.work, "add", "-A"]);
   const staged = await sh("git", ["-C", r.work, "diff", "--cached", "--quiet"]);
   if (staged.code !== 0)
@@ -126,7 +160,7 @@ export async function commit(r: Run, message: string) {
  * <repo>.diff for each repo of an issue with several), and the worktree goes back to its HEAD. Files git ignores, as
  * the installed dependencies, stay.
  */
-export async function discard(r: Run) {
+export async function discard(r: Tree) {
   for (const p of partsOf(r)) {
     await must("git", ["-C", p.work, "add", "-A"]);
     const diff = await must("git", [
@@ -148,7 +182,7 @@ export async function discard(r: Run) {
 }
 
 /** The worktree's HEAD, or undefined when it has none: the end state an attempt's trace points at. */
-export async function head(r: Run): Promise<string | undefined> {
+export async function head(r: Tree): Promise<string | undefined> {
   // An issue with several repos has no one HEAD: its folder holds a worktree of each.
   if (r.repos?.length) return undefined;
   const at = await sh("git", ["-C", r.work, "rev-parse", "HEAD"]);
@@ -159,7 +193,7 @@ export async function head(r: Run): Promise<string | undefined> {
  * The worktree's tree hash, with what is not committed: staged into a scratch index in the attempt's folder, so the
  * worktree's own index is left as it is.
  */
-export async function treeOf(r: Run): Promise<string> {
+export async function treeOf(r: Tree): Promise<string> {
   mkdirSync(r.dir, { recursive: true });
   const index = join(r.dir, "check.index");
   const env = { ...process.env, GIT_INDEX_FILE: index };
@@ -176,7 +210,7 @@ export async function treeOf(r: Run): Promise<string> {
  * Every file of the worktree that differs from where its attempt started, its HEAD (a failed attempt resets to it):
  * changed, new or removed, as git status sees it. A file git ignores is not one.
  */
-export async function touched(r: Run): Promise<string[]> {
+export async function touched(r: Tree): Promise<string[]> {
   const out = await must("git", [
     "-C",
     r.work,
@@ -193,7 +227,7 @@ export async function touched(r: Run): Promise<string[]> {
 }
 
 /** Which of `files` differ in the worktree from the item's branch, its HEAD, committed or not. */
-export async function changed(r: Run, files: string[]): Promise<string[]> {
+export async function changed(r: Tree, files: string[]): Promise<string[]> {
   const out = await must("git", [
     "-C",
     r.work,

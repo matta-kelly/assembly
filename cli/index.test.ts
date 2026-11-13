@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import {
-  chmodSync,
   existsSync,
   readFileSync,
   mkdirSync,
@@ -9,39 +8,39 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../effects/repo.ts";
-import { homeOf, main } from "./index.ts";
+import { homeOf, main, notesOf } from "./index.ts";
+
+// The notes' main is the notes repo's own main: it has no remote to fetch.
+vi.mock("../effects/git.ts", async (original) => ({
+  ...(await original<typeof import("../effects/git.ts")>()),
+  mainOf: vi.fn(async () => "main"),
+}));
 
 let home: string;
-let bin: string;
-let path: string;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "factory-"));
-  bin = join(home, "bin");
-  mkdirSync(bin);
-  path = process.env.PATH ?? "";
-  process.env.PATH = `${bin}${delimiter}${path}`;
 });
 afterEach(() => {
-  process.env.PATH = path;
   vi.restoreAllMocks();
   rmSync(home, { recursive: true, force: true });
 });
-
-/** A stand-in for `crate` on the PATH, at the seam: it prints the tag of the dev image it was asked for. */
-function fakeCrate(tag: string): void {
-  const at = join(bin, "crate");
-  writeFileSync(at, `#!/usr/bin/env bash\nprintf '%s\\n' '${tag}'\n`);
-  chmodSync(at, 0o755);
-}
 
 describe("the factory's home", () => {
   it("is ASSEMBLY_HOME, else under XDG_STATE_HOME", () => {
     expect(homeOf({ ASSEMBLY_HOME: "/a", XDG_STATE_HOME: "/s" })).toBe("/a");
     expect(homeOf({ XDG_STATE_HOME: "/s" })).toBe("/s/assembly");
+  });
+});
+
+describe("the notes repo", () => {
+  it("is ASSEMBLY_NOTES, else kinetic under ASSEMBLY_REPOS, else none", () => {
+    expect(notesOf({ ASSEMBLY_NOTES: "/n", ASSEMBLY_REPOS: "/r" })).toBe("/n");
+    expect(notesOf({ ASSEMBLY_REPOS: "/r" })).toBe("/r/kinetic");
+    expect(notesOf({})).toBeUndefined();
   });
 });
 
@@ -62,54 +61,16 @@ const read: Reader = {
   onCrate: (path) => existsSync(join(path, "crate.toml")),
 };
 
-describe("the command line", () => {
-  const add = (note: string, repo: string) =>
-    main(["add", note, "--repo", repo], { ASSEMBLY_HOME: home }, read);
+const git = (at: string, ...args: string[]) =>
+  execFileSync(
+    "git",
+    ["-c", "user.name=t", "-c", "user.email=t@t", "-C", at, ...args],
+    { encoding: "utf8" },
+  ).trim();
 
-  it("adds an issue by its note, named by the file", async () => {
-    fakeCrate("localhost/repo-dev:made-by-crate");
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const note = join(home, "my-issue.md");
-    writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
-    const repo = join(home, "repo");
-    onCrate(repo, "dev");
-    expect(await add(note, repo)).toBe(0);
-    expect(log).toHaveBeenCalledWith("added my-issue, open, in repo");
-    expect(compose({ home }).ledger.item("my-issue")).toMatchObject({
-      path: note,
-      repo,
-      image: "localhost/repo-dev:made-by-crate",
-      test: "scripts/check.sh all",
-      state: "open",
-    });
-  });
-
-  it("submits an issue by its name at the commit --at gives, and refuses a name with no note there", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const repo = join(home, "repo");
-    const kinetic = join(home, "kinetic");
-    onCrate(repo, "img");
-    mkdirSync(kinetic);
-    const git = (...args: string[]) =>
-      execFileSync(
-        "git",
-        ["-c", "user.name=t", "-c", "user.email=t@t", "-C", kinetic, ...args],
-        { encoding: "utf8" },
-      ).trim();
-    git("init", "-q", "-b", "main");
-    onCrate(kinetic, "img");
-    mkdirSync(join(kinetic, "_well"));
-    git("add", "-A");
-    git("commit", "-q", "-m", "before the issue");
-    const before = git("rev-parse", "HEAD");
-    writeFileSync(
-      join(kinetic, "_well", "fx.md"),
-      "---\ntype: issue\nstatus: new\n---\nfx.\n\n---\n## Done\n\n- a is 2\n",
-    );
-    writeFileSync(
-      join(kinetic, "_well", "fx-a.md"),
-      `---
+const issueNote =
+  "---\ntype: issue\nstatus: new\n---\nfx.\n\n---\n## Done\n\n- a is 2\n";
+const clNote = `---
 type: cl
 description: "A cut of fx."
 belongsTo: "[[fx]]"
@@ -137,58 +98,67 @@ a's name and type.
 ## Checkout
 
 - test/a.test.ts: the test
-`,
-    );
-    git("add", "-A");
-    git("commit", "-q", "-m", "the spec");
-    const at = git("rev-parse", "HEAD");
-    const env = { ASSEMBLY_HOME: home };
-    const submit = (c: string) =>
-      main(
-        ["submit", "fx", "--repo", repo, "--repo", kinetic, "--at", c],
-        env,
-        read,
-      );
-    expect(await submit(before)).toBe(1);
+`;
+
+/** A notes repo at `at`: a real git repo, `notes` committed on its main. */
+function notesAt(at: string, notes: Record<string, string>) {
+  mkdirSync(join(at, "_well"), { recursive: true });
+  git(at, "init", "-q", "-b", "main");
+  for (const [name, text] of Object.entries(notes))
+    writeFileSync(join(at, "_well", `${name}.md`), text);
+  git(at, "add", "-A");
+  git(at, "commit", "-q", "--allow-empty", "-m", "notes");
+  return at;
+}
+
+describe("the command line", () => {
+  it("submits an issue by its name, from the notes repo's main, and refuses a name with no note there", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repo = join(home, "repo");
+    onCrate(repo, "img");
+    const notes = notesAt(join(home, "notes"), {
+      fx: issueNote,
+      "fx-a": clNote,
+    });
+    const env = { ASSEMBLY_HOME: home, ASSEMBLY_NOTES: notes };
+    expect(await main(["submit", "gx", "--repo", repo], env, read)).toBe(1);
     expect(err).toHaveBeenLastCalledWith(
-      expect.stringContaining("_well/fx.md"),
+      expect.stringContaining("_well/gx.md"),
     );
     expect(compose({ home }).ledger.items()).toEqual([]);
-    expect(await submit(at)).toBe(0);
+    expect(await main(["submit", "fx", "--repo", repo], env, read)).toBe(0);
     expect(log).toHaveBeenCalledWith(
       expect.stringMatching(/^submitted fx, building, with 1 cl:/),
     );
-    expect(compose({ home }).ledger.spec("fx")?.commit).toBe(at);
+    expect(compose({ home }).ledger.item("fx")).toMatchObject({
+      note: "_well/fx.md",
+      repo,
+      state: "building",
+    });
   });
 
-  it("refuses an issue with no note, a repo that is not one, or a name it has", async () => {
+  it("refuses a repo that is not one, or a name it has", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const note = join(home, "is.md");
+    const notes = notesAt(join(home, "notes"), { is: issueNote });
+    const env = { ASSEMBLY_HOME: home, ASSEMBLY_NOTES: notes };
     const repo = join(home, "repo");
-    expect(await add(note, repo)).toBe(1);
-    expect(err).toHaveBeenLastCalledWith(`no note at ${note}`);
-    writeFileSync(note, "---\ntype: issue\n---\nan issue\n");
-    expect(await add(note, repo)).toBe(1);
+    const submit = () => main(["submit", "is", "--repo", repo], env, read);
+    expect(await submit()).toBe(1);
     expect(err).toHaveBeenLastCalledWith(`${repo} is not a git repo`);
-    mkdirSync(join(repo, ".git"), { recursive: true });
-    expect(await add(note, repo)).toBe(1);
-    expect(err).toHaveBeenLastCalledWith(
-      `${repo} is not on crate: its server/main has no crate.toml`,
-    );
     onCrate(repo, "img");
-    expect(await add(note, repo)).toBe(0);
-    expect(await add(note, repo)).toBe(1);
+    expect(await submit()).toBe(0);
+    expect(await submit()).toBe(1);
     expect(err).toHaveBeenLastCalledWith("is is in the ledger already");
   });
 
-  it("refuses a note whose name is not kebab-case, an item it does not have, and a tick that is not a time", async () => {
+  it("refuses a name that is not kebab-case, an item it does not have, and a tick that is not a time", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const env = { ASSEMBLY_HOME: home };
-    writeFileSync(join(home, "My Issue.md"), "---\ntype: issue\n---\n");
-    expect(await add(join(home, "My Issue.md"), home)).toBe(1);
+    const env = { ASSEMBLY_HOME: home, ASSEMBLY_NOTES: join(home, "notes") };
+    expect(await main(["submit", "My Issue", "--repo", home], env)).toBe(1);
     expect(err).toHaveBeenLastCalledWith(
-      "My Issue: an issue's name is kebab-case, from its note",
+      "My Issue: an issue's name is kebab-case",
     );
     expect(await main(["explain", "typo"], env)).toBe(1);
     expect(err).toHaveBeenLastCalledWith("no item typo in the ledger");
@@ -196,16 +166,21 @@ a's name and type.
     expect(await main(["run", "--every", "0"], env)).toBe(1);
   });
 
-  it("prints its usage for a verb it does not know, or one missing its arguments", async () => {
+  it("prints its usage for a verb it does not know, or one missing its arguments or its notes repo", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const env = { ASSEMBLY_HOME: home };
     expect(await main(["land"], env)).toBe(2);
     expect(existsSync(join(home, "ledger.db"))).toBe(false);
     expect(await main(["add", "x.md"], env)).toBe(2);
-    expect(err).toHaveBeenCalledWith(expect.stringMatching(/\nfactory add/));
-    const note = join(home, "is.md");
-    writeFileSync(note, "---\ntype: issue\n---\n");
-    expect(await main(["add", note], env)).toBe(2);
+    expect(await main(["submit"], env)).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringMatching(/^factory submit/m));
+    expect(await main(["submit", "is"], env)).toBe(2);
+    expect(err).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^submit needs the notes repo/),
+    );
+    expect(await main(["submit", "is"], { ...env, ASSEMBLY_NOTES: home })).toBe(
+      2,
+    );
     expect(err).toHaveBeenLastCalledWith(
       expect.stringMatching(/^an issue needs its repos: --repo, or a root/),
     );
@@ -214,15 +189,9 @@ a's name and type.
 });
 
 describe("the repos under ASSEMBLY_REPOS", () => {
-  it("finds the clones, and kinetic among them, when submit names none", async () => {
+  it("are the clones on crate an issue may change when submit names none, and kinetic among them is the notes repo, not one of them", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const root = join(home, "clones");
-    const git = (at: string, ...args: string[]) =>
-      execFileSync(
-        "git",
-        ["-c", "user.name=t", "-c", "user.email=t@t", "-C", at, ...args],
-        { encoding: "utf8" },
-      ).trim();
     const clone = (name: string, onServer: boolean) => {
       const at = join(root, name);
       mkdirSync(at, { recursive: true });
@@ -230,57 +199,18 @@ describe("the repos under ASSEMBLY_REPOS", () => {
       onCrate(at, "img");
       if (onServer)
         git(at, "remote", "add", "server", `core@localhost:git/${name}.git`);
-      return at;
-    };
-    const commit = (at: string, message: string) => {
       git(at, "add", "-A");
-      git(at, "commit", "-q", "-m", message);
+      git(at, "commit", "-q", "-m", "main");
+      return at;
     };
     const kinetic = clone("kinetic", true);
     const repo = clone("repo", true);
-    const loose = clone("loose", false);
+    clone("loose", false);
     mkdirSync(join(kinetic, "_well"));
-    writeFileSync(
-      join(kinetic, "_well", "fx.md"),
-      "---\ntype: issue\nstatus: new\n---\nfx.\n\n---\n## Done\n\n- a is 2\n",
-    );
-    writeFileSync(
-      join(kinetic, "_well", "fx-a.md"),
-      `---
-type: cl
-description: "A cut of fx."
-belongsTo: "[[fx]]"
-status: new
-repo: repo
-shape:
-  change: behavior
-  checked: repo
-checkout:
-  - src/a.ts
-  - test/a.test.ts
-test: npx vitest run test/a.test.ts
----
-src/a.ts exports a, which is 2.
-
----
-## Promises
-
-- given a, when imported, then it is 2
-
-## Seam
-
-a's name and type.
-
-## Checkout
-
-- test/a.test.ts: the test
-`,
-    );
-    commit(kinetic, "the spec");
-    commit(repo, "main");
-    commit(loose, "main");
-    const at = git(kinetic, "rev-parse", "HEAD");
-    git(kinetic, "update-ref", "refs/remotes/server/main", at);
+    writeFileSync(join(kinetic, "_well", "fx.md"), issueNote);
+    writeFileSync(join(kinetic, "_well", "fx-a.md"), clNote);
+    git(kinetic, "add", "-A");
+    git(kinetic, "commit", "-q", "-m", "the spec");
     const read: Reader = {
       file: (path, file) =>
         existsSync(join(path, file))
@@ -298,9 +228,9 @@ a's name and type.
     expect(log).toHaveBeenCalledWith(
       expect.stringMatching(/^submitted fx, building, with 1 cl:/),
     );
-    const item = compose({ home }).ledger.item("fx");
-    expect(item?.repos.map((r) => r.name).sort()).toEqual(["kinetic", "repo"]);
-    expect(item?.repos.find((r) => r.name === "kinetic")?.repo).toBe(kinetic);
-    expect(compose({ home }).ledger.spec("fx")?.commit).toBe(at);
+    expect(compose({ home }).ledger.item("fx")).toMatchObject({
+      repo,
+      repos: [],
+    });
   });
 });

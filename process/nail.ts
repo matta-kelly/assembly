@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { items } from "../effects/notes.ts";
+import { itemsIn, notesOf } from "../effects/notes.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { type Message, say, type Step } from "./step.ts";
 
@@ -35,9 +35,9 @@ const done = z.object({
 });
 type Done = z.infer<typeof done>;
 
-/** The promises of a cl: the top-level items of its Promises list. */
+/** The promises of a cl, from its note's text: the top-level items of its Promises list. */
 export function promises(cl: string): string[] {
-  return items(cl, "Promises");
+  return itemsIn(cl, "Promises");
 }
 
 /** da-nail's tests for the cl: its last passed result's, none before it passed. */
@@ -96,7 +96,7 @@ export const nail: Step<Done> = {
   done,
   about: ["cl", "plan", "issue"],
   async check(r, d, at, ledger) {
-    const want = promises(r.path).length;
+    const want = promises(notesOf(r).text(r.note)).length;
     const have = new Set(d.tests.map((t) => t.promise));
     for (let b = 1; b <= want; b++) {
       if (!have.has(b))

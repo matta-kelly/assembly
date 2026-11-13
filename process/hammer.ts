@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { read } from "../effects/notes.ts";
+import { notesOf } from "../effects/notes.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import { testFilesOf, testsOf } from "./nail.ts";
 import { pathsIn } from "./plan.ts";
@@ -46,7 +46,8 @@ export const hammer: Step<Done> = {
   agent: "da-hammer",
   done,
   about: ["tests", "cl", "plan", "issue"],
-  input: (r, ledger) => [read(r.path), "", testsOf(ledger, r.name)].join("\n"),
+  input: (r, ledger) =>
+    [notesOf(r).text(r.note), "", testsOf(ledger, r.name)].join("\n"),
   async check(r, d, at, ledger) {
     // The tests: da-nail's, and every test file the cl's test command runs, the existing ones too.
     const nailed = testFilesOf(ledger, r.name);

@@ -1,10 +1,9 @@
 /**
- * The factory's command line: one verb and its arguments, parsed here, run by its command (add.ts, run.ts,
+ * The factory's command line: one verb and its arguments, parsed here, run by its command (levers.ts, run.ts,
  * report.ts) on the factory main.ts builds. Output goes to stdout; a refusal goes to stderr with exit 1, and a usage
  * error with exit 2 (clig.dev). The factory is opened only for a verb it has, so a usage error leaves nothing behind.
  *
- *   factory add <issue.md> [--repo <path>]...
- *   factory submit <issue> [--repo <path>]... [--at <ref>]
+ *   factory submit <issue> [--repo <path>]...
  *   factory approve <issue>
  *   factory replan <issue>
  *   factory retry <item>
@@ -15,35 +14,18 @@
  *   factory top
  *
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
- * Each repo's image, full suite and setup are read from its main (effects/repo.ts). A repo checked in its dev image needs
- * that image's tag, which crate makes here for each dev repo, from the commit that repo's settings are read at.
+ * Its note is in the notes repo, $ASSEMBLY_NOTES, else $ASSEMBLY_REPOS/kinetic: the only spec, read at its main.
  *
  * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly.
  */
 
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
-import { commitOf } from "../effects/notes.ts";
-import {
-  CrateError,
-  devImage,
-  devReposOf,
-  gitReader,
-  mainRef,
-  type Reader,
-} from "../effects/repo.ts";
-import {
-  add,
-  approve,
-  type Done,
-  given,
-  replan,
-  retry,
-  submit,
-} from "./add.ts";
+import { gitReader, type Reader } from "../effects/repo.ts";
+import { approve, type Done, replan, retry, submit } from "./levers.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
 import { top, version } from "./top.ts";
@@ -55,8 +37,15 @@ export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
   return join(state, "assembly");
 }
 
-export const usage = `factory add <issue.md> [--repo <path>]...
-factory submit <issue> [--repo <path>]... [--at <ref>]
+/** The notes repo, from the environment: $ASSEMBLY_NOTES, else kinetic among the clones. Undefined when neither is set. */
+export function notesOf(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env["ASSEMBLY_NOTES"]) return env["ASSEMBLY_NOTES"];
+  return env["ASSEMBLY_REPOS"] && join(env["ASSEMBLY_REPOS"], "kinetic");
+}
+
+export const usage = `factory submit <issue> [--repo <path>]...
 factory approve <issue>
 factory replan <issue>
 factory retry <item>
@@ -70,22 +59,6 @@ const print = ({ code, lines }: Done) => {
   (code === 0 ? console.log : console.error)(lines.join("\n"));
   return code;
 };
-
-/**
- * The dev images' tags, one crate makes for each dev repo: from that repo's commit, by the reader main threads through.
- * Throws a CrateError, with crate's output and exit code, when crate fails.
- */
-async function resolveDevImages(
-  paths: string[],
-  commitOfRepo: (path: string) => string | undefined,
-  read: Reader,
-): Promise<Record<string, string>> {
-  const dev: Record<string, string> = {};
-  for (const { name, path } of devReposOf(paths, read)) {
-    dev[name] = await devImage(path, commitOfRepo(path));
-  }
-  return dev;
-}
 
 /** The command line: one verb, and its arguments. Gives back the exit code. */
 export async function main(
@@ -101,7 +74,6 @@ export async function main(
       options: {
         repo: { type: "string", multiple: true },
         every: { type: "string", default: "5" },
-        at: { type: "string" },
       },
     });
   } catch (e) {
@@ -111,39 +83,25 @@ export async function main(
   }
   const { positionals, values } = parsed;
   const [verb, arg] = positionals;
-  const factory = () => compose({ home: homeOf(env) });
+  const notes = notesOf(env);
+  const factory = () =>
+    compose({ home: homeOf(env), ...(notes ? { notes } : {}) });
   switch (verb) {
-    case "add":
     case "submit": {
       if (!arg) break;
-      // one rule for the repos an issue may change, add's own: read here, and again by add or submit
-      const options = {
+      if (!notes)
+        return print({
+          code: 2,
+          lines: [
+            "submit needs the notes repo: ASSEMBLY_NOTES, or ASSEMBLY_REPOS",
+            usage,
+          ],
+        });
+      const done = await submit(factory, arg, {
         repos: values.repo ?? [],
         root: env["ASSEMBLY_REPOS"],
+        notes,
         read,
-        at: values.at,
-      };
-      const which = given(options);
-      let dev: Record<string, string> = {};
-      if (!which.done) {
-        // the spec's commit is the one that matters for kinetic; another repo's dev image comes from its own main
-        const commitOfRepo = (path: string) =>
-          verb === "submit"
-            ? commitOf(
-                path,
-                basename(path) === "kinetic" ? (values.at ?? mainRef) : mainRef,
-              )
-            : undefined;
-        try {
-          dev = await resolveDevImages(which.paths, commitOfRepo, read);
-        } catch (e) {
-          if (!(e instanceof CrateError)) throw e;
-          return print({ code: e.exitCode, lines: [e.output] });
-        }
-      }
-      const done = (verb === "add" ? add : submit)(factory, arg, {
-        ...options,
-        dev,
       });
       if (done.code === 2) done.lines.push(usage);
       return print(done);

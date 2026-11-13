@@ -1,12 +1,13 @@
 /**
  * The transition table: from an item's state and a check's word, its next state. Data, so the whole process reads in
  * one place. Two kinds of item move through it, each with states of its own:
- * - an issue: open (the planner's step), planned (plan review's), building (its cls run, phase by phase), built
- *   (acceptance's, on main), accepted
+ * - an issue: open (the planner's step), planned (plan review's), approved (the land of its plan and cl notes on the
+ *   notes' main), building (its cls run, phase by phase), built (acceptance's, on main), accepted
  * - a cl: waiting (for the phases before its own), ready (da-nail's step), red (da-hammer's), green (cl-review's),
- *   approved (the land's), landed on main. A cl of a plan that went back to the planner is dropped
+ *   approved (the land's), landed on main. A cl whose note is gone, or whose issue is planned again, is dropped
  * A retry stays in its state: the third failed attempt at one state is escalated to Matt, and so is the third
- * send-back for another round. A waiting cl's retry is no attempt: it records why the cl waits, however often.
+ * send-back for another round. A waiting cl's retry is no attempt: it records why the cl waits, however often. Matt
+ * stops an item (escalate) and resumes it at a station, with a fresh budget.
  */
 
 /** Where an item stands: its label in the ledger. Only the orchestrator moves it. */
@@ -32,11 +33,10 @@ export type State =
 /**
  * A message's word. pass moves the item on, and retry runs its step again. back sends it up the V, to the owner of the
  * artifact its findings are about: a review's send-back and an agent's raise are both one. The rest are the
- * orchestrator's and Matt's: drop takes a cl out of its plan, escalate gives an item to Matt, and replan sends an issue
- * Matt holds back to be planned.
+ * orchestrator's and Matt's: drop takes a cl out of its plan, escalate gives an item to Matt (his stop too), and resume
+ * sends an item he holds back to a station.
  */
-export type Word =
-  "pass" | "retry" | "back" | "drop" | "escalate" | "replan" | "resume";
+export type Word = "pass" | "retry" | "back" | "drop" | "escalate" | "resume";
 
 /** What a finding is about: a spec (the issue, the plan, a cl) or a product (a cl's tests, its code). */
 export type Artifact = "issue" | "plan" | "cl" | "tests" | "code";
@@ -48,25 +48,44 @@ export const retryLimit = 3;
 export const reviewRounds = 2;
 
 /**
- * Where pass and retry take an item from each state. A step runs from open, planned, built, ready, red and green, and
- * the land from approved; the orchestrator passes the rest on: a waiting cl to ready, a building issue to built.
+ * Where pass and retry take an item of each kind from each state. A step runs from open, planned, built, ready, red and
+ * green, and the land from approved: a cl's onto its repo's main, an issue's plan onto the notes' main. The
+ * orchestrator passes the rest on: a waiting cl to ready, a building issue to built.
  */
-export const table: Partial<
-  Record<State, Partial<Record<"pass" | "retry", State>>>
+export const table: Record<
+  "issue" | "cl",
+  Partial<Record<State, Partial<Record<"pass" | "retry", State>>>>
 > = {
-  open: { pass: "planned", retry: "open" },
-  planned: { pass: "building", retry: "planned" },
-  building: { pass: "built" },
-  built: { pass: "accepted", retry: "built" },
-  waiting: { pass: "ready", retry: "waiting" },
-  ready: { pass: "red", retry: "ready" },
-  red: { pass: "green", retry: "red" },
-  green: { pass: "approved", retry: "green" },
-  approved: { pass: "landed", retry: "approved" },
+  issue: {
+    open: { pass: "planned", retry: "open" },
+    planned: { pass: "approved", retry: "planned" },
+    approved: { pass: "building", retry: "approved" },
+    building: { pass: "built" },
+    built: { pass: "accepted", retry: "built" },
+  },
+  cl: {
+    waiting: { pass: "ready", retry: "waiting" },
+    ready: { pass: "red", retry: "ready" },
+    red: { pass: "green", retry: "red" },
+    green: { pass: "approved", retry: "green" },
+    approved: { pass: "landed", retry: "approved" },
+  },
 };
 
 /** The states an item ends in: it never leaves them, and its worktree and branch go (effects/git.ts, sweep). */
 export const ends: State[] = ["landed", "dropped", "accepted"];
+
+/** The states that hold an item for Matt: a raise, and an escalation, his stop among them. */
+export const held: State[] = ["raised", "escalated"];
+
+/**
+ * The stations Matt may resume an item at, by kind: a state a step or a land runs from, and an issue's building. An
+ * issue at approved lands the plan its planner made as it is: Matt's pass of plan review.
+ */
+export const stations: Record<"issue" | "cl", State[]> = {
+  issue: ["open", "approved", "building", "built"],
+  cl: ["ready", "red", "green", "approved"],
+};
 
 /**
  * Where back takes an item: the state of the artifact's owner. A cl's tests are da-nail's (ready), its code
@@ -91,8 +110,8 @@ export const top = (about: Artifact[]): Artifact =>
 /** What the limits count, the attempt just ended included. */
 export interface Counts {
   attempts: number; // this state's attempts since the item last entered it
-  rounds: number; // the sends back for another round so far: each back that did not raise
-  prior?: State; // where an escalated item was when it was escalated: what resume takes it back to
+  rounds: number; // the sends back for another round since Matt last moved it: each back that did not raise
+  prior?: State; // where a resume takes a held item: the station Matt names, else where it was before
 }
 
 /** The next state, from where the item stands, its kind, and the message's word and what its findings are about. */
@@ -114,14 +133,14 @@ export function next(
     return "dropped";
   }
   if (word === "resume") {
-    if (state !== "escalated" || !c.prior)
+    if (
+      !held.includes(state) ||
+      !c.prior ||
+      held.includes(c.prior) ||
+      ends.includes(c.prior)
+    )
       throw new Error(`no transition from ${state} on resume`);
     return c.prior;
-  }
-  if (word === "replan") {
-    if (kind !== "issue" || (state !== "raised" && state !== "escalated"))
-      throw new Error(`no transition from ${state} on replan`);
-    return "open";
   }
   if (word === "back") {
     const to = owner[kind][top(about)];
@@ -129,7 +148,7 @@ export function next(
     if (to !== "raised" && c.rounds > reviewRounds) return "escalated";
     return to;
   }
-  const to = table[state]?.[word as "pass" | "retry"];
+  const to = table[kind][state]?.[word as "pass" | "retry"];
   if (!to) throw new Error(`no transition from ${state} on ${word}`);
   if (word === "retry" && c.attempts >= retryLimit) return "escalated";
   return to;

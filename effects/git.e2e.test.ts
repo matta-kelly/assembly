@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Run } from "../process/step.ts";
+import type { Tree } from "../process/step.ts";
 import { landTarget } from "./land-target.fixture.ts";
 import {
   branchOf,
@@ -69,7 +69,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
   let dir: string;
   let repo: string;
   let bare: string;
-  const run = (n: number, kind: "cl" | "issue" = "cl"): Run => {
+  const run = (n: number, kind: "cl" | "issue" = "cl"): Tree => {
     const under =
       kind === "cl"
         ? join(dir, "runs", "is", "cl", "x")
@@ -78,13 +78,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
       name: kind === "cl" ? "is-x" : "is",
       kind,
       issue: "is",
-      seq: 1,
       n,
-      path: join(dir, "is-x.md"),
       repo,
-      image: "img",
-      test: "true",
-      setup: "",
       dir: join(under, String(n)),
       work: join(under, "work"),
     };

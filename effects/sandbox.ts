@@ -70,7 +70,7 @@ export async function open(r: Run, o: { readOnly: boolean }) {
     throw new Error(`exit ${ran.exitCode}: ${ran.output.slice(-400)}`);
 }
 
-/** Removes the attempt's sandbox. The worktree and its branch stay, as the attempt's record. */
+/** Removes the attempt's sandbox. The item's worktree and branch stay, for its next attempt. */
 export async function close(r: Run) {
   // its name is all a close needs
   await boxOf(r, { readOnly: false }).close();

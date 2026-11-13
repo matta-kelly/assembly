@@ -1,9 +1,10 @@
 /**
  * The end to end test of the whole loop, an issue from open to accepted, with only the model faked: a real repo, a
  * real sandbox per attempt, que-pasa's run with the real agents and tools, the real checks, git commits and the real
- * `git land`, onto a bare repo as the land target, and the notes the orchestrator writes. The planner cuts the issue
- * into two cls; plan-review approves; each cl goes through nail, hammer and review, and lands on main before the next
- * phase starts; acceptance runs the full suite on main and accepts. A second issue's planner raises.
+ * `git land`, onto a bare repo as the land target, and a real notes repo, the only spec, whose main the plan lands on.
+ * The planner cuts the issue into two cls; plan-review approves; the plan and its cl notes land on the notes' main;
+ * each cl goes through nail, hammer and review, and lands on main before the next phase starts; acceptance runs the
+ * full suite on main and accepts. A second issue's planner raises.
  *
  * Each agent's model is scripted (pi-ai's faux provider): it reads the conversation so far and makes its next tool
  * call, so the tools run for real in the sandbox. The reviews try to write the worktree first, and only go on if the
@@ -47,16 +48,43 @@ import {
   smoke,
 } from "../effects/dev-image.fixture.ts";
 import { standInRegistry } from "../effects/registry.fixture.ts";
-import { devImage, npmSetup } from "../effects/repo.ts";
+import { gitReader } from "../effects/repo.ts";
+import { npmRegistryUrl } from "../effects/registry.ts";
+import { writeNote } from "../effects/notes.ts";
 import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";
 import { advance } from "./advance.ts";
 import { nail } from "../process/nail.ts";
+import {
+  type ClSpec,
+  clFields,
+  clNote,
+  type PlanSpec,
+  planNote,
+} from "../process/plan.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
 const suite = "node --test test/*.test.mjs";
-/** The issue's setup: what installs its dependencies into each new worktree, here a folder git ignores. */
-const setup = "mkdir -p deps && echo 'export const two = 2;' > deps/two.mjs";
+
+/**
+ * Makes `at` a repo on crate as an attempt reads it from its worktree: its image, its full suite, and a lockfile of no
+ * dependencies, so each new worktree is set up with an offline npm ci, into a folder git ignores.
+ */
+function onCrate(at: string, name: string, check = suite) {
+  mkdirSync(join(at, "scripts"), { recursive: true });
+  writeFileSync(join(at, "crate.toml"), `crate = "1"\nimage = "${image}"\n`);
+  writeFileSync(join(at, "scripts", "check.sh"), `#!/bin/sh\n${check}\n`);
+  chmodSync(join(at, "scripts", "check.sh"), 0o755);
+  writeFileSync(
+    join(at, "package.json"),
+    `${JSON.stringify({ name, version: "0.0.0", private: true }, null, 2)}\n`,
+  );
+  writeFileSync(
+    join(at, "package-lock.json"),
+    `${JSON.stringify({ name, version: "0.0.0", lockfileVersion: 3, requires: true, packages: { "": { name, version: "0.0.0" } } }, null, 2)}\n`,
+  );
+  writeFileSync(join(at, ".gitignore"), "node_modules/\n");
+}
 
 const issueNote = (raise: boolean) => `---
 type: issue
@@ -113,7 +141,7 @@ const cl = (
   promise: string,
   phase: number | undefined,
   read: string[] = [],
-) => ({
+): ClSpec => ({
   name,
   intent,
   ...(phase === undefined ? {} : { phase }),
@@ -251,8 +279,8 @@ const nailScript = (input: string, done: number) => {
           )
         : testOf(
             "value",
-            'import { value } from "../src/value.mjs";\nimport { two } from "../deps/two.mjs";',
-            "assert.strictEqual(value, two)",
+            'import { value } from "../src/value.mjs";',
+            "assert.strictEqual(value, 2)",
           ),
     });
   if (done === 1)
@@ -502,6 +530,60 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     let dir: string;
     let repo: string;
     let bare: string;
+    let notes: string;
+    let notesBare: string;
+
+    /** Puts notes, by name, in the notes repo's _well/ and lands them on its main, as Matt does. */
+    const publish = (named: Record<string, string>) => {
+      git(notes, "pull", "-q", "--ff-only", "local", "main");
+      for (const [name, text] of Object.entries(named))
+        writeFileSync(join(notes, "_well", `${name}.md`), text);
+      git(notes, "add", "-A");
+      git(notes, "commit", "-q", "-m", "notes");
+      git(notes, "push", "-q", "local", "HEAD:main");
+    };
+    /** What advance needs of the world, outside a loop: the notes repo, and nothing to wait for. */
+    const worldOf = (runs: string) => ({
+      runs,
+      notes,
+      registry: { url: npmRegistryUrl, published: async () => true },
+      reader: gitReader,
+      tags: async () => [],
+    });
+    /** A note as the notes' main holds it now. */
+    const onMain = (name: string) =>
+      git(notesBare, "show", `main:_well/${name}.md`);
+
+    /** The notes of Matt's spec for `issue`: its cl notes, and its plan's, when it has more than one. */
+    const spec = (issue: string, cls: ClSpec[], plan?: PlanSpec) => {
+      const at = join(dir, "spec", issue);
+      mkdirSync(at, { recursive: true });
+      for (const c of cls)
+        writeNote(
+          join(at, `${issue}-${c.name}.md`),
+          clFields(issue, c, Boolean(plan)),
+          clNote(c),
+          true,
+        );
+      if (plan)
+        writeNote(
+          join(at, `${issue}-plan.md`),
+          {
+            type: "plan",
+            description: `The plan of ${issue}.`,
+            belongsTo: `[[${issue}]]`,
+            status: "active",
+          },
+          planNote(issue, { plan, cls }),
+          true,
+        );
+      return Object.fromEntries(
+        readdirSync(at).map((f) => [
+          f.slice(0, -3),
+          readFileSync(join(at, f), "utf8"),
+        ]),
+      );
+    };
 
     beforeAll(() => {
       mkdirSync(".e2e", { recursive: true });
@@ -510,16 +592,23 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       mkdirSync(repo);
       git(repo, "init", "-q", "-b", "main");
       writeFileSync(join(repo, "README"), "a repo\n");
-      // in no cut: no bound agent may see it
+      // in no cut's checkout: a builder reads it only when it reads wider
       writeFileSync(join(repo, "NOTES"), "not in any cut\n");
-      // what setup installs: in no commit
-      writeFileSync(join(repo, ".gitignore"), "deps/\n");
+      onCrate(repo, "repo");
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "init");
       bare = landTarget(repo, dir);
-      mkdirSync(join(dir, "work"));
-      writeFileSync(join(dir, "work", "is.md"), issueNote(false));
-      writeFileSync(join(dir, "work", "gap.md"), issueNote(true));
+      // the notes repo: the factory reads every note at its main, and lands each plan there
+      notes = join(dir, "notes");
+      mkdirSync(join(notes, "_well"), { recursive: true });
+      git(notes, "init", "-q", "-b", "main");
+      onCrate(notes, "notes", "exit 0");
+      writeFileSync(join(notes, "_well", "is.md"), issueNote(false));
+      writeFileSync(join(notes, "_well", "gap.md"), issueNote(true));
+      git(notes, "add", "-A");
+      git(notes, "commit", "-q", "-m", "the issues");
+      mkdirSync(join(dir, "notes.target"));
+      notesBare = landTarget(notes, join(dir, "notes.target"));
     });
     // The attempts' sandboxes go too, also when the test fails before the loop closes them: a name left behind would
     // stop the next run's attempt from opening.
@@ -598,24 +687,16 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         };
 
         // The factory as main composes it, with every step, on scripted models.
-        const f = compose({ home: dir, agents, models, timeoutMs: 120_000 });
+        const f = compose({
+          home: dir,
+          notes,
+          agents,
+          models,
+          timeoutMs: 120_000,
+        });
         const ledger = f.ledger;
-        const notes = join(dir, "work");
-        ledger.addIssue({
-          name: "is",
-          path: join(notes, "is.md"),
-          repo,
-          image,
-          test: suite,
-          setup,
-        });
-        ledger.addIssue({
-          name: "gap",
-          path: join(notes, "gap.md"),
-          repo,
-          image,
-          test: suite,
-        });
+        ledger.addIssue({ name: "is", note: "_well/is.md", repos: [repo] });
+        ledger.addIssue({ name: "gap", note: "_well/gap.md", repos: [repo] });
         const runs = f.runs;
         const l = await f.loop();
 
@@ -632,7 +713,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
         await l.tick();
 
-        // Each item's one worktree was set up once, before its first agent: value's test imports what setup installed.
+        // Each item's one worktree was set up once, before its first agent: an offline npm ci of its lockfile.
         const attemptsOf = (under: string) =>
           readdirSync(under)
             .filter((n) => /^\d+$/.test(n))
@@ -656,11 +737,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(probed[0]).toMatch(/not in any cut/);
         expect(probed[1]).toMatch(/NOTES/);
 
-        // Accepted, the issue leaves nothing behind: no worktree, and no branch.
-        expect(git(repo, "worktree", "list", "--porcelain")).not.toMatch(
-          /runs\/is\//,
-        );
-        expect(git(repo, "branch", "--list", "assembly/is*")).toBe("");
+        // Accepted, the issue leaves nothing behind: no worktree, and no branch, in its repo or the notes repo.
+        for (const r of [repo, notes]) {
+          expect(git(r, "worktree", "list", "--porcelain")).not.toMatch(
+            /runs\/is\//,
+          );
+          expect(git(r, "branch", "--list", "assembly/is*")).toBe("");
+        }
 
         // The issue went through each of its steps once, in order, and each cl through its own.
         const moves = (name: string) =>
@@ -670,7 +753,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(moves("is"), JSON.stringify(ledger.events("is"))).toEqual([
           "new>open",
           "open>planned",
-          "planned>building",
+          "planned>approved",
+          "approved>building",
           "building>built",
           "built>accepted",
         ]);
@@ -689,19 +773,26 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           ]);
         expect(ledger.item("gap").state).toBe("raised");
 
-        // The orchestrator wrote the plan and its cl notes from the plan, never a finding. It writes no note's status.
-        const note = (name: string) =>
-          readFileSync(join(notes, `${name}.md`), "utf8");
+        // The plan and its cl notes landed on the notes' main, in one commit, before any cl: written from the plan,
+        // never a finding, and no note's status.
         for (const n of ["is", "is-value", "is-double", "gap"])
-          expect(note(n)).not.toMatch(
+          expect(onMain(n)).not.toMatch(
             /^## (Plan review|Acceptance|Tests|Code|Review|Raise)$/m,
           );
-        expect(note("is-plan")).toContain(
+        expect(onMain("is-plan")).toContain(
           "- Phase 2: double, once value has landed\n\t- [[is-double]]",
         );
-        expect(note("is-double")).toContain(
+        expect(onMain("is-double")).toContain(
           'checkout: ["src/double.mjs","test/double.test.mjs","README","src/value.mjs"]',
         );
+        expect(git(notesBare, "log", "-1", "--format=%s", "main")).toBe(
+          "docs(is): its plan",
+        );
+        // each attempt read the notes at the commit of main it started from, the plan's once it had landed
+        const planCommit = git(notesBare, "rev-parse", "main");
+        expect(
+          ledger.attemptsOf("is-value").every((a) => a.notes === planCommit),
+        ).toBe(true);
 
         // Main, on the land target, holds both cls, in order: each one's test, then its code, each titled as crate reads
         // a release: the tests as `test`, the code by the issue's kind, a task's as `chore`. No issue branch is made.
@@ -720,8 +811,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         ]);
         expect(git(repo, "branch", "--list", "assembly/is/head")).toBe("");
 
-        // Every trial is under its issue: the issue's own attempts, and each cl's.
-        for (const n of [1, 2, 3])
+        // Every trial is under its issue: the issue's own attempts, its plan's land among them, and each cl's.
+        for (const n of [1, 2, 3, 4])
           expect(existsSync(join(runs, "is", "issue", String(n)))).toBe(true);
         // Each tool call is in its attempt's trace, not its log.
         for (const cl of ["value", "double"])
@@ -730,7 +821,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           ).toContain("execute_tool write_file");
         // the acceptance review ran the suite itself
         expect(
-          traceIn(join(runs, "is", "issue", "3"))
+          traceIn(join(runs, "is", "issue", "4"))
             .spans.filter((x) => x.name === "execute_tool execute")
             .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
         ).toContainEqual(expect.stringMatching(/node --test/));
@@ -771,12 +862,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // Every attempt is one trace in its folder: the attempt span is its root, with the ids on the ledger's row, and
         // que-pasa's run is under it, with its messages. The acceptance links to the attempts it judged: the plan, and
         // each cl's nail, hammer and review.
-        const issueRuns = [1, 2, 3].map((n) =>
+        const issueRuns = [1, 2, 3, 4].map((n) =>
           traceIn(join(runs, "is", "issue", String(n))),
         );
         expect(issueRuns.map((t) => t.root.name)).toEqual([
           "attempt open is",
           "attempt planned is",
+          "attempt approved is",
           "attempt built is",
         ]);
         issueRuns.forEach((t, i) =>
@@ -793,7 +885,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(issueRuns[1]?.root.links?.map((l) => l.spanId)).toEqual([
           issueRuns[0]?.root.spanId,
         ]);
-        expect(issueRuns[2]?.root.links).toHaveLength(7);
+        expect(issueRuns[3]?.root.links).toHaveLength(7);
 
         const nailRun = traceIn(join(runs, "is", "cl", "value", "1"));
         expect(nailRun.spans.map((x) => x.name)).toContain(
@@ -815,12 +907,19 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       { timeout: 300_000 },
       async () => {
         const at = join(dir, "restart");
-        mkdirSync(join(at, "work"), { recursive: true });
-        const clPath = join(at, "work", "rs-value.md");
-        writeFileSync(
-          clPath,
-          "---\ntype: cl\nstatus: new\n---\nThe cut value of rs.\n\n---\n## Promises\n\n- given value, when read, then 2\n",
-        );
+        mkdirSync(at, { recursive: true });
+        // A lone cl, Matt's spec in the notes.
+        publish({
+          rs: issueNote(false),
+          ...spec("rs", [
+            cl(
+              "value",
+              "value is 2",
+              "given value, when read, then 2",
+              undefined,
+            ),
+          ]),
+        });
 
         // da-nail's third model call, after its two writes, waits: the first orchestrator closes while it is out. Its
         // abort is the close's, and pi sends the request again in the second one, which answers it.
@@ -859,39 +958,19 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
 
         const f = compose({
           home: at,
+          notes,
           agents,
           models,
           steps: [nail],
           timeoutMs: 120_000,
         });
         const ledger = f.ledger;
-        // A lone cl enters as submit enters it: Matt's spec, his two passes, and the engine builds it.
-        ledger.addIssue({
-          name: "rs",
-          path: join(at, "work", "rs.md"),
-          repo,
-          image,
-          test: suite,
-          setup,
-        });
-        const pass = { word: "pass" as const, reason: "Matt", findings: [] };
-        ledger.apply("rs", pass, "matt");
-        ledger.keepSpec(
-          "rs",
-          {
-            cls: [
-              cl(
-                "value",
-                "value is 2",
-                "given value, when read, then 2",
-                undefined,
-              ),
-            ],
-          },
-          "matt",
+        // The issue enters as submit enters it, at building, and the engine builds it from its notes.
+        ledger.addIssue(
+          { name: "rs", note: "_well/rs.md", repos: [repo] },
+          "building",
         );
-        ledger.apply("rs", pass, "matt");
-        await advance(ledger);
+        await advance(ledger, worldOf(f.runs));
         const sandbox = () =>
           execFileSync(
             "podman",
@@ -974,12 +1053,19 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       { timeout: 300_000 },
       async () => {
         const at = join(dir, "raise");
-        mkdirSync(join(at, "work"), { recursive: true });
-        for (const n of ["one", "two"])
-          writeFileSync(
-            join(at, "work", `rz-${n}.md`),
-            `---\ntype: cl\nstatus: new\n---\nThe cut ${n} of rz.\n\n---\n## Promises\n\n- given ${n}, when read, then 2\n`,
-          );
+        mkdirSync(at, { recursive: true });
+        // Matt's spec in the notes: two cls, in two phases.
+        publish({
+          rz: issueNote(false),
+          ...spec(
+            "rz",
+            [
+              cl("one", "one is 2", "given one, when read, then 2", 1),
+              cl("two", "two is 2", "given two, when read, then 2", 2),
+            ],
+            { approach: "one, then two", phases: ["one", "two"] },
+          ),
+        });
 
         // da-nail cannot meet the cut as it stands: it hands back two findings about the cl.
         const models = createModels();
@@ -1007,34 +1093,18 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const nailModel = `${faux.getModel().provider}:${faux.getModel().id}`;
         const f = compose({
           home: at,
+          notes,
           agents: { make: { "da-nail": daNail }, modelFor: () => nailModel },
           models,
           steps: [nail],
           timeoutMs: 120_000,
         });
         const ledger = f.ledger;
-        // The issue enters as submit enters it: Matt's spec, his two passes, two cls in two phases.
-        ledger.addIssue({
-          name: "rz",
-          path: join(at, "work", "rz.md"),
-          repo,
-          image,
-          test: suite,
-          setup,
-        });
-        const pass = { word: "pass" as const, reason: "Matt", findings: [] };
-        ledger.apply("rz", pass, "matt");
-        ledger.keepSpec(
-          "rz",
-          {
-            cls: [
-              cl("one", "one is 2", "given one, when read, then 2", 1),
-              cl("two", "two is 2", "given two, when read, then 2", 2),
-            ],
-          },
-          "matt",
+        // The issue enters as submit enters it, at building.
+        ledger.addIssue(
+          { name: "rz", note: "_well/rz.md", repos: [repo] },
+          "building",
         );
-        ledger.apply("rz", pass, "matt");
 
         const l = await f.loop();
         for (let i = 0; i < 10; i++) {
@@ -1066,7 +1136,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         ]);
         const line = blocked(ledger).find((x) => x.startsWith("rz  "));
         expect(line).toMatch(/^rz {2}escalated/);
-        expect(line).toContain("rz-one raised");
+        expect(line).toContain("rz-one is raised");
         expect(explain(ledger, join(at, "runs"), "rz")).toContain(
           "     cl: the promise names a file the checkout lacks (Promises 1)",
         );
@@ -1086,13 +1156,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       { timeout: 600_000 },
       async () => {
         const at = join(dir, "across");
-        mkdirSync(join(at, "work"), { recursive: true });
+        mkdirSync(at, { recursive: true });
         // two repos, each with its own land target
         const repoOf = (name: string) => {
           const r = join(at, name);
           mkdirSync(join(r, "test"), { recursive: true });
           writeFileSync(join(r, "README"), `${name}\n`);
-          writeFileSync(join(r, ".gitignore"), "deps/\n");
+          onCrate(r, name);
           // its full suite has a test from the start, so it runs before and after its cl
           writeFileSync(
             join(r, "test", "readme.test.mjs"),
@@ -1111,15 +1181,14 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         };
         const ra = repoOf("ra");
         const rb = repoOf("rb");
-        writeFileSync(
-          join(at, "work", "mr.md"),
-          issueNote(false)
+        publish({
+          mr: issueNote(false)
             .replace(
               "Two exports, value and double.",
               "One export in each of two repos.",
             )
             .replace("## Intent", "## Intent\n\nTWO REPOS"),
-        );
+        });
 
         const models = createModels();
         const model = (
@@ -1142,6 +1211,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         };
         const f = compose({
           home: at,
+          notes,
           agents: {
             make: {
               planner,
@@ -1157,18 +1227,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           timeoutMs: 120_000,
         });
         const ledger = f.ledger;
-        const repo = (name: string, r: { repo: string }) => ({
-          name,
-          repo: r.repo,
-          image,
-          test: suite,
-          setup,
-        });
-        ledger.addIssueAcross({
+        ledger.addIssue({
           name: "mr",
-          path: join(at, "work", "mr.md"),
-          image,
-          repos: [repo("ra", ra), repo("rb", rb)],
+          note: "_well/mr.md",
+          repos: [ra.repo, rb.repo],
         });
         const l = await f.loop();
         const settled = ["accepted", "raised", "escalated"];
@@ -1186,7 +1248,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(moves("mr"), JSON.stringify(ledger.events("mr"))).toEqual([
           "new>open",
           "open>planned",
-          "planned>building",
+          "planned>approved",
+          "approved>building",
           "building>built",
           "built>accepted",
         ]);
@@ -1241,7 +1304,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       { timeout: 900_000 },
       async () => {
         const at = join(dir, "versions");
-        mkdirSync(join(at, "work"), { recursive: true });
+        mkdirSync(at, { recursive: true });
         const registry = standInRegistry(join(at, "registry"));
         try {
           // The releases B's lockfile holds before the move: one previous version of each package ra ships.
@@ -1265,7 +1328,10 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           const one = released("@e2e/one", "1.0.0", "one");
           const two = released("@e2e/two", "0.9.0", "two");
 
-          /** A repo on crate: its check, its suite, and the files crate makes a dev image from. */
+          /**
+           * A repo on crate in its dev image: its check, its suite, and the files crate makes the dev image from, which
+           * each attempt takes from its worktree.
+           */
           const repoOf = (name: string) => {
             const r = join(at, name);
             mkdirSync(join(r, "scripts"), { recursive: true });
@@ -1274,7 +1340,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             git(r, "init", "-q", "-b", "main");
             writeFileSync(
               join(r, "crate.toml"),
-              `crate = "1"\nimage = "${image}"\n`,
+              'crate = "1"\nimage = "dev"\n',
             );
             // the repo's check: its dependencies installed, then its tests
             writeFileSync(
@@ -1306,7 +1372,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             return t;
           };
           /** A crate target, with crate's check output kept short enough to read in a failure. */
-          const onCrate = (repo: string, name: string) => {
+          const onServer = (repo: string, name: string) => {
             try {
               return crateTarget(repo, target(name));
             } catch (e) {
@@ -1358,11 +1424,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           }
           git(ra, "add", "-A");
           git(ra, "commit", "-q", "-m", "feat: the two packages, one and two");
-          const raBare = onCrate(ra, "ra");
+          const raBare = onServer(ra, "ra");
           const raMain = git(raBare, "rev-parse", "main");
           git(ra, "fetch", "-q", "server", "main");
-          // The repo takes its dev image at add: crate made it on the push that checked main.
-          const raImage = await devImage(ra);
 
           // B, which depends on both of A's packages: its lockfile holds their previous versions.
           const rb = repoOf("rb");
@@ -1407,14 +1471,12 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           );
           git(rb, "add", "-A");
           git(rb, "commit", "-q", "-m", "feat: b, on the two packages");
-          const rbBare = onCrate(rb, "rb");
+          const rbBare = onServer(rb, "rb");
           const rbStart = git(rbBare, "rev-parse", "main");
           git(rb, "fetch", "-q", "server", "main");
-          const rbImage = await devImage(rb);
 
-          writeFileSync(
-            join(at, "work", "dp.md"),
-            `---
+          publish({
+            dp: `---
 type: issue
 description: "Two packages in one repo, their dependent in the other. A fixture of the factory's end to end test."
 kind: task
@@ -1433,7 +1495,7 @@ One and two, each exported, with b on the versions ra published.
 - ra's one and two each export 2
 - rb's src/b.mjs exports b, which is 4, on the versions rb depends on
 `,
-          );
+          });
 
           // The factory, every step on scripted models, with the stand-in registry as its own.
           const models = createModels();
@@ -1457,6 +1519,7 @@ One and two, each exported, with b on the versions ra published.
           };
           const f = compose({
             home: at,
+            notes,
             agents: {
               make: {
                 planner,
@@ -1476,27 +1539,7 @@ One and two, each exported, with b on the versions ra published.
             timeoutMs: 180_000,
           });
           const ledger = f.ledger;
-          ledger.addIssueAcross({
-            name: "dp",
-            path: join(at, "work", "dp.md"),
-            image,
-            repos: [
-              {
-                name: "ra",
-                repo: ra,
-                image: raImage,
-                test: "scripts/check.sh all",
-                setup: npmSetup,
-              },
-              {
-                name: "rb",
-                repo: rb,
-                image: rbImage,
-                test: "scripts/check.sh all",
-                setup: npmSetup,
-              },
-            ],
-          });
+          ledger.addIssue({ name: "dp", note: "_well/dp.md", repos: [ra, rb] });
 
           const l = await f.loop();
           // The outside world, which the test plays: A's land is released as v1.2.0, and the next tick publishes it
@@ -1510,7 +1553,7 @@ One and two, each exported, with b on the versions ra published.
             git(raBare, "tag", "two-v1.0.0", landed);
             tagged = true;
           };
-          const publish = () => {
+          const toRegistry = () => {
             git(ra, "fetch", "-q", "server", "main");
             const tree = join(at, "a-landed");
             if (!existsSync(tree))
@@ -1528,7 +1571,7 @@ One and two, each exported, with b on the versions ra published.
               await l.settled();
               if (!tagged && git(raBare, "rev-parse", "main") !== raMain)
                 release();
-              else if (tagged && !published) publish();
+              else if (tagged && !published) toRegistry();
               if (settled.includes(ledger.item("dp").state)) break;
             }
             await l.tick();
@@ -1565,7 +1608,8 @@ One and two, each exported, with b on the versions ra published.
           expect(moves("dp")).toEqual([
             "new>open",
             "open>planned",
-            "planned>building",
+            "planned>approved",
+            "approved>building",
             "building>built",
             "built>accepted",
           ]);
@@ -1630,27 +1674,18 @@ One and two, each exported, with b on the versions ra published.
           expect(lock.packages["node_modules/@e2e/one"]?.version).toBe("1.2.0");
           expect(lock.packages["node_modules/@e2e/two"]?.version).toBe("1.0.0");
 
-          // The item took a dev image of the moved commits, one its attempts ran in: not main's, which the first
-          // move alone would leave. Its cache holds both moved versions, or the offline setup below fails.
-          const moved = ledger.item("dp-b").image;
-          expect(moved).not.toBe(image);
-          expect(moved).not.toBe(rbImage);
-          expect(moved).toMatch(/rb-dev:/);
+          // b's attempts ran in the dev image crate made from its worktree, at the moved commits: its cache holds both
+          // moved versions, or the offline setup below fails.
           const db = new DatabaseSync(join(at, "ledger.db"));
-          expect(
-            db
-              .prepare(
-                "SELECT DISTINCT image FROM check_runs WHERE name = 'dp-b'",
-              )
-              .all()
-              .map((x) => x["image"]),
-          ).toEqual([moved]);
+          const ranIn = db
+            .prepare(
+              "SELECT DISTINCT image FROM check_runs WHERE name = 'dp-b'",
+            )
+            .all()
+            .map((x) => String(x["image"]));
           db.close();
-
-          // The issue takes the same image for b's repo, so acceptance installs the moved lockfile offline.
-          expect(
-            ledger.item("dp").repos.find((r) => r.name === "rb")?.image,
-          ).toBe(moved);
+          expect(ranIn).toHaveLength(1);
+          expect(ranIn[0]).toMatch(/rb-dev:/);
           // b's attempts had their dependencies installed, offline, from that image's cache.
           expect(existsSync(join(f.runs, "dp", "cl", "b", "setup.done"))).toBe(
             true,

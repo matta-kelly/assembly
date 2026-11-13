@@ -4,10 +4,16 @@ import { next, retryLimit, reviewRounds, top } from "./table.ts";
 const once = { attempts: 1, rounds: 0 };
 
 describe("next", () => {
-  it("moves an issue along on pass: open to planned, planned to building, built to accepted", () => {
+  it("moves an issue along on pass: open to planned, planned to approved, its land to building, built to accepted", () => {
     expect(next("open", "issue", "pass", [], once)).toBe("planned");
-    expect(next("planned", "issue", "pass", [], once)).toBe("building");
+    expect(next("planned", "issue", "pass", [], once)).toBe("approved");
+    expect(next("approved", "issue", "pass", [], once)).toBe("building");
     expect(next("built", "issue", "pass", [], once)).toBe("accepted");
+  });
+
+  it("keeps an issue's plan land approved on retry, and sends a refused plan back to the planner", () => {
+    expect(next("approved", "issue", "retry", [], once)).toBe("approved");
+    expect(next("approved", "issue", "back", ["plan"], once)).toBe("open");
   });
 
   it("moves a cl along on pass: ready to red, red to green, green to approved", () => {
@@ -102,23 +108,33 @@ describe("next", () => {
 });
 
 describe("resume", () => {
-  it("takes an escalated item back to where it was when it was escalated", () => {
-    const c = { attempts: 0, rounds: 0 };
+  const c = { attempts: 0, rounds: 0 };
+
+  it("takes an escalated or raised item to the state it is given", () => {
     expect(
       next("escalated", "cl", "resume", [], { ...c, prior: "ready" }),
     ).toBe("ready");
     expect(
       next("escalated", "issue", "resume", [], { ...c, prior: "building" }),
     ).toBe("building");
+    expect(next("raised", "cl", "resume", [], { ...c, prior: "red" })).toBe(
+      "red",
+    );
+    expect(next("raised", "issue", "resume", [], { ...c, prior: "open" })).toBe(
+      "open",
+    );
   });
 
-  it("has no row from a state that is not escalated, or with no state to go back to", () => {
-    const c = { attempts: 0, rounds: 0 };
+  it("has no row from a state Matt does not hold, with no state to go to, or to an end or a hold", () => {
     expect(() =>
       next("ready", "cl", "resume", [], { ...c, prior: "ready" }),
     ).toThrow("no transition from ready on resume");
     expect(() => next("escalated", "cl", "resume", [], c)).toThrow(
       "no transition from escalated on resume",
     );
+    for (const prior of ["landed", "raised", "escalated"] as const)
+      expect(() =>
+        next("escalated", "cl", "resume", [], { ...c, prior }),
+      ).toThrow("no transition from escalated on resume");
   });
 });

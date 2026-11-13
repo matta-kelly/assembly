@@ -1,34 +1,32 @@
 /**
  * The ledger: where each item stands, its attempts, and an event for every move, in SQLite. It is the only state the
  * orchestrator holds, so a killed orchestrator starts again from it with nothing lost. An item is an issue, or one of
- * its cls. Each attempt keeps the agent's result, and each event is a message: the word that moved the item, why, and its
- * findings, so every trial's record is here.
+ * its cls. It holds no content: what to build is the notes, and what was built is each item's branch. Each attempt
+ * keeps the agent's result and the notes' commit it read, and each event is a message: the word that moved the item,
+ * why, and its findings, so every trial's record is here.
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { basename } from "node:path";
 import {
   causes,
   type CheckRun,
   type Finding,
   type Message,
-  type Repo,
 } from "../process/step.ts";
 import { next, type State } from "../process/table.ts";
 import { newSpan, type SpanRef } from "../effects/trace.ts";
 
-/** An item the factory moves, and what its steps need to run it. */
+/** An item the factory moves: where it stands, its note, and the repos it changes. */
 export interface Item {
   name: string; // the issue's name, or the cl's: <issue>-<cut>
   kind: "issue" | "cl";
   issue: string; // the issue it is, or belongs to
   seq: number; // a cl's place in its plan's order, from 1. 0 for an issue
   phase: number | null; // a cl's phase in its plan, from 1; null for an issue, and 1 for a lone cl
-  path: string; // its note
-  repo: string;
-  image: string;
-  test: string; // a cl: the command that runs its test files. An issue: the repo's full suite
-  setup: string; // the command that installs the repo's dependencies into a new worktree, offline. '' for none
-  repos: Repo[]; // an issue's repos when it has more than one, else none; a cl's always none
+  note: string; // its note, from the notes repo's root: _well/<name>.md
+  repo: string; // the repo it changes: an issue's first, when it has several
+  repos: string[]; // an issue's repos when it has more than one, else none; a cl's always none
   state: State;
   landed: string | null; // the commit main took for it, once it landed
 }
@@ -60,6 +58,7 @@ export interface Attempt {
   reason: string | null;
   cause: string | null;
   cost: number | null;
+  notes: string | null; // the commit of the notes' main it read
 }
 
 /** What one attempt used. Its tokens and cost are null while it is open, or when its run reported none. */
@@ -105,18 +104,14 @@ const cause = `CHECK (cause IS NULL OR cause IN (${causes.map((c) => `'${c}'`).j
 
 const tables = `
   CREATE TABLE IF NOT EXISTS items (
-    name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
-    repo TEXT NOT NULL, image TEXT NOT NULL, test TEXT NOT NULL, setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
-    phase INTEGER, repos TEXT NOT NULL DEFAULT '[]', landed TEXT
-  );
-  CREATE TABLE IF NOT EXISTS specs (
-    issue TEXT PRIMARY KEY REFERENCES items(name), spec TEXT NOT NULL, by TEXT NOT NULL, commit_sha TEXT
+    name TEXT PRIMARY KEY, kind TEXT NOT NULL, issue TEXT NOT NULL, seq INTEGER NOT NULL, note TEXT NOT NULL,
+    repo TEXT NOT NULL, state TEXT NOT NULL, phase INTEGER, repos TEXT NOT NULL DEFAULT '[]', landed TEXT
   );
   CREATE TABLE IF NOT EXISTS attempts (
     name TEXT NOT NULL REFERENCES items(name), n INTEGER NOT NULL, step TEXT NOT NULL,
     started TEXT NOT NULL, ended TEXT, duration_ms INTEGER, resumed INTEGER NOT NULL DEFAULT 0, word TEXT, reason TEXT, cause TEXT ${cause},
     tokens INTEGER, tokens_in INTEGER, tokens_out INTEGER, cached_in INTEGER, cost REAL, result TEXT,
-    trace_id TEXT, span_id TEXT,
+    trace_id TEXT, span_id TEXT, notes TEXT,
     PRIMARY KEY (name, n)
   );
   CREATE TABLE IF NOT EXISTS events (
@@ -139,24 +134,46 @@ const tables = `
 
 const now = () => new Date().toISOString();
 
+/**
+ * Brings a ledger made before the notes were the only spec to this shape: its kept specs go, an item's note is its
+ * note's path in the notes repo (every issue's and cl's is in _well/), its repos are their paths, and the settings it
+ * stored go: each attempt reads them from its worktree. A land's commit and an attempt's notes' commit get columns.
+ */
+function migrate(db: DatabaseSync) {
+  const has = (table: string, column: string) =>
+    (
+      db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    ).some((c) => c.name === column);
+  db.exec("DROP TABLE IF EXISTS specs");
+  if (!has("attempts", "notes"))
+    db.exec("ALTER TABLE attempts ADD COLUMN notes TEXT");
+  if (!has("items", "landed"))
+    db.exec("ALTER TABLE items ADD COLUMN landed TEXT");
+  if (!has("items", "path")) return;
+  db.exec("ALTER TABLE items RENAME COLUMN path TO note");
+  if (!has("items", "repos"))
+    db.exec("ALTER TABLE items ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
+  const rows = db.prepare("SELECT name, note, repos FROM items").all() as {
+    name: string;
+    note: string;
+    repos: string;
+  }[];
+  for (const r of rows)
+    db.prepare("UPDATE items SET note = ?, repos = ? WHERE name = ?").run(
+      `_well/${basename(r.note)}`,
+      JSON.stringify(
+        (JSON.parse(r.repos) as { repo: string }[]).map((p) => p.repo),
+      ),
+      r.name,
+    );
+  for (const c of ["image", "test", "setup"])
+    if (has("items", c)) db.exec(`ALTER TABLE items DROP COLUMN ${c}`);
+}
+
 export function open(file: string) {
   const db = new DatabaseSync(file);
   db.exec(tables);
-  // A ledger made before an issue could hold several repos has no column for them.
-  const columns = db.prepare("PRAGMA table_info(items)").all() as {
-    name: string;
-  }[];
-  if (!columns.some((c) => c.name === "repos"))
-    db.exec("ALTER TABLE items ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
-  // A ledger made before a land kept its commit has no column for it.
-  if (!columns.some((c) => c.name === "landed"))
-    db.exec("ALTER TABLE items ADD COLUMN landed TEXT");
-  // A ledger made before a spec kept its commit has no column for it.
-  const specColumns = db.prepare("PRAGMA table_info(specs)").all() as {
-    name: string;
-  }[];
-  if (!specColumns.some((c) => c.name === "commit_sha"))
-    db.exec("ALTER TABLE specs ADD COLUMN commit_sha TEXT");
+  migrate(db);
 
   // A write inside another write joins its transaction, so a write made of others is still one.
   let depth = 0;
@@ -179,7 +196,7 @@ export function open(file: string) {
   /** An item as its row holds it, its repos parsed. */
   const itemOf = (row: unknown): Item => {
     const i = row as Omit<Item, "repos"> & { repos: string };
-    return { ...i, repos: JSON.parse(i.repos) as Repo[] };
+    return { ...i, repos: JSON.parse(i.repos) as string[] };
   };
   const itemsOf = (rows: unknown[]) => rows.map(itemOf);
 
@@ -339,66 +356,56 @@ export function open(file: string) {
     return c;
   }
 
-  /** The times the item was sent back for another round: each back that did not raise it. */
+  /**
+   * The times the item was sent back for another round since Matt last moved it: each back that did not raise it. A
+   * resume gives a fresh budget.
+   */
   function roundsOf(name: string): number {
     const { c } = db
       .prepare(
-        "SELECT COUNT(*) AS c FROM events WHERE name = ? AND word = 'back' AND to_state != 'raised'",
+        `SELECT COUNT(*) AS c FROM events WHERE name = ? AND word = 'back' AND to_state != 'raised'
+         AND id > (SELECT COALESCE(MAX(id), 0) FROM events WHERE name = ? AND by = 'matt')`,
       )
-      .get(name) as { c: number };
+      .get(name, name) as { c: number };
     return c;
   }
 
-  /** Where the item was when it was last escalated, or undefined if it never was. */
+  /** Where the item was before it came to the state it holds now: what a resume takes it back to by default. */
   function priorOf(name: string): State | undefined {
     const row = db
       .prepare(
-        "SELECT from_state FROM events WHERE name = ? AND to_state = 'escalated' ORDER BY id DESC LIMIT 1",
+        `SELECT from_state FROM events WHERE name = ? AND to_state = (SELECT state FROM items WHERE name = ?)
+         AND from_state != to_state ORDER BY id DESC LIMIT 1`,
       )
-      .get(name) as { from_state: State } | undefined;
+      .get(name, name) as { from_state: State } | undefined;
     return row?.from_state;
   }
 
   return {
     item,
 
-    /** Adds an issue of one repo, at open. */
-    addIssue(
-      i: Pick<Item, "name" | "path" | "repo" | "image" | "test"> &
-        Partial<Pick<Item, "setup">>,
-    ) {
-      tx(() => {
-        db.prepare(
-          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state) VALUES (?, 'issue', ?, 0, ?, ?, ?, ?, ?, 'open')",
-        ).run(i.name, i.name, i.path, i.repo, i.image, i.test, i.setup ?? "");
-        event(i.name, null, "new", null, "open", "added");
-      });
-    },
-
     /**
-     * Adds an issue of several repos, at open. Its image is its own steps' sandbox's; its repo, test and setup are its
-     * first repo's. Given one repo, it is an issue of one repo, in that repo's image.
+     * Adds an issue, at open for the factory's planner, or at building when its notes hold its spec. Its repo is its
+     * first; it holds the rest only when it has more than one.
      */
-    addIssueAcross(
-      i: Pick<Item, "name" | "path" | "image"> & { repos: Repo[] },
+    addIssue(
+      i: Pick<Item, "name" | "note" | "repos">,
+      state: "open" | "building" = "open",
     ) {
       const [first] = i.repos;
       if (!first) throw new Error(`${i.name}: an issue needs a repo`);
-      const several = i.repos.length > 1 ? i.repos : [];
       tx(() => {
         db.prepare(
-          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state, repos) VALUES (?, 'issue', ?, 0, ?, ?, ?, ?, ?, 'open', ?)",
+          "INSERT INTO items (name, kind, issue, seq, note, repo, state, repos) VALUES (?, 'issue', ?, 0, ?, ?, ?, ?)",
         ).run(
           i.name,
           i.name,
-          i.path,
-          first.repo,
-          several.length ? i.image : first.image,
-          first.test,
-          first.setup,
-          JSON.stringify(several),
+          i.note,
+          first,
+          state,
+          JSON.stringify(i.repos.length > 1 ? i.repos : []),
         );
-        event(i.name, null, "new", null, "open", "added");
+        event(i.name, null, "new", null, state, "added");
       });
     },
 
@@ -407,25 +414,14 @@ export function open(file: string) {
 
     /** Adds a cl of an issue, at `state`: ready, or waiting for the phase before it. A lone cl is phase 1. */
     addCl(
-      i: Omit<Item, "kind" | "state" | "setup" | "phase" | "repos" | "landed"> &
-        Partial<Pick<Item, "setup" | "phase">>,
+      i: Pick<Item, "name" | "issue" | "seq" | "note" | "repo"> &
+        Partial<Pick<Item, "phase">>,
       state: State,
     ) {
       tx(() => {
         db.prepare(
-          "INSERT INTO items (name, kind, issue, seq, path, repo, image, test, setup, state, phase) VALUES (?, 'cl', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).run(
-          i.name,
-          i.issue,
-          i.seq,
-          i.path,
-          i.repo,
-          i.image,
-          i.test,
-          i.setup ?? "",
-          state,
-          i.phase ?? 1,
-        );
+          "INSERT INTO items (name, kind, issue, seq, note, repo, state, phase) VALUES (?, 'cl', ?, ?, ?, ?, ?, ?)",
+        ).run(i.name, i.issue, i.seq, i.note, i.repo, state, i.phase ?? 1);
         event(i.name, null, "new", null, state, "added");
       });
     },
@@ -511,6 +507,21 @@ export function open(file: string) {
       ).run(name, n);
     },
 
+    /** Pins the commit of the notes' main the attempt reads, once, as it starts: its record of the spec it saw. */
+    pin(name: string, n: number, commit: string) {
+      db.prepare(
+        "UPDATE attempts SET notes = ? WHERE name = ? AND n = ? AND notes IS NULL",
+      ).run(commit, name, n);
+    },
+
+    /** The commit of the notes the attempt read, or undefined before it started. */
+    pinned(name: string, n: number): string | undefined {
+      const row = db
+        .prepare("SELECT notes FROM attempts WHERE name = ? AND n = ?")
+        .get(name, n) as { notes: string | null } | undefined;
+      return row?.notes ?? undefined;
+    },
+
     /** How many times the attempt was taken up. */
     resumed(name: string, n: number): number {
       const row = db
@@ -522,26 +533,29 @@ export function open(file: string) {
     /** The attempts made at this state since the item last entered it. */
     attempts: attemptsAt,
 
-    /** The times the item was sent back for another round: each back that did not raise it. */
+    /** The times the item was sent back for another round since Matt last moved it. */
     rounds: roundsOf,
+
+    /** Where the item was before it came to its state: where a resume takes it by default. */
+    prior: priorOf,
 
     /**
      * The one door: applies a message to an item by the table, whoever sends it, in one transaction with one event. An
      * attempt's message counts against the limits, ends the attempt with its result, usage and test run, and a word the
      * table has no row for escalates the item, with why, so it is never left open to run again. The orchestrator's and
-     * Matt's are applied as the table says, and a word with no row throws. Gives back the item's new state.
+     * Matt's are applied as the table says, and a word with no row throws: a resume goes to `target`, else to where
+     * the item was before. Gives back the item's new state.
      */
-    apply(name: string, m: Message, by: By): State {
+    apply(name: string, m: Message, by: By, target?: State): State {
       return tx(() => {
         const { state, kind } = item(name);
         const about = m.findings.map((f) => f.about);
         if (typeof by !== "object") {
+          const prior = target ?? priorOf(name);
           const to = next(state, kind, m.word, about, {
             attempts: 0,
             rounds: 0,
-            ...(state === "escalated" && priorOf(name)
-              ? { prior: priorOf(name) as State }
-              : {}),
+            ...(prior ? { prior } : {}),
           });
           moveTo(name, to, m, by);
           return to;
@@ -562,35 +576,6 @@ export function open(file: string) {
       });
     },
 
-    /** The spec Matt submitted for an issue, kept with who made it and the commit it was read at, or undefined. */
-    spec(
-      issue: string,
-    ): { spec: unknown; by: string; commit?: string } | undefined {
-      const row = db
-        .prepare("SELECT spec, by, commit_sha FROM specs WHERE issue = ?")
-        .get(issue) as
-        { spec: string; by: string; commit_sha: string | null } | undefined;
-      return (
-        row && {
-          spec: JSON.parse(row.spec),
-          by: row.by,
-          ...(row.commit_sha === null ? {} : { commit: row.commit_sha }),
-        }
-      );
-    },
-
-    /** Keeps an issue's spec, who made it and the commit it was read at, in place of any before. */
-    keepSpec(issue: string, spec: unknown, by: string, commit?: string) {
-      db.prepare(
-        "INSERT INTO specs (issue, spec, by, commit_sha) VALUES (?, ?, ?, ?) ON CONFLICT(issue) DO UPDATE SET spec = excluded.spec, by = excluded.by, commit_sha = excluded.commit_sha",
-      ).run(issue, JSON.stringify(spec), by, commit ?? null);
-    },
-
-    /** Lets go of an issue's kept spec: its next plan is the factory's planner's. */
-    dropSpec(issue: string) {
-      db.prepare("DELETE FROM specs WHERE issue = ?").run(issue);
-    },
-
     /** The result of the item's last attempt at `step` that passed, or undefined. */
     passed(name: string, step: State): unknown {
       const row = db
@@ -599,36 +584,6 @@ export function open(file: string) {
         )
         .get(name, step) as { result: string | null } | undefined;
       return row?.result ? JSON.parse(row.result) : undefined;
-    },
-
-    /** The item's image changes: the dev image of the commit its move made, which its attempts run in. */
-    reimage(name: string, image: string) {
-      db.prepare("UPDATE items SET image = ? WHERE name = ?").run(image, name);
-    },
-
-    /**
-     * The image of the issue's repo at `repo` changes: the dev image of the commit a cl's move made there, which the
-     * issue's own steps use. A single-repo issue's own image is that repo's image. Nothing changes when the ledger has
-     * no such issue, or no such repo entry.
-     */
-    reimageRepo(issue: string, repo: string, image: string) {
-      const row = db.prepare("SELECT * FROM items WHERE name = ?").get(issue);
-      if (!row) return;
-      const i = itemOf(row);
-      tx(() => {
-        if (i.repos.length)
-          db.prepare("UPDATE items SET repos = ? WHERE name = ?").run(
-            JSON.stringify(
-              i.repos.map((p) => (p.repo === repo ? { ...p, image } : p)),
-            ),
-            issue,
-          );
-        else if (i.repo === repo)
-          db.prepare("UPDATE items SET image = ? WHERE name = ?").run(
-            image,
-            issue,
-          );
-      });
     },
 
     /** Records a land: the commit main took for the cl, and the files it changed. */
@@ -696,7 +651,7 @@ export function open(file: string) {
     attemptsOf(name: string) {
       return db
         .prepare(
-          "SELECT n, step, started, ended, resumed, word, reason, cause, cost FROM attempts WHERE name = ? ORDER BY n",
+          "SELECT n, step, started, ended, resumed, word, reason, cause, cost, notes FROM attempts WHERE name = ? ORDER BY n",
         )
         .all(name) as unknown as Attempt[];
     },

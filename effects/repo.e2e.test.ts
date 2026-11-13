@@ -1,10 +1,9 @@
 /**
- * The dev image of a lockfile no image has yet, on the real engine (`just e2e`): crate makes the image from the commit
- * the orchestrator asks for, and an offline `npm ci` in it passes, in a container of its own. This is what a cl's move
- * rests on: the lockfile it commits is newer than any dev image the repo has.
+ * The dev image of a lockfile no image has yet, on the real engine (`just e2e`): crate makes the image from the cl's
+ * worktree, as an attempt reads its settings, and an offline `npm ci` in it passes, in a container of its own. This is
+ * what a cl's move rests on: the lockfile it commits is newer than any dev image the repo has.
  *
- * The repo's checkout stays at main while the image is asked for a branch commit: the case the factory meets, since an
- * attempt is a worktree and the repo is never checked out at the cl's branch.
+ * The repo's own checkout stays at main: the image comes from the worktree, at the cl's branch.
  */
 
 import { execFileSync } from "node:child_process";
@@ -20,7 +19,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Run } from "../process/step.ts";
 import { containerfile, devcontainer, smoke } from "./dev-image.fixture.ts";
-import { devImage, npmSetup } from "./repo.ts";
+import { npmSetup, settingsAt } from "./repo.ts";
 import { needsSetup, runSetup } from "./setup.ts";
 
 const git = (repo: string, ...args: string[]) =>
@@ -105,12 +104,15 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           /is-odd/,
         );
 
-        // The checkout is at main, so the image is made from the commit itself.
-        const made = await devImage(repo, commit).then(
-          (tag) => tag,
-          (e: Error) => `no tag: ${e.message}`,
+        // The image is made from the worktree, at the moved commit.
+        expect(git(work, "rev-parse", "HEAD")).toBe(commit);
+        const settings = await settingsAt(work, "repo").then(
+          (s) => s,
+          (e: Error) => ({ image: `no tag: ${e.message}`, setup: "" }),
         );
+        const made = settings.image;
         expect(made).not.toMatch(/^no tag: /);
+        expect(settings.setup).toBe(npmSetup);
 
         // An attempt of that commit: its setup installs the lockfile from that image's cache, with no network.
         const r: Run = {
@@ -119,7 +121,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           issue: "is",
           seq: 1,
           n: 1,
-          path: join(dir, "is-a.md"),
+          note: "_well/is-a.md",
+          notes: { repo: "", commit: "" },
           repo,
           image: made,
           test: "true",

@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Run } from "../process/step.ts";
+import type { Run, Tree } from "../process/step.ts";
 import { touched } from "./git.ts";
 import { partsOf } from "./runs.ts";
 import { offline } from "./sandbox.ts";
@@ -25,7 +25,7 @@ export const setupLimitS = 10 * 60;
 const tail = 1_500;
 
 /** Where a passed setup is marked: the item's folder, beside its worktree, above the attempt's. */
-const done = (r: Run) => join(dirname(r.dir), "setup.done");
+const done = (r: Tree) => join(dirname(r.dir), "setup.done");
 
 /** Whether the item's worktree still needs its setup: it has one, and it has not passed. */
 export const needsSetup = (r: Run): boolean =>
@@ -34,7 +34,7 @@ export const needsSetup = (r: Run): boolean =>
     : r.setup !== "" && !existsSync(done(r));
 
 /** Forgets a setup: the worktree was made again, with nothing installed. */
-export const forgetSetup = (r: Run) => {
+export const forgetSetup = (r: Tree) => {
   for (const p of partsOf(r)) rmSync(done(p), { force: true });
 };
 

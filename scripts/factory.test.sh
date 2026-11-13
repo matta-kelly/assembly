@@ -27,8 +27,8 @@ n=0
 n=$((n + 1))
 printf '%s\n' "$n" >"$CALLS/podman-count"
 printf '%s\n' "$@" >"$CALLS/podman.$n"
-printf 'ASSEMBLY_REPOS=%s\nASSEMBLY_HOME=%s\nASSEMBLY_DEV_IMAGES=%s\nFIREWORKS_API_KEY=%s\nGH_TOKEN=%s\n' \
-  "${ASSEMBLY_REPOS-}" "${ASSEMBLY_HOME-}" "${ASSEMBLY_DEV_IMAGES-}" \
+printf 'ASSEMBLY_REPOS=%s\nASSEMBLY_NOTES=%s\nASSEMBLY_HOME=%s\nASSEMBLY_DEV_IMAGES=%s\nFIREWORKS_API_KEY=%s\nGH_TOKEN=%s\n' \
+  "${ASSEMBLY_REPOS-}" "${ASSEMBLY_NOTES-}" "${ASSEMBLY_HOME-}" "${ASSEMBLY_DEV_IMAGES-}" \
   "${FIREWORKS_API_KEY-}" "${GH_TOKEN-}" >"$CALLS/podman-env.$n"
 exit 0
 STUB
@@ -180,6 +180,8 @@ launch_args() { # cwd, repos, home, verb, args...
     -e
     ASSEMBLY_REPOS
     -e
+    ASSEMBLY_NOTES
+    -e
     GIT_AUTHOR_NAME=
     -e
     GIT_AUTHOR_EMAIL=
@@ -202,6 +204,7 @@ launch_args() { # cwd, repos, home, verb, args...
     -v
     "$want_home:$want_home"
   )
+  if [ -n "${want_notes_mount:-}" ]; then run_args+=(-v "$want_notes_mount:$want_notes_mount"); fi
   if [ "$want_repos" != "$lot" ]; then run_args+=(-v "$lot:$lot"); fi
   if [ -e /etc/localtime ]; then run_args+=(-v /etc/localtime:/etc/localtime:ro); fi
   run_args+=(
@@ -292,7 +295,7 @@ check "submit runs over ssh, with its arguments" \
 absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
-# an option's value is not the issue: a repo path goes to the server, and is not refused as a note path
+# an option's value goes to the server in its place: a repo path, before the issue
 calls=$(calls_for repo)
 out=$(
   cd "$root" &&
@@ -325,22 +328,6 @@ check "submit with no argument runs over ssh" \
 absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
-# an option's value is not the issue: --at's ref, with a slash, goes to the server too
-calls=$(calls_for at)
-out=$(
-  cd "$root" &&
-    PATH="$stub:$PATH" CALLS="$calls" SAID="submitted" SAID_CODE=0 \
-      ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
-      "$factory" submit --at server/main fx 2>"$calls/err"
-)
-code=$?
-check "submit takes an --at ref to the server" 0 "$code"
-check "the --at ref and the issue go over ssh in order" \
-  "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\n--at\nserver/main\nfx')" \
-  "$(cat "$calls/ssh" 2>/dev/null || true)"
-absent "$calls/podman-count" "podman"
-absent "$calls/rbw-run" "rbw-run"
-
 # a failure on the server is the laptop's failure, with the same output
 calls=$(calls_for refused)
 out=$(
@@ -358,33 +345,22 @@ check "run takes every argument over ssh" \
 absent "$calls/podman-count" "podman"
 absent "$calls/rbw-run" "rbw-run"
 
-# a note path is refused: the server reads its notes from git, and submit takes an issue's name
-note=$tmp/fx.md
-printf -- '---\ntype: issue\n---\n' >"$note"
-for row in "add|$note" "submit|notes/fx.md" "add|fx.md" "submit|notes/fx"; do
-  verb=${row%%|*}
-  arg=${row#*|}
-  calls=$(calls_for "path-${verb}-$(printf '%s' "$arg" | tr '/' '_')")
-  out=$(
-    cd "$root" &&
-      PATH="$stub:$PATH" CALLS="$calls" SAID="on the server" SAID_CODE=0 \
-        ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
-        "$factory" "$verb" "$arg" 2>&1
-  )
-  code=$?
-  if [ "$code" -eq 0 ]; then
-    printf 'AssertionError: %s did not refuse the note path %s\n' "$verb" "$arg" >&2
-    fail=1
-  fi
-  absent "$calls/ssh" "ssh (after a refused note path)"
-  case "$out" in
-    *"$arg"*) ;;
-    *)
-      printf 'AssertionError: the refusal for %s does not name %s\n' "$verb" "$arg" >&2
-      fail=1
-      ;;
-  esac
-done
+# a path given for the issue goes to the server as it is: the server reads notes from git, and refuses a name that is
+# not an issue's
+calls=$(calls_for path-arg)
+out=$(
+  cd "$root" &&
+    PATH="$stub:$PATH" CALLS="$calls" SAID="notes/fx.md: an issue's name is kebab-case" SAID_CODE=1 \
+      ASSEMBLY_SERVER=assembly@monkeybusiness XDG_STATE_HOME="$tmp/state" \
+      "$factory" submit notes/fx.md 2>"$calls/err"
+)
+code=$?
+check "a path for the issue is the server's to refuse" 1 "$code"
+check "the server's refusal is the laptop's output" "notes/fx.md: an issue's name is kebab-case" "$out"
+check "the path goes over ssh as it is" \
+  "$(printf 'assembly@monkeybusiness\nfactory\nsubmit\nnotes/fx.md')" \
+  "$(cat "$calls/ssh" 2>/dev/null || true)"
+absent "$calls/podman-count" "podman"
 
 # --- the folder and the home --------------------------------------------------------------------------------------
 
@@ -401,13 +377,14 @@ check_here() { # name, want repos, want home, xdg state, assignments...
   calls=$(calls_for "here-$name")
   (
     cd "$root" &&
-      env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
         PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$xdg" \
         "${git_identity[@]}" "$@" "$factory" status 2>"$calls/err"
   )
   local code=$?
   check "$name: status runs here" 0 "$code"
   has_env "$calls" 2 ASSEMBLY_REPOS "$want_repos" "$name: the folder"
+  has_env "$calls" 2 ASSEMBLY_NOTES "$want_repos/kinetic" "$name: the notes repo, kinetic in the folder"
   has_env "$calls" 2 ASSEMBLY_HOME "$want_home" "$name: the home"
   expect_crate_mount "$calls" "$name: crate"
   launch_args "$root" "$want_repos" "$want_home" status
@@ -428,7 +405,7 @@ check_here neither "$lot" "$tmp/state-neither/assembly" "$tmp/state-neither"
 calls=$(calls_for here-home-home)
 (
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       -u XDG_STATE_HOME PATH="$stub:$PATH" CALLS="$calls" "${git_identity[@]}" \
       "$factory" status 2>"$calls/err"
 )
@@ -443,76 +420,60 @@ exact_call "$calls" 1 "home under HOME: the build" "${build_args[@]}"
 exact_call "$calls" 2 "home under HOME: the run" "${run_args[@]}"
 absent "$calls/ssh" "ssh (home under HOME)"
 
-# the folder searched for the repos that need a dev image is ASSEMBLY_REPOS, not lot. The repo has no copy of
-# scripts/dev-image.sh: the factory takes it all the same, and gets the image in its own container, from crate.
+# submit runs here with the folder it is given: the command line finds the repos on crate there, and the notes repo
 roots=$tmp/roots
-dev=$roots/devrepo
-mkdir -p "$dev/scripts"
-git -C "$dev" init -q -b main
-git -C "$dev" remote add server core@localhost:git/devrepo.git
-printf 'image = "dev"\n' >"$dev/crate.toml"
-git -C "$dev" -c user.name=t -c user.email=t@t add -A
-git -C "$dev" -c user.name=t -c user.email=t@t commit -q -m main
-git -C "$dev" update-ref refs/remotes/server/main HEAD
-calls=$(calls_for here-dev)
+mkdir -p "$roots"
+calls=$(calls_for here-submit)
 (
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
       CALLS="$calls" XDG_STATE_HOME="$tmp/state-dev" ASSEMBLY_REPOS="$roots" \
       ASSEMBLY_HOME="$tmp/home-dev" "${git_identity[@]}" \
       "$factory" submit fx 2>"$calls/err"
 )
 code=$?
-check "a dev repo under the given folder, submit runs here" 0 "$code"
-has_env "$calls" 2 ASSEMBLY_REPOS "$roots" "the folder given"
-check "the dev image is no longer passed in, the orchestrator makes it" \
+check "submit runs here, in the folder given" 0 "$code"
+has_env "$calls" 2 ASSEMBLY_REPOS "$roots" "submit: the folder given"
+has_env "$calls" 2 ASSEMBLY_NOTES "$roots/kinetic" "submit: the notes repo in it"
+check "no dev image is passed in: each attempt makes its own" \
   "ASSEMBLY_DEV_IMAGES=" \
   "$(grep '^ASSEMBLY_DEV_IMAGES=' "$calls/podman-env.2" 2>/dev/null || true)"
-expect_crate_mount "$calls" "a dev repo under the given folder: crate"
+expect_crate_mount "$calls" "submit: crate"
 launch_args "$root" "$roots" "$tmp/home-dev" submit fx
-check "a dev repo under the given folder: podman's two calls" 2 \
-  "$(cat "$calls/podman-count" 2>/dev/null || true)"
-exact_call "$calls" 1 "a dev repo under the given folder: the build" "${build_args[@]}"
-exact_call "$calls" 2 "a dev repo under the given folder: the run" "${run_args[@]}"
+check "submit: podman's two calls" 2 "$(cat "$calls/podman-count" 2>/dev/null || true)"
+exact_call "$calls" 1 "submit: the build" "${build_args[@]}"
+exact_call "$calls" 2 "submit: the run" "${run_args[@]}"
 absent "$calls/rbw-run" "rbw-run (submit takes no key)"
-absent "$calls/ssh" "ssh (a dev repo under the given folder)"
+absent "$calls/ssh" "ssh (submit here)"
 
-# a repo given by --repo, outside ASSEMBLY_REPOS, goes to the run, and its dev image is made in the orchestrator too
+# a notes repo outside the folder of clones, given by ASSEMBLY_NOTES, goes to the run, mounted at its own path; a repo
+# given by --repo goes with it
 outside=$tmp/outside
-outside_note=$tmp/outside-issue.md
-printf -- '---\ntype: issue\n---\n' >"$outside_note"
-mkdir -p "$outside/scripts"
-git -C "$outside" init -q -b main
-git -C "$outside" remote add server core@localhost:git/outside.git
-printf 'image = "dev"\n' >"$outside/crate.toml"
-git -C "$outside" -c user.name=t -c user.email=t@t add -A
-git -C "$outside" -c user.name=t -c user.email=t@t commit -q -m main
-git -C "$outside" update-ref refs/remotes/server/main HEAD
+outside_notes=$tmp/outside-notes
+mkdir -p "$outside" "$outside_notes"
 empty_repos=$tmp/empty-repos
 mkdir -p "$empty_repos"
 outside_home=$tmp/home-outside
-calls=$(calls_for here-repo-dev)
+calls=$(calls_for here-notes-outside)
 (
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
-      CALLS="$calls" ASSEMBLY_REPOS="$empty_repos" ASSEMBLY_HOME="$outside_home" \
-      "${git_identity[@]}" "$factory" add "$outside_note" --repo "$outside" \
-      2>"$calls/err"
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_DEV_IMAGES PATH="$stub:$PATH" \
+      CALLS="$calls" ASSEMBLY_REPOS="$empty_repos" ASSEMBLY_NOTES="$outside_notes" \
+      ASSEMBLY_HOME="$outside_home" "${git_identity[@]}" \
+      "$factory" submit fx --repo "$outside" 2>"$calls/err"
 )
 code=$?
-check "a dev repo given by --repo outside ASSEMBLY_REPOS, add runs here" 0 "$code"
-has_env "$calls" 2 ASSEMBLY_REPOS "$empty_repos" "the given --repo: the folder"
-check "the dev image of the repo given by --repo is not passed in, the orchestrator makes it" \
-  "ASSEMBLY_DEV_IMAGES=" \
-  "$(grep '^ASSEMBLY_DEV_IMAGES=' "$calls/podman-env.2" 2>/dev/null || true)"
-expect_crate_mount "$calls" "a dev repo given by --repo: crate"
-launch_args "$root" "$empty_repos" "$outside_home" add "$outside_note" --repo "$outside"
-check "a dev repo given by --repo: podman's two calls" 2 \
+check "a notes repo outside the folder: submit runs here" 0 "$code"
+has_env "$calls" 2 ASSEMBLY_NOTES "$outside_notes" "the notes repo given"
+expect_crate_mount "$calls" "a notes repo outside the folder: crate"
+want_notes_mount=$outside_notes
+launch_args "$root" "$empty_repos" "$outside_home" submit fx --repo "$outside"
+want_notes_mount=
+check "a notes repo outside the folder: podman's two calls" 2 \
   "$(cat "$calls/podman-count" 2>/dev/null || true)"
-exact_call "$calls" 1 "a dev repo given by --repo: the build" "${build_args[@]}"
-exact_call "$calls" 2 "a dev repo given by --repo: the run" "${run_args[@]}"
-absent "$calls/rbw-run" "rbw-run (add takes no key)"
-absent "$calls/ssh" "ssh (a dev repo given by --repo)"
+exact_call "$calls" 1 "a notes repo outside the folder: the build" "${build_args[@]}"
+exact_call "$calls" 2 "a notes repo outside the folder: the run, the notes repo mounted" "${run_args[@]}"
+absent "$calls/ssh" "ssh (a notes repo outside the folder)"
 
 # --- the server ---------------------------------------------------------------------------------------------------
 
@@ -520,7 +481,7 @@ absent "$calls/ssh" "ssh (a dev repo given by --repo)"
 calls=$(calls_for here-status)
 out=$(
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" "$factory" status 2>"$calls/err"
 )
@@ -541,7 +502,7 @@ exact_call "$calls" 2 "here status: the run" "${run_args[@]}"
 calls=$(calls_for here-top)
 (
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" "$factory" top 2>"$calls/err"
 )
@@ -569,7 +530,7 @@ mkdir -p "$elsewhere"
 calls=$(calls_for elsewhere)
 (
   cd "$elsewhere" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state-elsewhere" \
       "${git_identity[@]}" "$factory" status 2>"$calls/err"
 )
@@ -596,7 +557,7 @@ mkdir -p "$ssh_home/.ssh"
 calls=$(calls_for here-ssh)
 (
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state" "${git_identity[@]}" HOME="$ssh_home" "$factory" status 2>"$calls/err"
 )
@@ -611,7 +572,7 @@ fi
 calls=$(calls_for here-run)
 out=$(
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state" \
       FIREWORKS_API_KEY=host-fireworks GH_TOKEN=host-gh \
       "${git_identity[@]}" "$factory" run 2>"$calls/err"
@@ -641,7 +602,7 @@ run_refused() { # name, fireworks (unset, or its value), gh, the keys the refusa
   [ "$gh" = unset ] || args+=(GH_TOKEN="$gh")
   out=$(
     cd "$root" &&
-      env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+      env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
         -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
         XDG_STATE_HOME="$tmp/state-refused-$name" "${git_identity[@]}" \
         "${args[@]}" "$factory" run 2>&1
@@ -681,7 +642,7 @@ chmod +x "$recipe"
 calls=$(calls_for laptop-run)
 out=$(
   cd "$laptop_cwd" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state-laptop-run" "${git_identity[@]}" \
       VAULT_FIREWORKS_API_KEY=vault-fireworks VAULT_GH_TOKEN=vault-gh \
@@ -704,7 +665,7 @@ absent "$calls/ssh" "ssh (the laptop's run)"
 calls=$(calls_for laptop-status)
 out=$(
   cd "$laptop_cwd" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       -u FIREWORKS_API_KEY -u GH_TOKEN PATH="$stub:$PATH" CALLS="$calls" \
       XDG_STATE_HOME="$tmp/state-laptop-status" "${git_identity[@]}" \
       "$recipe" status 2>"$calls/err"
@@ -715,25 +676,26 @@ present "$calls/podman-count" "podman (the laptop's status runs here)"
 absent "$calls/rbw-run" "rbw-run (the laptop's status asks no key)"
 absent "$calls/ssh" "ssh (the laptop's status)"
 
-# given a home with no crate install, when add or submit runs here, then it stops before the container, naming it
+# given a home with no crate install, when run runs here, then it stops before the container, naming it
 bare_home=$tmp/bare-home
 mkdir -p "$bare_home"
 calls=$(calls_for no-crate)
 out=$(
   cd "$root" &&
-    env -u ASSEMBLY_SERVER -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
+    env -u ASSEMBLY_SERVER -u ASSEMBLY_NOTES -u ASSEMBLY_REPOS -u ASSEMBLY_HOME -u ASSEMBLY_DEV_IMAGES \
       PATH="$stub:$PATH" CALLS="$calls" XDG_STATE_HOME="$tmp/state-no-crate" \
       HOME="$bare_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
       GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0= \
       GIT_CONFIG_KEY_1=user.email GIT_CONFIG_VALUE_1= \
-      "$factory" submit fx 2>&1
+      FIREWORKS_API_KEY=host-fireworks GH_TOKEN=host-gh \
+      "$factory" run 2>&1
 )
 code=$?
 if [ "$code" -eq 0 ]; then
-  printf 'AssertionError: submit ran with no crate install\n' >&2
+  printf 'AssertionError: run ran with no crate install\n' >&2
   fail=1
 fi
-no_run "$calls" "submit with no crate install"
+no_run "$calls" "run with no crate install"
 case "$out" in
   *".local/share/crate"*) ;;
   *)

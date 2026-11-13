@@ -89,7 +89,7 @@ export async function quePasa(
         runId: `${attempt.name}/${attempt.n}`,
         caller: { id: "assembly" },
         model,
-        // A run taken up after a stop keeps the context it started with: its checkout too.
+        // A run taken up after a stop keeps the context it started with: its notes' commit too.
         context: { run: attempt, readOnly } satisfies Context,
         signal,
         onUsage: (u) => (usage = total(u)),

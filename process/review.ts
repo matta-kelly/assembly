@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { changedOf, green } from "./hammer.ts";
 import { testsOf } from "./nail.ts";
-import { read } from "../effects/notes.ts";
+import { notesOf } from "../effects/notes.ts";
 import type { Step } from "./step.ts";
 
 const done = z.object({
@@ -29,7 +29,7 @@ export const review: Step<Done> = {
   about: ["tests", "code", "cl", "plan", "issue"],
   input: (r, ledger) =>
     [
-      read(r.path),
+      notesOf(r).text(r.note),
       "",
       testsOf(ledger, r.name),
       "",

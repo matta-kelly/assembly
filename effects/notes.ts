@@ -1,22 +1,15 @@
 /**
- * The notes: read by path, or from a git commit of the repo that holds them, and written only as the orchestrator's own
- * (a new plan or cl note). Agents never write a note, and no finding is written into one: findings are messages, in the
- * ledger.
+ * The notes: the only spec, read with git from a commit of the notes repo's main (kinetic), never from a working tree,
+ * and written only as the orchestrator's own (a plan and its cl notes, which the issue's land commits). Agents never
+ * write a note, and no finding is written into one: findings are messages, in the ledger.
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
+import type { NotesAt } from "../process/step.ts";
 
-/** The text of a note's `## <heading>` section, or "" when it has none. */
-export const section = (path: string, heading: string): string =>
-  sectionIn(readFileSync(path, "utf8"), heading);
-
-/** The top-level items of a note's `## <heading>` list. */
-export const items = (path: string, heading: string): string[] =>
-  itemsIn(readFileSync(path, "utf8"), heading);
-
-/** The text of `## <heading>` in a note's text, or "" when it has none: for a note read once. */
+/** The text of `## <heading>` in a note's text, or "" when it has none. */
 export function sectionIn(doc: string, heading: string): string {
   const s = doc.split(/^## /m).find((p) => p.startsWith(`${heading}\n`));
   return s ? s.slice(heading.length + 1) : "";
@@ -56,7 +49,7 @@ export function commitOf(repo: string, ref: string): string | undefined {
   }
 }
 
-/** A note's text at a commit, or "" when the commit holds none: read with git, never from the working tree. */
+/** A note's text at a commit, or "" when the commit holds none. */
 export function readAt(repo: string, commit: string, path: string): string {
   try {
     return git(repo, ["show", `${commit}:${path}`]);
@@ -71,12 +64,6 @@ export interface Notes {
   names(dir: string): string[];
 }
 
-/** The notes as files on disk. */
-export const folderNotes: Notes = {
-  text: (path) => read(path),
-  names: (dir) => readdirSync(dir).filter((f) => f.endsWith(".md")),
-};
-
 /** The notes as a repo holds them at a commit: a path is the note's path in the repo. */
 export const notesAt = (repo: string, commit: string): Notes => ({
   text: (path) => readAt(repo, commit, path),
@@ -86,6 +73,10 @@ export const notesAt = (repo: string, commit: string): Notes => ({
       .filter((f) => f.endsWith(".md"))
       .map((f) => basename(f)),
 });
+
+/** The notes an attempt reads: the notes repo at the commit its run carries. */
+export const notesOf = (r: { notes: NotesAt }): Notes =>
+  notesAt(r.notes.repo, r.notes.commit);
 
 /**
  * Writes a note: its frontmatter fields, then its body. A list or a mapping is written as a JSON flow value, which YAML
@@ -107,7 +98,3 @@ export function writeNote(
     .join("\n");
   writeFileSync(path, `---\n${head}\n---\n${body.trim()}\n`);
 }
-
-/** A note's text, or "" when it is not there. */
-export const read = (path: string) =>
-  existsSync(path) ? readFileSync(path, "utf8") : "";

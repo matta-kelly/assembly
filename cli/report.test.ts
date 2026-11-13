@@ -16,13 +16,7 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-const issue = {
-  name: "is",
-  path: "/work/is.md",
-  repo: "/repo",
-  image: "img",
-  test: "suite",
-};
+const issue = { name: "is", note: "_well/is.md", repos: ["/repo"] };
 
 describe("the factory's reports", () => {
   it("status: each item and its state, the open attempts, and the spend", () => {
@@ -47,7 +41,16 @@ describe("the factory's reports", () => {
     const { ledger } = compose({ home });
     ledger.addIssue(issue);
     ledger.addIssue({ ...issue, name: "two" });
-    ledger.addCl({ ...issue, name: "is-one", issue: "is", seq: 1 }, "ready");
+    ledger.addCl(
+      {
+        name: "is-one",
+        issue: "is",
+        seq: 1,
+        note: "_well/is-one.md",
+        repo: "/repo",
+      },
+      "ready",
+    );
     expect(status(ledger, "v1.2.3").slice(1, 4)).toEqual([
       "is  open",
       "  is-one  ready",
@@ -249,21 +252,17 @@ describe("the factory's reports", () => {
     );
   });
 
-  it("explain: names the commit a submitted issue's spec was read at, and shows none for a spec the planner made", () => {
+  it("explain: names the note, and the notes' commit each attempt read", () => {
     const f = compose({ home });
     const a = "a".repeat(40);
-    const b = "0123456789abcdef".repeat(2) + "01234567";
     f.ledger.addIssue(issue);
-    f.ledger.addIssue({ ...issue, name: "two" });
-    f.ledger.addIssue({ ...issue, name: "planned" });
-    f.ledger.keepSpec("is", { cls: [] }, "matt", a);
-    f.ledger.keepSpec("two", { cls: [] }, "matt", b);
-    const text = (name: string) => explain(f.ledger, f.runs, name).join("\n");
-    expect(text("is")).toContain(a);
-    expect(text("is")).not.toContain(b);
-    expect(text("two")).toContain(b);
-    expect(text("two")).not.toContain(a);
-    expect(text("planned")).not.toMatch(/[0-9a-f]{40}/);
-    expect(text("planned")).not.toMatch(/commit/i);
+    f.ledger.begin("is");
+    f.ledger.pin("is", 1, a);
+    f.ledger.begin("is");
+    const lines = explain(f.ledger, f.runs, "is");
+    expect(lines[1]).toBe("note: _well/is.md");
+    expect(lines.filter((l) => l.includes("notes:"))).toEqual([
+      `     notes: ${a}`,
+    ]);
   });
 });

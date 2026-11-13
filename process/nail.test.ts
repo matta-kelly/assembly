@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Run } from "./step.ts";
+import { notesRepo } from "../effects/notes.fixture.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
 import {
   promises,
@@ -35,15 +35,16 @@ Intent.
 let dir: string;
 let r: Run;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "tests-step-"));
-  writeFileSync(join(dir, "cl.md"), cl);
+  const notes = notesRepo({ "_well/i-x.md": cl });
+  dir = notes.repo;
   r = {
-    name: "x",
+    name: "i-x",
     kind: "cl",
     issue: "i",
     seq: 1,
     n: 1,
-    path: join(dir, "cl.md"),
+    note: "_well/i-x.md",
+    notes: notes.first,
     repo: "/repo",
     image: "img",
     test: "npm test",
@@ -62,7 +63,7 @@ const t = (promise: number, file = "a.test.ts") => ({
 
 describe("promises", () => {
   it("are the top-level items of the cl's Promises list", () => {
-    expect(promises(r.path)).toEqual([
+    expect(promises(cl)).toEqual([
       "- given a, when b, then c",
       "- given d, when e, then f",
     ]);

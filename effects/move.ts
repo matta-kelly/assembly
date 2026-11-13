@@ -7,7 +7,7 @@
  * version the cl's repo needs.
  */
 
-import type { Run } from "../process/step.ts";
+import type { Tree } from "../process/step.ts";
 import { worktree } from "./git.ts";
 import { online } from "./sandbox.ts";
 import { must, sh } from "./sh.ts";
@@ -26,7 +26,7 @@ const tail = 1_500;
  * commit it made. Throws with the command's output when the install fails.
  */
 export async function move(
-  cl: Run,
+  cl: Tree,
   pkg: string,
   version: string,
   registry: string,

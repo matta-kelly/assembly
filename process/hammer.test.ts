@@ -10,7 +10,7 @@ vi.mock("./nail.ts", () => ({
 }));
 
 let files: string[];
-const r = { path: "/cl.md", test: "node --test a.test.ts old.test.ts" } as Run;
+const r = { test: "node --test a.test.ts old.test.ts" } as Run;
 const d = { word: "done" as const, changed: ["src/a.ts"] };
 const ledger = {} as Ledger;
 

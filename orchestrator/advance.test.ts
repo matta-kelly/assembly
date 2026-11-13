@@ -1,27 +1,27 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClSpec, Planned } from "../process/plan.ts";
-import { CrateError, devImage } from "../effects/repo.ts";
 import { move } from "../effects/move.ts";
+import { notesRepo } from "../effects/notes.fixture.ts";
 import { npmRegistryUrl } from "../effects/registry.ts";
-import { advance } from "./advance.ts";
+import { advance, reconcile, writePlan, type World } from "./advance.ts";
 import { type Ledger, open } from "./ledger.ts";
-import { section } from "../effects/notes.ts";
+import { notesAt, sectionIn } from "../effects/notes.ts";
+import { type ClSpec, type Planned, readSpec } from "../process/plan.ts";
 
-// The move and the dev image of the moved commit run containers and crate: the unit tests stand them in.
+// The move runs a container: the unit tests stand it in. Main is the notes repo's own: it has no remote to fetch.
 vi.mock("../effects/move.ts", () => ({ move: vi.fn() }));
-vi.mock("../effects/repo.ts", async (original) => ({
-  ...(await original<typeof import("../effects/repo.ts")>()),
-  devImage: vi.fn(),
+vi.mock("../effects/git.ts", async (original) => ({
+  ...(await original<typeof import("../effects/git.ts")>()),
+  mainOf: vi.fn(async () => "main"),
 }));
 
 const issueNote =
@@ -45,35 +45,52 @@ const plan: Planned = {
 
 let dir: string;
 let ledger: Ledger;
-let path: string;
-beforeEach(() => {
-  // the clock is real at the start of every test in this file, whatever one before it left
-  vi.useRealTimers();
-  vi.resetAllMocks();
-  vi.mocked(move).mockResolvedValue("c0ffee");
-  vi.mocked(devImage).mockResolvedValue("localhost/b-dev:moved");
-  dir = mkdtempSync(join(tmpdir(), "advance-"));
-  path = join(dir, "is.md");
-  writeFileSync(path, issueNote);
-  ledger = open(join(dir, "ledger.db"));
-  ledger.addIssue({
-    name: "is",
-    path,
-    repo: "/repo",
-    image: "img",
-    test: "suite",
-  });
-  // The issue planned, and its plan approved.
+let notes: ReturnType<typeof notesRepo>;
+/** The world of a factory with nothing to wait for, on the test's notes repo. */
+let world: World;
+
+/** The planner's spec, and plan review's pass: the issue is approved, for its plan's land. */
+function planned(spec: Planned = plan) {
   ledger.apply(
     "is",
     { word: "pass", reason: "lints", findings: [] },
-    { attempt: ledger.begin("is"), ...{ result: plan } },
+    { attempt: ledger.begin("is"), result: spec },
   );
   ledger.apply(
     "is",
     { word: "pass", reason: "approved", findings: [] },
     { attempt: ledger.begin("is") },
   );
+}
+
+/** The issue's land, as the loop makes it: its plan written as notes, committed on the notes' main, and passed. */
+function landPlan() {
+  writePlan(ledger, ledger.item("is"), notes.repo);
+  notes.commit({});
+  ledger.apply(
+    "is",
+    { word: "pass", reason: "landed", findings: [] },
+    { attempt: ledger.begin("is") },
+  );
+}
+
+beforeEach(() => {
+  // the clock is real at the start of every test in this file, whatever one before it left
+  vi.useRealTimers();
+  vi.resetAllMocks();
+  vi.mocked(move).mockResolvedValue("c0ffee");
+  dir = mkdtempSync(join(tmpdir(), "advance-"));
+  notes = notesRepo({ "_well/is.md": issueNote }, join(dir, "notes"));
+  world = {
+    runs: join(dir, "runs"),
+    notes: notes.repo,
+    registry: { url: npmRegistryUrl, published: async () => true },
+    reader: { file: () => undefined, onCrate: () => true },
+    tags: async () => [],
+  };
+  ledger = open(join(dir, "ledger.db"));
+  ledger.addIssue({ name: "is", note: "_well/is.md", repos: ["/repo"] });
+  planned();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -89,90 +106,116 @@ const force = (name: string, to: string) => {
   // a landed cl's land took a commit: its name stands in for it
   if (to === "landed") ledger.landed(name, name, []);
 };
-const read = (name: string) => readFileSync(join(dir, `${name}.md`), "utf8");
+/** A note as the notes' main holds it. */
+const onMain = (name: string) =>
+  notesAt(notes.repo, "main").text(`_well/${name}.md`);
 
-describe("advance", () => {
-  it("writes an approved spec's notes in kinetic's format, and puts its cls in the ledger, phase 1 ready", async () => {
-    await advance(ledger);
-    expect(
-      ledger.cls("is").map((c) => [c.name, c.phase, c.state, c.test]),
-    ).toEqual([
-      ["is-value", 1, "ready", "node --test test/value.test.mjs"],
-      ["is-double", 2, "waiting", "node --test test/double.test.mjs"],
-    ]);
-    expect(read("is-plan")).toMatch(/^---\ntype: plan\n/);
-    expect(read("is-plan")).toContain(
+describe("the issue's land", () => {
+  it("writes its planner's spec as notes in kinetic's format, which read back as the same spec", () => {
+    landPlan();
+    expect(onMain("is-plan")).toMatch(/^---\ntype: plan\n/);
+    expect(onMain("is-plan")).toContain(
       "- Phase 2: its double\n\t- [[is-double]]",
     );
-    expect(read("is-plan")).not.toMatch(/one phase|## Trace/);
-    expect(read("is-value")).toContain('belongsTo: "[[is-plan]]"');
-    expect(read("is-value")).toContain(
+    expect(onMain("is-value")).toContain('belongsTo: "[[is-plan]]"');
+    expect(onMain("is-value")).toContain(
       'checkout: ["src/value.mjs","test/value.test.mjs"]',
     );
-    expect(section(join(dir, "is-value.md"), "Promises").trim()).toBe(
+    expect(sectionIn(onMain("is-value"), "Promises").trim()).toBe(
       "- given value, when read, then right",
     );
-    expect(read("is")).toBe(issueNote);
+    expect(onMain("is")).toBe(issueNote);
+    const read = readSpec(
+      notesAt(notes.repo, "main"),
+      "_well/is.md",
+      "is",
+      true,
+    );
+    expect(read.ok && read.spec.cls.map((c) => c.name)).toEqual([
+      "double",
+      "value",
+    ]);
+  });
+
+  it("replaces, on a new plan, the notes of the cls not landed, and keeps a landed cl's", async () => {
+    landPlan();
+    await advance(ledger, world);
+    force("is-value", "landed");
+    force("is-double", "dropped");
+    force("is", "open");
+    planned({ word: "done", cls: [cl("seam")] });
+    landPlan();
+    const names = notesAt(notes.repo, "main").names("_well").sort();
+    expect(names).toEqual(["is-seam.md", "is-value.md", "is.md"]);
+  });
+});
+
+describe("advance", () => {
+  it("puts the cls of the notes on main in the ledger once the plan landed, phase 1 ready", async () => {
+    await advance(ledger, world);
+    expect(ledger.cls("is")).toEqual([]);
+    landPlan();
+    await advance(ledger, world);
+    expect(
+      ledger.cls("is").map((c) => [c.name, c.phase, c.state, c.note]),
+    ).toEqual([
+      ["is-value", 1, "ready", "_well/is-value.md"],
+      ["is-double", 2, "waiting", "_well/is-double.md"],
+    ]);
   });
 
   it("starts every cl of a phase together, and the next phase once all of them land", async () => {
-    ledger.apply(
-      "is",
-      {
-        word: "back",
-        reason: "again",
-        findings: [{ about: "plan", what: "w", where: "x" }],
-      },
-      { attempt: ledger.begin("is") },
-    );
-    ledger.apply(
-      "is",
-      { word: "pass", reason: "lints", findings: [] },
-      {
-        attempt: ledger.begin("is"),
-        result: { ...plan, cls: [cl("a", 1), cl("b", 1), cl("c", 2)] },
-      },
-    );
-    ledger.apply(
-      "is",
-      { word: "pass", reason: "approved", findings: [] },
-      { attempt: ledger.begin("is") },
-    );
-    await advance(ledger);
+    force("is", "open");
+    planned({ ...plan, cls: [cl("a", 1), cl("b", 1), cl("c", 2)] });
+    landPlan();
+    await advance(ledger, world);
     expect(["is-a", "is-b", "is-c"].map(state)).toEqual([
       "ready",
       "ready",
       "waiting",
     ]);
     force("is-a", "landed");
-    await advance(ledger);
+    await advance(ledger, world);
     expect(state("is-c")).toBe("waiting");
     force("is-b", "landed");
-    await advance(ledger);
+    await advance(ledger, world);
     expect(state("is-c")).toBe("ready");
   });
 
   it("leaves an approved cl to its land, and starts the next phase once it has landed", async () => {
-    await advance(ledger);
+    landPlan();
+    await advance(ledger, world);
     force("is-value", "approved");
-    await advance(ledger);
+    await advance(ledger, world);
     expect([state("is-value"), state("is-double")]).toEqual([
       "approved",
       "waiting",
     ]);
     force("is-value", "landed");
-    await advance(ledger);
+    await advance(ledger, world);
     expect(state("is-double")).toBe("ready");
   });
 
-  it("marks the issue built once its cls have all landed", async () => {
-    await advance(ledger);
+  it("marks the issue built once the cls of its notes have all landed", async () => {
+    landPlan();
+    await advance(ledger, world);
     for (const c of ["is-value", "is-double"]) {
       force(c, "landed");
-      await advance(ledger);
+      await advance(ledger, world);
     }
-    await advance(ledger);
     expect(state("is")).toBe("built");
+  });
+
+  it("adds a cl note put on main while the issue built, before it is built", async () => {
+    landPlan();
+    await advance(ledger, world);
+    for (const c of ["is-value", "is-double"]) force(c, "landed");
+    notes.commit({
+      "_well/is-extra.md": onMain("is-value").replace(/value/g, "extra"),
+    });
+    await advance(ledger, world);
+    expect(state("is")).toBe("building");
+    expect(state("is-extra")).toBe("ready");
   });
 
   const raise = (cl: string, about: "cl" | "plan" | "issue") =>
@@ -188,176 +231,95 @@ describe("advance", () => {
       { attempt: ledger.begin(cl) },
     );
 
-  it("relays a cl's raise to the planner, its findings with it, and drops the rest of its plan", async () => {
-    await advance(ledger);
-    raise("is-value", "plan");
-    await advance(ledger);
-    expect(state("is")).toBe("open");
-    expect(state("is-double")).toBe("dropped");
-    expect(ledger.inbox("is", "open")).toMatchObject([
-      {
-        word: "back",
-        reason: expect.stringMatching(/is-value raised/),
-        findings: [{ about: "plan", what: "the seam is not there" }],
-      },
-    ]);
-    expect(read("is")).toBe(issueNote);
-    expect(read("is-double")).toMatch(/^status: new$/m);
-    expect(read("is-value")).toMatch(/^status: new$/m);
-  });
+  it.each(["cl", "plan", "issue"] as const)(
+    "escalates the issue on a raise about the %s, its findings with it, and its cls stay as they are",
+    async (about) => {
+      landPlan();
+      await advance(ledger, world);
+      raise("is-value", about);
+      await advance(ledger, world);
+      expect(state("is")).toBe("escalated");
+      expect(state("is-value")).toBe("raised");
+      expect(state("is-double")).toBe("waiting");
+      expect(ledger.inbox("is", "escalated")).toMatchObject([
+        {
+          word: "escalate",
+          reason: expect.stringMatching(/is-value is raised/),
+          findings: [{ about, what: "the seam is not there" }],
+        },
+      ]);
+      await advance(ledger, world);
+      expect(
+        ledger.events("is-double").filter((e) => e["to_state"] === "ready"),
+      ).toEqual([]);
+      expect(
+        ledger.events("is").filter((e) => e.word === "escalate"),
+      ).toHaveLength(1);
+    },
+  );
 
-  it("relays a cl's raise about the issue to Matt", async () => {
-    await advance(ledger);
-    raise("is-value", "issue");
-    await advance(ledger);
-    expect(state("is")).toBe("raised");
-  });
-
-  it("makes no cl of a later phase ready while a cl of an earlier phase has raised, on the planner's spec", async () => {
-    await advance(ledger);
-    raise("is-value", "plan");
-    await advance(ledger);
-    expect(
-      ledger.events("is-double").filter((e) => e["to_state"] === "ready"),
-    ).toEqual([]);
-  });
-
-  it("makes no cl of a later phase ready while a cl of an earlier phase has raised, on Matt's spec", async () => {
-    const db = new DatabaseSync(join(dir, "ledger.db"));
-    db.prepare("DELETE FROM attempts").run();
-    db.close();
-    ledger.keepSpec("is", { plan: plan.plan, cls: plan.cls }, "matt");
-    writeFileSync(
-      join(dir, "is-value.md"),
-      "---\ntype: cl\nstatus: new\n---\nv\n",
-    );
-    await advance(ledger);
-    raise("is-value", "cl");
-    await advance(ledger);
+  it("escalates the issue when one of its cls is", async () => {
+    landPlan();
+    await advance(ledger, world);
+    force("is-value", "escalated");
+    await advance(ledger, world);
     expect(state("is")).toBe("escalated");
-    expect(state("is-value")).toBe("raised");
-    expect(state("is-double")).toBe("waiting");
-    expect(
-      ledger.events("is-double").filter((e) => e["to_state"] === "ready"),
-    ).toEqual([]);
   });
 
-  it("sends the issue back to the planner when its last cl raises, not on as built", async () => {
-    await advance(ledger);
-    force("is-value", "approved");
-    await advance(ledger);
-    await advance(ledger);
-    raise("is-double", "plan");
-    await advance(ledger);
-    expect(state("is")).toBe("open");
-  });
-
-  it("hands a cl's raise over once: the raising cl is dropped, so the next plan builds", async () => {
-    await advance(ledger);
-    raise("is-value", "plan");
-    await advance(ledger);
-    expect(state("is-value")).toBe("dropped");
-    // The planner answers with a plan of a new cut, and it is approved.
-    ledger.apply(
-      "is",
-      { word: "pass", reason: "lints", findings: [] },
-      {
-        attempt: ledger.begin("is"),
-        ...{ result: { word: "done", cls: [cl("seam")] } },
-      },
+  it("escalates an issue whose notes do not read as a spec, with why, and goes on with the rest", async () => {
+    landPlan();
+    ledger.addIssue(
+      { name: "other", note: "_well/other.md", repos: ["/repo"] },
+      "building",
     );
-    ledger.apply(
-      "is",
-      { word: "pass", reason: "approved", findings: [] },
-      { attempt: ledger.begin("is") },
-    );
-    await advance(ledger);
-    expect(state("is")).toBe("building");
-    expect(state("is-seam")).toBe("ready");
-  });
-
-  it("escalates an item whose move fails, with why, and goes on with the rest", async () => {
-    // An issue building with no spec: its move can't be made.
-    writeFileSync(join(dir, "other.md"), issueNote);
-    ledger.addIssue({
-      name: "other",
-      path: join(dir, "other.md"),
-      repo: "/repo",
-      image: "img",
-      test: "suite",
-    });
-    force("other", "building");
-    await advance(ledger);
+    await advance(ledger, world);
     expect(state("other")).toBe("escalated");
     expect(ledger.events("other").at(-1)).toMatchObject({
       by: "orchestrator",
       word: "escalate",
-      reason: expect.stringMatching(/move failed: .*building with no spec/),
+      reason: expect.stringMatching(
+        /move failed: no issue note at _well\/other\.md/,
+      ),
     });
     expect(state("is-value")).toBe("ready");
   });
 
-  it("finishes a build a stop cut off: the cls in the ledger stay, and the rest are added", async () => {
-    // The stop came after the first cl was added.
-    writeFileSync(join(dir, "is-value.md"), "---\ntype: cl\n---\nkept\n");
-    ledger.addCl(
-      {
-        name: "is-value",
-        issue: "is",
-        seq: 1,
-        path: join(dir, "is-value.md"),
-        repo: "/repo",
-        image: "img",
-        test: "t",
-      },
-      "ready",
-    );
-    await advance(ledger);
-    expect(read("is-value")).toContain("kept");
-    expect(ledger.cls("is").map((c) => [c.name, c.seq, c.state])).toEqual([
-      ["is-value", 1, "ready"],
-      ["is-double", 2, "waiting"],
-    ]);
-  });
-
-  it("escalates the issue when one of its cls is", async () => {
-    await advance(ledger);
-    force("is-value", "escalated");
-    await advance(ledger);
-    expect(state("is")).toBe("escalated");
+  it("reads no notes while an issue building has a cl to land", async () => {
+    landPlan();
+    await advance(ledger, world);
+    rmSync(notes.repo, { recursive: true, force: true });
+    await advance(ledger, world);
+    expect(state("is")).toBe("building");
   });
 
   it("leaves an accepted issue's notes as they are: the ledger says it is accepted", async () => {
-    await advance(ledger);
-    const before = ["is", "is-plan", "is-value", "is-double"].map(read);
+    landPlan();
+    await advance(ledger, world);
+    const before = notesAt(notes.repo, "main").names("_well");
     force("is", "accepted");
-    await advance(ledger);
-    expect(["is", "is-plan", "is-value", "is-double"].map(read)).toEqual(
-      before,
-    );
-    expect(read("is")).toBe(issueNote);
-    expect(read("is-plan")).toMatch(/^status: active$/m);
+    await advance(ledger, world);
+    expect(notesAt(notes.repo, "main").names("_well")).toEqual(before);
     expect(state("is")).toBe("accepted");
   });
+});
 
-  it("builds a spec Matt made from his notes, writing none, and escalates a raise about its plan to him", async () => {
-    const db = new DatabaseSync(join(dir, "ledger.db"));
-    db.prepare("DELETE FROM attempts").run();
-    db.close();
-    ledger.keepSpec("is", { plan: plan.plan, cls: plan.cls }, "matt");
-    await advance(ledger);
-    expect(existsSync(join(dir, "is-plan.md"))).toBe(false);
-    expect(ledger.cls("is").map((c) => c.name)).toEqual([
-      "is-value",
-      "is-double",
-    ]);
-    writeFileSync(
-      join(dir, "is-value.md"),
-      "---\ntype: cl\nstatus: new\n---\nv\n",
+describe("a resume's reconcile", () => {
+  it("adds a new cl note, drops a cl whose note is gone and has not landed, and keeps the rest", async () => {
+    landPlan();
+    await advance(ledger, world);
+    force("is-value", "landed");
+    const added = reconcile(
+      ledger,
+      ledger.item("is"),
+      { cls: [cl("seam", 2)] },
+      true,
     );
-    raise("is-value", "plan");
-    await advance(ledger);
-    expect(state("is")).toBe("escalated");
+    expect(added).toEqual(["is-seam"]);
+    expect(ledger.cls("is").map((c) => [c.name, c.state])).toEqual([
+      ["is-value", "landed"],
+      ["is-double", "dropped"],
+      ["is-seam", "waiting"],
+    ]);
   });
 });
 
@@ -369,14 +331,7 @@ describe("advance across repos", () => {
 
   /** An issue "x" with a cl of repo /a landed in phase 1, and a cl of repo /b waiting in phase 2. */
   function across() {
-    writeFileSync(join(dir, "x.md"), issueNote);
-    ledger.addIssue({
-      name: "x",
-      path: join(dir, "x.md"),
-      repo: "/a",
-      image: "img",
-      test: "suite",
-    });
+    ledger.addIssue({ name: "x", note: "_well/x.md", repos: ["/a"] });
     for (const [name, repo, phase, state] of [
       ["x-a", "/a", 1, "ready"],
       ["x-b", "/b", 2, "waiting"],
@@ -387,10 +342,8 @@ describe("advance across repos", () => {
           issue: "x",
           seq: phase,
           phase,
-          path: join(dir, `${name}.md`),
+          note: `_well/${name}.md`,
           repo,
-          image: "img",
-          test: "t",
         },
         state,
       );
@@ -421,6 +374,7 @@ describe("advance across repos", () => {
     limitMs?: number,
   ) => ({
     runs: join(dir, "runs"),
+    notes: notes.repo,
     registry,
     reader: {
       file: (repo: string, file: string) => files[`${repo}:${file}`],
@@ -564,10 +518,8 @@ describe("advance across repos", () => {
           issue: "x",
           seq: 3,
           phase: 2,
-          path: join(dir, "x-c.md"),
+          note: "_well/x-c.md",
           repo: "/c",
-          image: "img",
-          test: "t",
         },
         "waiting",
       );
@@ -748,10 +700,8 @@ describe("advance across repos", () => {
             issue: "x",
             seq: 3,
             phase: 1,
-            path: join(dir, "x-a2.md"),
+            note: "_well/x-a2.md",
             repo: "/a",
-            image: "img",
-            test: "t",
           },
           "approved",
         );
@@ -801,6 +751,7 @@ describe("advance across repos", () => {
     },
   ) => ({
     runs: join(dir, "runs"),
+    notes: notes.repo,
     registry,
     reader: {
       file: (repo: string, file: string) => files[`${repo}:${file}`],
@@ -810,16 +761,19 @@ describe("advance across repos", () => {
   });
 
   describe("the move", () => {
-    it("moves the package its repo waited for to the landed version, and takes the dev image of that commit", async () => {
+    it("moves the package its repo waited for to the landed version, in the cl's worktree", async () => {
       across();
       await advance(ledger, worldOf(files, ["v1.2.0"], registryOf(true)));
       expect(vi.mocked(move)).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "x-b", repo: "/b" }),
+        expect.objectContaining({
+          name: "x-b",
+          repo: "/b",
+          work: join(dir, "runs", "x", "cl", "b", "work"),
+        }),
         "@s/alpha",
         "1.2.0",
         npmRegistryUrl,
       );
-      expect(vi.mocked(devImage)).toHaveBeenCalledWith("/b", "c0ffee");
       expect(state("x-b")).toBe("ready");
     });
 
@@ -855,7 +809,6 @@ describe("advance across repos", () => {
       await advance(ledger, world);
       await advance(ledger, world);
       expect(move).not.toHaveBeenCalled();
-      expect(devImage).not.toHaveBeenCalled();
       expect(state("x-b")).toBe("waiting");
       registry.published.mockImplementation(async () => true);
       await advance(ledger, world);
@@ -867,14 +820,7 @@ describe("advance across repos", () => {
       url: string;
       published: (n: string, v: string) => Promise<boolean>;
     }) {
-      writeFileSync(join(dir, "y.md"), issueNote);
-      ledger.addIssue({
-        name: "y",
-        path: join(dir, "y.md"),
-        repo: "/a",
-        image: "img",
-        test: "suite",
-      });
+      ledger.addIssue({ name: "y", note: "_well/y.md", repos: ["/a"] });
       for (const [name, repo, seq, to] of [
         ["y-a", "/a", 1, "landed"],
         ["y-c", "/c", 2, "landed"],
@@ -886,10 +832,8 @@ describe("advance across repos", () => {
             issue: "y",
             seq,
             phase: seq === 3 ? 2 : 1,
-            path: join(dir, `${name}.md`),
+            note: `_well/${name}.md`,
             repo,
-            image: "img",
-            test: "t",
           },
           "waiting",
         );
@@ -909,12 +853,9 @@ describe("advance across repos", () => {
       );
     }
 
-    it("moves every package its repo needs from its landed cls, each its own commit, and takes the last commit's image", async () => {
+    it("moves every package its repo needs from its landed cls, each its own commit, before its first attempt", async () => {
       const world = twoReleased(registryOf(true));
       vi.mocked(move).mockResolvedValueOnce("c1").mockResolvedValueOnce("c2");
-      vi.mocked(devImage)
-        .mockResolvedValueOnce("b-dev:1")
-        .mockResolvedValueOnce("b-dev:2");
       await advance(ledger, world);
       expect(vi.mocked(move).mock.calls).toEqual([
         [
@@ -930,12 +871,6 @@ describe("advance across repos", () => {
           npmRegistryUrl,
         ],
       ]);
-      // each commit gets its own dev image, and the item takes the last one's
-      expect(vi.mocked(devImage).mock.calls).toEqual([
-        ["/b", "c1"],
-        ["/b", "c2"],
-      ]);
-      expect(ledger.item("y-b").image).toBe("b-dev:2");
       expect(state("y-b")).toBe("ready");
     });
 
@@ -994,15 +929,14 @@ describe("advance across repos", () => {
               ),
         },
         {
-          what: "the dev image of the moved commit",
-          output: "crate dev-image ref: exit 1: its Containerfile has no bake",
+          what: "the cl's worktree",
+          output: "git worktree add: exit 128: fatal: invalid reference",
           arm: () =>
             vi
-              .mocked(devImage)
+              .mocked(move)
               .mockRejectedValue(
-                new CrateError(
-                  1,
-                  "crate dev-image ref: exit 1: its Containerfile has no bake",
+                new Error(
+                  "git worktree add: exit 128: fatal: invalid reference",
                 ),
               ),
         },
@@ -1035,100 +969,24 @@ describe("advance across repos", () => {
     });
   });
 
-  describe("the issue after a move", () => {
-    it("takes the moved commit's dev image for its own steps, in an issue of one repo", async () => {
-      writeFileSync(join(dir, "z.md"), issueNote);
-      ledger.addIssue({
-        name: "z",
-        path: join(dir, "z.md"),
-        repo: "/z",
-        image: "img",
-        test: "suite",
-      });
-      for (const [name, phase, to] of [
-        ["z-a", 1, "landed"],
-        ["z-b", 2, "waiting"],
-      ] as const) {
-        ledger.addCl(
-          {
-            name,
-            issue: "z",
-            seq: phase,
-            phase,
-            path: join(dir, `${name}.md`),
-            repo: "/z",
-            image: "img",
-            test: "t",
-          },
-          "waiting",
-        );
-        if (to === "landed") force(name, to);
-      }
-      // the repo ships a package in a folder, which the cl its repo depends on moves
-      const world = worldWith(
-        {
-          "/z:lib/package.json": pkg("lib"),
-          "/z:package.json": pkg("z", { lib: "^1.0.0" }),
-        },
-        { "z-a": ["lib-v1.2.0"] },
-        registryOf(true),
-      );
-      await advance(ledger, world);
-      expect(vi.mocked(move)).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "z-b", repo: "/z" }),
-        "lib",
-        "1.2.0",
-        npmRegistryUrl,
-      );
-      // a one-repo issue's own image is its repo's: its own steps take the moved commit's image too
-      expect(ledger.item("z").image).toBe("localhost/b-dev:moved");
-      expect(ledger.item("z-b").image).toBe("localhost/b-dev:moved");
-      expect(state("z-b")).toBe("ready");
+  describe("the cl after a move", () => {
+    it("sets its worktree up again, so its attempt installs the moved lockfile", async () => {
+      across();
+      const mark = join(dir, "runs", "x", "cl", "b", "setup.done");
+      mkdirSync(dirname(mark), { recursive: true });
+      writeFileSync(mark, "");
+      await advance(ledger, worldOf(files, ["v1.2.0"], registryOf(true)));
+      expect(existsSync(mark)).toBe(false);
+      expect(state("x-b")).toBe("ready");
     });
 
-    it("takes it for the repo it moved, and only that one, in an issue of two", async () => {
-      writeFileSync(join(dir, "w.md"), issueNote);
-      ledger.addIssueAcross({
-        name: "w",
-        path: join(dir, "w.md"),
-        image: "img",
-        repos: [
-          { name: "a", repo: "/a", image: "img-a", test: "t", setup: "" },
-          { name: "b", repo: "/b", image: "img-b", test: "t", setup: "" },
-        ],
-      });
-      for (const [name, repo, phase, to] of [
-        ["w-a", "/a", 1, "landed"],
-        ["w-b", "/b", 2, "waiting"],
-      ] as const) {
-        ledger.addCl(
-          {
-            name,
-            issue: "w",
-            seq: phase,
-            phase,
-            path: join(dir, `${name}.md`),
-            repo,
-            image: repo === "/a" ? "img-a" : "img-b",
-            test: "t",
-          },
-          "waiting",
-        );
-        if (to === "landed") force(name, to);
-      }
-      const world = worldWith(
-        {
-          "/a:package.json": pkg("@s/alpha"),
-          "/b:package.json": pkg("beta", { "@s/alpha": "^1.0.0" }),
-        },
-        { "w-a": ["v1.2.0"] },
-        registryOf(true),
-      );
-      await advance(ledger, world);
-      expect(ledger.item("w").repos.map((r) => [r.name, r.image])).toEqual([
-        ["a", "img-a"],
-        ["b", "localhost/b-dev:moved"],
-      ]);
+    it("keeps its setup when it moved nothing", async () => {
+      across();
+      const mark = join(dir, "runs", "x", "cl", "b", "setup.done");
+      mkdirSync(dirname(mark), { recursive: true });
+      writeFileSync(mark, "");
+      await advance(ledger, worldOf({}, [], registryOf(true)));
+      expect(existsSync(mark)).toBe(true);
     });
   });
 });
