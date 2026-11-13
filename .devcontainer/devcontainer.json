@@ -1,0 +1,19 @@
+// assembly's dev container: its image holds the npm cache of assembly's lockfile, so a checkout installs offline.
+{
+  "name": "assembly",
+  "image": "ghcr.io/matta-kelly/assembly-dev:main",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "runArgs": [
+    "--userns=keep-id:uid=1000,gid=1000",
+    "--security-opt",
+    "label=disable"
+  ],
+  "remoteUser": "node",
+  "updateRemoteUserUID": false,
+  // Packages live in a podman volume, one per checkout. The install reads the image's cache.
+  "mounts": [
+    "source=assembly-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "postCreateCommand": "sudo chown node:node node_modules && npm ci"
+}
