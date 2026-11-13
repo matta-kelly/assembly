@@ -1,13 +1,19 @@
 /**
  * Run folders: each item's files, under its issue, so every trial of an issue is in one place. An item's folder holds
  * its one worktree, `work`, and a folder per attempt, `<n>`, with the attempt's log (the orchestrator's own lines), its
- * trace (each tool call) and, when it did not pass, its change.
+ * trace (each tool call) and, when it did not pass, its change; and, for each agent's conversation on the item, the run
+ * of its attempt going on (`<agent>.run.json`).
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Item } from "../orchestrator/ledger.ts";
-import type { Tree } from "../process/step.ts";
+import type { Run, Tree } from "../process/step.ts";
 
 /** The item's folder: runs/<issue>/issue/, or runs/<issue>/cl/<cut>/. */
 export const folderOf = (
@@ -58,4 +64,38 @@ export function partsOf<T extends Tree>(r: T): T[] {
 export function log(r: Pick<Tree, "dir">, line: string) {
   mkdirSync(r.dir, { recursive: true });
   appendFileSync(join(r.dir, "log"), `${line}\n`);
+}
+
+/** What an agent's conversation on an item gives its tools, the same in every run on it. JSON, so que-pasa keeps it. */
+export type Context = {
+  item: string; // the item's name
+  agent: string;
+  folder: string; // the item's folder, beside its worktree, where the attempt's run is written
+  readOnly: boolean; // its worktree is mounted read-only, as a review's
+};
+
+/** Where the attempt's run is written for its conversation: the item's folder. */
+const runFile = (c: Pick<Context, "folder" | "agent">) =>
+  join(c.folder, `${c.agent}.run.json`);
+
+/**
+ * The run of the conversation's last attempt that reached the agent, or undefined when it has none yet: a conversation
+ * is made by its first run, so the next attempt goes on from it.
+ */
+export function last(c: Pick<Context, "folder" | "agent">): Run | undefined {
+  try {
+    return JSON.parse(readFileSync(runFile(c), "utf8")) as Run;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The run of the attempt going on in the conversation: what its tools and its box are of. */
+export const current = (c: Context): Run =>
+  JSON.parse(readFileSync(runFile(c), "utf8")) as Run;
+
+/** Writes the attempt's run for its conversation, before the run: what its tools and its box read back. */
+export function keep(c: Context, r: Run) {
+  mkdirSync(c.folder, { recursive: true });
+  writeFileSync(runFile(c), JSON.stringify(r));
 }

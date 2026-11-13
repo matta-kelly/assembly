@@ -31,7 +31,7 @@
 
 import { z } from "zod";
 import { existsSync } from "node:fs";
-import { basename, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import {
   branchOf,
   changed,
@@ -53,7 +53,7 @@ import {
   readerImage,
   settingsAt,
 } from "../effects/repo.ts";
-import { folderOf, log, partsOf, runOf } from "../effects/runs.ts";
+import { folderOf, last, log, partsOf, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
 import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
 import { runTests } from "../effects/tests.ts";
@@ -306,6 +306,36 @@ export async function loop({
   }
 
   /**
+   * What the attempt's agent reads. Its first run on the item reads its spec, then the messages it answers: the one
+   * that brought the item here, and each retry since. A later run goes on in the same conversation, which holds all
+   * that, so it reads only what is new: a review's input again (the work as it is now), or the note when it changed,
+   * and the messages since its last run ended, that run's own end first.
+   */
+  function inputOf(r: Run, state: State, step: AnyStep): string {
+    const before = last({ folder: dirname(r.dir), agent: step.agent });
+    if (!before || before.n === r.n)
+      return (
+        (step.input ? step.input(r, ledger) : notesOf(r).text(r.note)) +
+        messagesText(ledger.inbox(r.name, state), fromOf)
+      );
+    const all = ledger.events(r.name);
+    const from = all.findIndex((e) => e.n === before.n && e.by === "attempt");
+    const since = (from < 0 ? [] : all.slice(from)).filter(
+      (e) => e.word !== null || e.findings.length,
+    );
+    const now = step.input
+      ? step.input(r, ledger)
+      : before.notes.commit !== r.notes.commit
+        ? `# Your note, changed since your last run\n\n${notesOf(r).text(r.note)}`
+        : "";
+    return (
+      [`# Attempt ${r.n}: your work goes on`, now]
+        .filter(Boolean)
+        .join("\n\n") + messagesText(since, fromOf)
+    );
+  }
+
+  /**
    * One attempt, from its run to its move in the ledger. It never throws: a failure is a retry, with its reason. A run
    * the loop's closing stopped is not a failure: the attempt is left open, with its sandbox, for the next process.
    */
@@ -322,10 +352,7 @@ export async function loop({
     let error: string | undefined;
     const span = ledger.span(r.name, r.n);
     try {
-      // Its spec, then the messages it answers: the one that brought the item here, and each retry since.
-      const input =
-        (step.input ? step.input(r, ledger) : notesOf(r).text(r.note)) +
-        messagesText(ledger.inbox(r.name, state), fromOf);
+      const input = inputOf(r, state, step);
       // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
       const out = await abortable(
         within(span, () =>

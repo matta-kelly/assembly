@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Message, Step } from "../process/step.ts";
@@ -25,6 +25,7 @@ import { ran } from "../process/fake-worktree.ts";
 import { move } from "../effects/move.ts";
 import { CrateError, NotOnCrate, settingsAt } from "../effects/repo.ts";
 import { notesRepo } from "../effects/notes.fixture.ts";
+import { keep } from "../effects/runs.ts";
 import { npmRegistryUrl } from "../effects/registry.ts";
 
 // Podman and git are faked: git, the sandbox, the test runs and the land are the loop's only ways out. runOf is the
@@ -107,6 +108,22 @@ const gives =
   (value: unknown, usage = { tokens: 120, cost: 0.002 }): Run1 =>
   async () => ({ value, usage });
 const done = (text: string) => ({ result: { word: "done", text } });
+
+/** A run that keeps its attempt for its conversation first, as the real runner does (effects/runner.ts). */
+const kept =
+  (run: Run1): Run1 =>
+  async (agent, input, o) => {
+    keep(
+      {
+        item: o.run.name,
+        agent,
+        folder: dirname(o.run.dir),
+        readOnly: o.readOnly,
+      },
+      o.run,
+    );
+    return run(agent, input, o);
+  };
 
 /** The runner a loop opens: `run`, and a close that keeps its runs. */
 const runnerOf = (run: Run1) => async (): Promise<Runner> => ({
@@ -369,6 +386,29 @@ describe("an attempt", () => {
     await once(make(runner));
     expect(runner.mock.calls[0]?.[1]).toBe(
       `${cl}\n# Messages\n- from fake, retry: promise 1 has no test`,
+    );
+  });
+
+  it("goes on in the agent's conversation: a later attempt reads only its messages since its last run", async () => {
+    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    await once(make(kept(gives(done("x")))));
+    message = { word: "retry", reason: "still no test", findings: [] };
+    const runner = vi.fn<Run1>(kept(gives(done("x"))));
+    await once(make(runner));
+    expect(runner.mock.calls[0]?.[1]).toBe(
+      "# Attempt 2: your work goes on\n# Messages\n- from fake, retry: promise 1 has no test",
+    );
+  });
+
+  it("gives a later attempt its note again when the note changed since the agent's last run", async () => {
+    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    await once(make(kept(gives(done("x")))));
+    const changed = cl.replace("It works.", "It works, and says so.");
+    notes.commit({ "_well/c.md": changed });
+    const runner = vi.fn<Run1>(kept(gives(done("x"))));
+    await once(make(runner));
+    expect(runner.mock.calls[0]?.[1]).toBe(
+      `# Attempt 2: your work goes on\n\n# Your note, changed since your last run\n\n${changed}\n# Messages\n- from fake, retry: promise 1 has no test`,
     );
   });
 

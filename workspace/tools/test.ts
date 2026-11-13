@@ -10,7 +10,7 @@
 import { defineTool, type Runtime } from "@mku1tra/que-pasa/define";
 import { commandAnswer } from "@mku1tra/que-pasa/sandbox";
 import { z } from "zod";
-import type { Context } from "../../effects/runner.ts";
+import { type Context, current } from "../../effects/runs.ts";
 import { runTests } from "../../effects/tests.ts";
 
 export const test = defineTool({
@@ -20,7 +20,7 @@ export const test = defineTool({
   schema: z.object({}),
   // Not replay-safe: a test run may write.
   run: async (_input, runtime: Runtime<Context>) => {
-    const t = await runTests(runtime.context.run);
+    const t = await runTests(current(runtime.context));
     // answered as execute answers
     return commandAnswer({ output: t.out, exitCode: t.code, truncated: false });
   },

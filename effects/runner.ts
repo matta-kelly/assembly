@@ -3,30 +3,30 @@
  * agents, on their bins, and the host's models). One runtime per
  * orchestrator process, on pi's own SQLite file beside the ledger, so a run outlives the process that started it.
  *
- * Each attempt is one run, its id the attempt's (`<item>/<n>`), so the same attempt taken up again is the same run: it
- * goes on from where it stopped, with the model and context it started with. `modelFor` picks the run's model: on the
- * bins, their default, and their fallback on a retry. The run's context is the attempt (`Context`), and from it the
- * runner provides the run's Sandbox, the attempt's box (sandbox.ts). A run taken up in a new process resolves it from
- * the same context, so it finds the same container. Its usage is summed for the ledger. que-pasa traces the run itself, with
- * its messages and each tool call, under the attempt's span (trace.ts).
+ * Each agent on an item has one conversation (`<item>/<agent>`), which keeps its history across the item's attempts:
+ * da-hammer on a cl remembers what it read, wrote and was told on its tries before. Each attempt is one run on it, its id
+ * the attempt's number, so the same attempt taken up again is the same run: it goes on from where it stopped, with the
+ * model it started with. `modelFor` picks the run's model: on the bins, their default, and their fallback on a retry.
+ *
+ * The conversation's context is what lives as long as it (`Context`): the item, the agent, the item's folder and
+ * whether the worktree is read-only. What changes from one attempt to the next (its number, its notes' commit, its
+ * image) is the attempt's run, written to the item's folder before each run (`<agent>.run.json`), so a run taken up in a
+ * new process reads it back. From it the runner provides the run's Sandbox, the attempt's box (sandbox.ts), and the
+ * test tool its run. Its usage is summed for the ledger. que-pasa traces the run itself, with its messages and each
+ * tool call, under the attempt's span (trace.ts).
  */
 
+import { dirname } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Agent } from "@mku1tra/que-pasa/define";
 import { openRuntime, provide, type RunUsage } from "@mku1tra/que-pasa/loop";
 import { Sandbox } from "@mku1tra/que-pasa/sandbox";
 import type { z } from "zod";
+import { type Context, current, keep } from "./runs.ts";
 import { boxOf } from "./sandbox.ts";
 import type { Usage } from "../orchestrator/ledger.ts";
 import { RunFailed, type Runner } from "../orchestrator/loop.ts";
-import type { Run } from "../process/step.ts";
-
-/** What a run of an agent gives its tools: the attempt. JSON, so que-pasa keeps it with the run. */
-export type Context = {
-  run: Run;
-  readOnly: boolean; // its worktree is mounted read-only, as a review's
-};
 
 /** The tokens and cost of a run, over every model it called. */
 export function total(usage: RunUsage): Usage {
@@ -48,10 +48,10 @@ export interface Agents {
   modelFor: (agent: string, retry: boolean) => string;
 }
 
-/** The attempt's box, from its run's context. */
+/** The attempt's box, from its conversation's context. */
 const boxFor = (context: unknown) => {
   const c = context as Context;
-  return { c, box: boxOf(c.run, { readOnly: c.readOnly }) };
+  return boxOf(current(c), { readOnly: c.readOnly });
 };
 
 /**
@@ -72,7 +72,7 @@ export async function quePasa(
     agents: [...built.values()],
     // The traces are eval data: the whole conversation is in them.
     captureContent: true,
-    resources: [provide(Sandbox, ({ context }) => boxFor(context).box)],
+    resources: [provide(Sandbox, ({ context }) => boxFor(context))],
   });
 
   const run: Runner["run"] = async (
@@ -84,13 +84,20 @@ export async function quePasa(
     if (!agent) throw new Error(`no agent ${name}`);
     const model = modelFor(name, retry);
     let usage: Usage | undefined;
+    const context: Context = {
+      item: attempt.name,
+      agent: name,
+      folder: dirname(attempt.dir),
+      readOnly,
+    };
+    keep(context, attempt);
     try {
       const value = await runtime.run(agent, input, {
-        runId: `${attempt.name}/${attempt.n}`,
+        conversation: `${attempt.name}/${name}`,
+        runId: String(attempt.n),
         caller: { id: "assembly" },
         model,
-        // A run taken up after a stop keeps the context it started with: its notes' commit too.
-        context: { run: attempt, readOnly } satisfies Context,
+        context,
         signal,
         onUsage: (u) => (usage = total(u)),
       });

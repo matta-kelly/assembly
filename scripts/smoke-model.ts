@@ -43,7 +43,8 @@ for (const [label, slot] of slots) {
   let usage = { tokens: 0, cost: 0 } as { tokens?: number; cost?: number };
   try {
     const out = await runtime.run(agent, "Go.", {
-      runId: `smoke ${model}`,
+      conversation: `smoke ${model}`,
+      runId: "1",
       caller: { id: "smoke" },
       model,
       signal: AbortSignal.timeout(120_000),

@@ -226,7 +226,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 			- for nail and hammer: `write_file`, `edit_file`, in the cl's worktree
 			- for the planner and the reviews: `execute`, a shell. They only read
 		- `types/`: the factory's own notes that a role works to and is judged against. The work's are type notes, in `work/types/`
-			- in its context: que-pasa's memory middleware reads an agent's types once, when a run is made, keeps them with the run, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
+			- in its context: que-pasa's memory middleware reads an agent's types once, when its conversation is made, keeps them with it, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
 			- every agent: [[terms]] first, the one vocabulary, and each state it reads or makes
 			- the builders: da-nail [[cl]] and [[tests]], da-hammer [[cl]] and [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have, and [[cl]]
 			- the planner and plan-review: [[issue]], [[plan]], [[cl]], [[changelist]] and [[playbook]]
@@ -247,7 +247,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- `tests.ts`: a test run, in a container of its own
 	- `setup.ts`: a worktree's setup, the same way
 	- `runs.ts`: the run folders. `sh.ts`: the commands under them
-	- `runner.ts`: the run, on que-pasa's durable runtime, and the run's context, which its tools read
+	- `runner.ts`: the run, on que-pasa's durable runtime: one conversation per agent on an item, and its context, which its tools read
 	- `models.ts`: the bins, a default model and a fallback for a retry
 	- `notes.ts`: the notes, read at a commit of the notes' main. `trace.ts`: the record of each attempt
 - wiring: `main.ts`. `compose` builds the factory from the other three, on its notes repo, and the world the loop waits on (`npmRegistry`, `gitReader`, `landedTags`; a test stands its registry in through `Factory.registry`), under one home (`ledger.db`, `pi.db`, `runs/`). The e2e builds through it
@@ -264,7 +264,10 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 	- what it installs: ignored by git
 	- a failure: a retry with `missing_dependency`, before any agent. It names an image older than the lockfile (npm's ENOTCACHED), or the files it left unignored
 - sandbox: a container with no network, the worktree mounted (read-only for a review), up on its tools' first call. The agent's loop runs in the orchestrator and holds the key (LangChain's "sandbox as tool")
-- run: que-pasa's, with the attempt's id, under the attempt's span, on the bin's model
+- run: que-pasa's, one input on the agent's conversation on the item (`<item>/<agent>`), with the attempt's number as its id, under the attempt's span, on the bin's model
+	- the conversation: made by the agent's first run on the item, and kept across its attempts, so the agent remembers what it read, wrote and was told. Its context lives as long as it: the item, the agent, the item's folder, read-only or not
+	- the input: the first run's, its spec and its messages; a later run's, only what is new: a review's input again, the note when it changed, and the messages since the agent's last run
+	- the attempt's run: written to the item's folder before each run (`<agent>.run.json`), where the sandbox and the test tool read it
 - check: the step's, on the worktree. Its test run in a container of its own
 - commit: a pass of a step that edits, on the item's branch, titled as crate reads a release. No note is written
 - any other end of a step that edits: its change, new files too, is recorded in the attempt's folder as `change.diff`, and stays in the worktree, so the cl's next attempt goes on from it
@@ -301,7 +304,7 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 
 Where it meets other systems, and what crosses each.
 
-- [[que-pasa]]: the harness. assembly gives it agents, each with its tools and its middleware, a model and a context per run; it gives back the result and the usage, keeps the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
+- [[que-pasa]]: the harness. assembly gives it agents, each with its tools and its middleware, a conversation per agent on each item, a model per run; it gives back the result and the usage, keeps the conversation and the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
 - [[kinetic]]: the work, the notes repo (`ASSEMBLY_NOTES`, else kinetic among the clones). The spec is kinetic's, of the types of `@mku1tra/work`, which kinetic imports from npm; assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them at a commit of its main, pinned on each attempt, and writes only the notes of a spec its planner made, which land on its main as any change does
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
 - the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, reaches the orchestrator only, never a sandbox, through its environment: `scripts/factory.sh run` refuses to start without it. On the laptop `just factory run` fills it from the vault (`secrets.toml`, through rbw-run); on the server the factory's service fills it. `just smoke-model` makes one real call per model
@@ -320,8 +323,8 @@ What it keeps.
 	- events: one per message, with who sent it, its word, reason, cause, findings and notes, and the move it made
 	- paths: the files each cl changed, once landed
 	- check runs: command, image, tree, input hash, exit code, duration
-- pi's store (`pi.db`): que-pasa's runs, so a run goes on after a stop
-- a run folder: per item, by issue (`runs/<issue>/issue/`, `runs/<issue>/cl/<cut>/`), with its worktree (`work/`, and an issue's `notes/` for its plan's land), its setup's mark, and a folder per attempt (`<n>/`) with its log, its trace and, when it did not pass, its `change.diff`. The folders stay when the worktree goes
+- pi's store (`pi.db`): que-pasa's conversations and runs, so a run goes on after a stop
+- a run folder: per item, by issue (`runs/<issue>/issue/`, `runs/<issue>/cl/<cut>/`), with its worktree (`work/`, and an issue's `notes/` for its plan's land), its setup's mark, each agent's attempt going on (`<agent>.run.json`), and a folder per attempt (`<n>/`) with its log, its trace and, when it did not pass, its `change.diff`. The folders stay when the worktree goes
 - the trace (`trace.jsonl`): each attempt as one OpenTelemetry trace, OTLP JSON, semconv 1.43.0
 	- the attempt span: the root, holding what only assembly knows (issue, cl, attempt, step, word, cause, cost, the end commit, the sandbox's image and id), and links to the attempts a review judged. Made at begin, written at end, so a stop cannot lose it
 	- que-pasa's spans: under it, live, in the GenAI conventions. An invoke_agent span per process on the run, a chat span per model call, an execute_tool span per tool call, with the messages
