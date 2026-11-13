@@ -39,7 +39,7 @@ Fault-based: a test earns its place by the wrong code it catches (DeMillo, Lipto
 - find the cases ([[terms#case]]): for each promise, the plausible wrongs an implementation could make, from its partitions and boundaries (Myers, *The Art of Software Testing*; category-partition: Ostrand and Balcer, 1988) and from [[tests#Cases]]
 - choose the fewest tests that hold them: a table for one rule over many inputs, a property for a rule over a domain (QuickCheck: Claessen and Hughes, 2000), and examples enough that no hard-coded answer passes (triangulation: Beck, *Test-Driven Development: By Example*)
 - weigh each test, new or old: name the wrong code it alone catches. A test with none goes
-- run test: each case red for the reason its name says, at its own assertion; for a structure cl, green, and failing on a small wrong change (a characterization test: Feathers). Then submit
+- run test: each case red for the reason its name says, at its own assertion. Red is not the bar: a test red for a wrong reason (a wrong path, a wrong expectation, its own mistake) fails correct code too. Each one fails only because the promised behaviour is missing; for a structure cl, green, and failing on a small wrong change (a characterization test: Feathers). Then submit
 
 ## Not yours
 
