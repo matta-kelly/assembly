@@ -3,19 +3,17 @@ type: moc
 description: "Root of assembly, the software factory: a deployment of que-pasa that moves an issue through its plan and its cls to accepted. Read for how the factory works as a system, where it meets other systems, what it records, and what is built."
 status: active
 ---
-assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through the [[spine]], its plan and its cls, phase by phase, each cl onto main, to accepted. Its notes follow one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
+assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through the [[spine]], its plan and its cls, phase by phase, each cl onto main, to accepted. Its method is the spine, its states and its roles; its machine follows one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
-- [[spine]]: the process it runs: its policy, the V, the split, the build and the checks
-- the types: what a role works to and is judged against
-	- the work's: [[issue]], [[plan]] and [[cl]], each the type note of a work type, in `work/types/`, which says what each part of its notes holds
-	- the factory's: each a note in `workspace/types/`
-		- [[tests]]: what a test is, its kinds, and what a good one is
-		- [[code]]: how code is written here
-		- [[changelist]]: one self-contained change to main, and what a good one is
-		- [[playbook]]: a proven way to do one kind of change
-		- [[lint]]: the check on code that does not run it
-		- [[terms]]: the words of the work, intent, promise, seam, case and test, each with one meaning
+- the method: what the factory does, apart from the machine that does it. Three kinds of note, composed by the spine
+	- [[spine]]: the process, the V that links each state to the role that makes it and the check that judges it
+	- the states: the bar, what good looks like at each level, each a note an agent has in its context
+		- the work's: [[issue]], [[plan]] and [[cl]], the type notes of `@mku1tra/work`, in `work/types/`
+		- the factory's, in `workspace/types/`: [[tests]] and [[code]], what the change is judged by; [[changelist]], one change to main; [[playbook]], a proven way to cut or build one kind of change; [[lint]], the check that does not run code
+		- [[terms]]: the words they are written in, each with one meaning
+	- the roles: the method that meets a state, each an agent's instructions, in `workspace/agents/`: [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]], [[daworks/assembly/workspace/agents/da-nail|da-nail]], [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], [[daworks/assembly/workspace/agents/cl-review|cl-review]], [[daworks/assembly/workspace/agents/issue-review|issue-review]]
+- the machine: the sections below, one job through the plant
 
 ---
 ## The product line

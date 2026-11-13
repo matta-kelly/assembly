@@ -88,22 +88,18 @@ Each level splits the work on the way down, and designs the check it will face o
 
 ## The split
 
-The issue goes down the left side, into a plan and its cls: the [[daworks/assembly/workspace/agents/planner|planner]] cuts it, and plan-review checks the cut before any cl starts.
-- [[issue]]: a need, and the state of done that meets it. Born from a signal: a bug, an idea, a breakage
-- [[plan]]: how the issue is cut into cls, only when it takes more than one. Written as an argument: the approach, why the phases are ordered as they are, the seams, the trace to the issue's Done, and what does not fit
-	- phases: the order. A phase is a set of cls that need nothing from each other, and the phases run in order. Each cl holds its `phase`, and the plan's phases are computed from them
-	- the way to cut: a known pattern for the kind of change, or none, said ([[playbook#Cutting a change]])
-	- the planner makes it, working backward from the issue's Done
-- [[cl]]: one cut, the spec its builders work from alone
-	- shape: behavior (its check fails before and passes after) or structure (its check passes before and after), checked in the repo or on the running system
-	- checkout: every path conceivably relevant to the cut, as git sparse-checkout patterns: what its builders get on disk, so they start from what the planner found
+The issue goes down the left side, each level a state, made by one role and checked by another before the next starts. A state is the bar, its type note what good looks like; a role is the method that meets it ([[terms]]).
+- [[issue]]: a need and the promises that meet it, born from a signal (a bug, an idea, a breakage). Made by Matt
+- [[plan]]: the issue cut into cls, only when it takes more than one. Made by the [[daworks/assembly/workspace/agents/planner|planner]], from a known way to cut its kind of change ([[playbook#Cutting a change]]); checked by [[daworks/assembly/workspace/agents/plan-review|plan-review]] before any cl starts
+- [[cl]]: one cut at its surface, its promises, seam and context, the spec its builders work from alone. Made and checked with its plan
 
 ## The build
 
-Each cl is built in its own [[workspace]]: a sparse checkout of the cl's checkout, with its tests run in a full checkout.
-- [[daworks/assembly/workspace/agents/da-nail|da-nail]] writes its tests from the cl, before any code; [[daworks/assembly/workspace/agents/da-hammer|da-hammer]] writes the code that makes them pass, and never changes a test; [[daworks/assembly/workspace/agents/cl-review|cl-review]] judges it; then the dock lands it ([[assembly#The dock]])
-- the method follows the cl's shape ([[playbook#Building a cut]])
-- [[assembly]], the factory: the split and the build as code. It can reach verified, never met
+The point of the V and the right side up to main: each cl built in its own [[workspace]], a sparse checkout of its checkout, its tests run in a full one. The method follows the cl's shape ([[playbook#Building a cut]]).
+- the tests: made by [[daworks/assembly/workspace/agents/da-nail|da-nail]], from the cl's promises, before any code
+- the code: made by [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], until the tests pass, never changing one
+- the verdict: [[daworks/assembly/workspace/agents/cl-review|cl-review]]'s, then the dock lands it ([[assembly#The dock]])
+- the whole: judged by [[daworks/assembly/workspace/agents/issue-review|issue-review]] on main. [[assembly]] runs the split and the build as code, and reaches verified, never met
 
 ## The checks
 
