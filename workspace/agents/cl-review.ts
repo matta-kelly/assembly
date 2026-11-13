@@ -19,6 +19,6 @@ export const clReview = (model: string) =>
     instructions: instructions("./cl-review.md", import.meta.url),
     tools: [...readTools, execute],
     // the bars it judges against, the same notes the builders work to: always in its context
-    middleware: [types("code", "tests", "changelist", "cl")],
+    middleware: [types("terms", "code", "tests", "changelist", "cl")],
     output: z.object({ result: resultOf(review) }),
   });

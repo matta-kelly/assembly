@@ -6,16 +6,15 @@ The cut's intent, in one line: one sentence of done, said as what is true after 
 ---
 ## Check
 
-What it ensures: its promises, each one a future test ([[changelist#Behavior]]). Each promise can fail: a promise nothing could break is no check.
+The cl's promises ([[terms#promise]]): what is true once it lands, each an outcome at the cut's boundary that can fail. Few, each at the altitude of its source. The cases are its tester's, and the build inside the boundary is its builders'.
 
-- behavior: given, when, then. It fails before the change and passes after
-- structure: what stays green before and after, by its test files. When the tests themselves are what changes, the code stays as it is, and the mutation score holds
-- a seam it creates: a promise that the seam holds, at its surface
-- a Done item it completes: that item's test, which this cl writes red first ([[kinetic#Policy]], the promise rule)
-- the whole behavior: a cut that asks an outside thing, waits, or says why it did a thing has a promise for each ([[code#Running]]). A promise left out is built by nobody, so the review finds it after the code
-	- the failed ask: what happens when the outside thing fails, or does not answer
-	- the limit: how long a wait may last, and what passing it does
-	- the record: where a reason or a result is kept, and who reads it there
+- a promise: one outcome, said as what holds and for whom. Never how it is built, never an input or a test to write: a line that reads as a test case is a case written too soon ([[terms#case]])
+- its source: what it serves, which sets the kind of its test ([[terms#promise]], its altitude)
+	- an issue's promise it completes: its test, written red first by this cl, at the system altitude ([[kinetic#Policy]], the promise rule)
+	- a seam it creates: the promise that the seam holds, at its surface
+	- its own intent: a unit promise, where its logic is decided
+- by shape ([[terms#shape]]): behavior, each promise false before and true after; structure, each promise true before and after, by the test files that pin it
+- an outside thing: a cut that asks one, or waits on one, promises what holds when it fails, how long a wait may last, and where the reason is kept. These are outcomes the design decides, so they are promises; how the failure is caught is a case
 
 ## Seam
 

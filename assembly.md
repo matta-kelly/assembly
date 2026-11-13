@@ -14,6 +14,7 @@ assembly: the software factory, a deployment of [[que-pasa]] that takes an issue
 		- [[changelist]]: one self-contained change to main, and what a good one is
 		- [[playbook]]: a proven way to do one kind of change
 		- [[lint]]: the check on code that does not run it
+		- [[terms]]: the words of the work, intent, promise, seam, case and test, each with one meaning
 
 ---
 ## The product line
@@ -98,9 +99,10 @@ The machine: what moves jobs from station to station, in four layers put togethe
 			- for the planner and the reviews: `execute`, a shell. They are not bound, and only read
 		- `types/`: the factory's own notes that a role works to and is judged against. The work's are type notes, in `work/types/`
 			- in its context: que-pasa's memory middleware reads an agent's types once, when a run is made, keeps them with the run, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
-			- the builders: da-nail [[tests]], da-hammer [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have, and [[cl]]
+			- every agent: [[terms]] first, the one vocabulary, and each state it reads or makes
+			- the builders: da-nail [[cl]] and [[tests]], da-hammer [[cl]] and [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have, and [[cl]]
 			- the planner and plan-review: [[issue]], [[plan]], [[cl]], [[changelist]] and [[playbook]]
-			- issue-review: [[issue]]
+			- issue-review: [[issue]], [[plan]] and [[cl]]
 			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
 			- a work type: its type note, the definition itself, so an agent and a person who writes a note read the same text
 - engine: what moves it (`orchestrator/`)

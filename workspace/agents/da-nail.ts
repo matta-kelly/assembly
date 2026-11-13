@@ -20,6 +20,6 @@ export const daNail = (model: string) =>
     // its cl's checkout, on disk, and its tests: no shell, so a builder runs only its tests, and on the whole repo
     tools: [...fileTools, test],
     // what a test is, and what a good one is: always in its context
-    middleware: [types("tests")],
+    middleware: [types("terms", "cl", "tests")],
     output: z.object({ result: resultOf(nail) }),
   });

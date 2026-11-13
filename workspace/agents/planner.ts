@@ -17,6 +17,8 @@ export const planner = (model: string) =>
     instructions: instructions("./planner.md", import.meta.url),
     tools: [...readTools, execute],
     // what an issue, a plan and a cl note hold, and the known ways to cut a change: always in its context
-    middleware: [types("issue", "plan", "cl", "changelist", "playbook")],
+    middleware: [
+      types("terms", "issue", "plan", "cl", "changelist", "playbook"),
+    ],
     output: z.object({ result: resultOf(plan) }),
   });

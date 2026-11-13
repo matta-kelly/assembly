@@ -17,6 +17,8 @@ export const planReviewer = (model: string) =>
     instructions: instructions("./plan-review.md", import.meta.url),
     tools: [...readTools, execute],
     // the bar it judges a plan against, the same notes the planner works to: always in its context
-    middleware: [types("issue", "plan", "cl", "changelist", "playbook")],
+    middleware: [
+      types("terms", "issue", "plan", "cl", "changelist", "playbook"),
+    ],
     output: z.object({ result: resultOf(planReview) }),
   });

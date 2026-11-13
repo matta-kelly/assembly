@@ -3,7 +3,7 @@ type: doc
 description: "Tests: what a test is, the kinds, what a good test is and the runner config per language. Use when writing, judging or cutting tests."
 status: active
 ---
-A test checks one behavior: in this situation, when this happens, that is the result.
+A test checks one promise, on its cases: in this situation, when this happens, that is the result.
 - [[#Characteristics]] what a test is
 - [[#Kinds]] size, scope, and where each runs
 - [[#A good test]] the bar every test meets
@@ -11,16 +11,16 @@ A test checks one behavior: in this situation, when this happens, that is the re
 - [[#Runner config]] per language
 
 - [[kinetic#The checks]]: the map, a gate of the cl's check
-- [[changelist#Behavior|behavior]]: what a test checks
+- [[terms#promise|promise]] and [[terms#case|case]]: what a test checks, and on what
 - [[daworks/assembly/workspace/agents/da-nail|da-nail]]: who writes a cl's tests
 - [[agent-verification]]: the checks an agent cannot change; [[backpressure]]: a check as a force on the work
 
 ---
 ## Characteristics
 
-- a test checks one behavior ([[changelist#Behavior]]). The acceptance test of a change checks the behavior that says it is done
-- it comes from the behavior, never from reading the code
-- one behavior each: "And" in the name means two tests
+- a test checks one promise ([[terms#promise]]). The acceptance test of a change checks the promise that says it is done
+- it comes from the promise, never from reading the code
+- one promise each: "And" in the name means two tests
 - executable documentation: "if you want to know what the code does in a particular case, look at the test for that case"
 - a check the agent that writes the code cannot change: da-nail commits it before the code, and da-hammer never edits it
 - types before tests: a state the types make impossible to write needs no test
@@ -33,7 +33,7 @@ A test checks one behavior: in this situation, when this happens, that is the re
 	- medium: one machine. It can use localhost, and a real database in a container
 	- large: more than one machine, and real services. Slow, and the least reliable. Ours are the smoke checks
 	- the aim is about 80% small, 15% medium, 5% large
-- scope: how much code a test covers. It follows the part of the code where the behavior is decided (Cockburn, *Hexagonal Architecture*)
+- scope: how much code a test covers. It follows the part of the code where the promise is decided, which the promise's altitude names ([[terms#promise]]) (Cockburn, *Hexagonal Architecture*)
 	- unit → logic: the part that decides, and touches nothing outside the process
 		- one piece of logic, alone
 		- one test per decision this repo's code makes; what the language, the platform or a library decides gets none
@@ -66,11 +66,11 @@ A test checks one behavior: in this situation, when this happens, that is the re
 
 ## A good test
 
-- its expected result comes from the behavior
+- its expected result comes from the promise
 - it goes through the public surface, and checks the result, not the steps
-- it is named for the behavior: "does X when Y"
+- it is named for the promise: "does X when Y"
 - straight-line: no loops, no conditions, expected values written out
-	- the exception: a property-based test, for a rule over a whole domain ("sorting never loses an element"). Only next to at least one plain example test, which says what the behavior is
+	- the exception: a property-based test, for a rule over a whole domain ("sorting never loses an element"). Only next to at least one plain example test, which says what the promise is
 	- a table: one rule over many inputs is one test. Its rows are the inputs and their expected results, written out, a row for each class of input and each boundary. The loop reads the rows and decides nothing (table-driven tests: Cheney, "Prefer table driven tests")
 - it stands alone: it builds what it needs, and passes run alone or in any order (a fresh fixture: Meszaros, *xUnit Test Patterns*)
 	- so it runs in parallel with the rest: names, ports and folders of its own, and its settings passed to what it starts, never set on the shared process. A medium test spends its time waiting on a container, so the suite takes as long as its slowest test, not their sum (Go's `t.Parallel()`, pytest-xdist)
@@ -79,8 +79,8 @@ A test checks one behavior: in this situation, when this happens, that is the re
 - seen to fail: before the code exists, or by breaking the code once on purpose
 	- each case at its own assertion: a failure ends a test, so a case after it was never seen. A case is a test, or a row of a table, never a second block in one test
 - the only test that fails for at least one fault put in the code
-- it changes only when its behavior changes; it goes only when another test fails for every fault it catches
-	- a change of behavior makes old tests false, and they change with it, before the code: one that expects the old result, and one whose setup builds what the new behavior forbids
+- it changes only when its promise changes; it goes only when another test fails for every fault it catches
+	- a changed promise makes old tests false, and they change with it, before the code: one that expects the old result, and one whose setup builds what the new promise forbids
 - a unit test that needs a fake: its subject is not logic
 - if you liked it, you should have put a test on it: what has no test is not protected (Google's "Beyoncé rule")
 
@@ -95,7 +95,7 @@ A test checks one behavior: in this situation, when this happens, that is the re
 	- the source fails: it gives nothing, or the step before it fails
 	- the place: a path that is missing, unreadable or relative
 - fewest tests: a case goes into a test that holds it; a new test only when none can
-- factors: the things a behavior varies by (which repo, which push, which name). Each is tested once, where it is decided, and two together only where they interact. Never every combination (pairwise testing: Kuhn, Kacker and Lei, NIST SP 800-142)
+- factors: the things a promise varies by (which repo, which push, which name). Each is tested once, where it is decided, and two together only where they interact. Never every combination (pairwise testing: Kuhn, Kacker and Lei, NIST SP 800-142)
 - no natural test (docs, config, style): the check command, or a look at the result
 
 ## Runner config

@@ -20,16 +20,20 @@ async function loaded(agent: { middleware?: readonly unknown[] }) {
 describe("an agent's types", () => {
   // memory leaves out a source that is not there, and says nothing: so each one an agent names must be a note
   it.each([
-    ["da-nail", daNail, ["tests"]],
-    ["da-hammer", daHammer, ["code"]],
-    ["cl-review", clReview, ["code", "tests", "changelist", "cl"]],
-    ["planner", planner, ["issue", "plan", "cl", "changelist", "playbook"]],
+    ["da-nail", daNail, ["terms", "cl", "tests"]],
+    ["da-hammer", daHammer, ["terms", "cl", "code"]],
+    ["cl-review", clReview, ["terms", "code", "tests", "changelist", "cl"]],
+    [
+      "planner",
+      planner,
+      ["terms", "issue", "plan", "cl", "changelist", "playbook"],
+    ],
     [
       "plan-review",
       planReviewer,
-      ["issue", "plan", "cl", "changelist", "playbook"],
+      ["terms", "issue", "plan", "cl", "changelist", "playbook"],
     ],
-    ["issue-review", issueReviewer, ["issue"]],
+    ["issue-review", issueReviewer, ["terms", "issue", "plan", "cl"]],
   ] as const)(
     "%s has each of its types, whole, in this order",
     async (_name, make, names) => {

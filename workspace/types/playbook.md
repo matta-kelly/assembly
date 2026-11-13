@@ -30,7 +30,7 @@ Each one: when it fits, the phases it gives, what each phase proves, and its sou
 - adding behavior
 	- tracer bullet, or walking skeleton: new behavior across layers, or a change that creates seams
 		- phases: the thinnest slice that runs end to end through every seam, then each widening, behind seams already there
-		- checks: the slice's end-to-end test and each seam's promise from the first phase, on the wiring; each widening adds its behaviors, and the one that completes a Done item carries its test
+		- checks: the slice's end-to-end test and each seam's promise from the first phase, on the wiring; each widening adds its promises, and the one that completes an issue promise carries its test
 		- source: Hunt and Thomas, *The Pragmatic Programmer*; Cockburn, "Walking Skeleton"; Freeman and Pryce, *GOOS*
 	- repro first: a bug
 		- phases: the failing regression test, then the fix
@@ -39,7 +39,7 @@ Each one: when it fits, the phases it gives, what each phase proves, and its sou
 - preparing the ground
 	- preparatory refactoring: behavior that is hard to add as the code stands
 		- phases: structure cls that make the change easy, then the behavior cl that makes the easy change
-		- checks: the suite green before and after each structure cl; the behavior's tests red then green
+		- checks: the suite green before and after each structure cl; the behavior cl's tests red then green
 		- source: Fowler, *Refactoring* (2nd ed.); Beck, *Tidy First?*
 	- characterization tests: code to change that no test pins
 		- phases: tests that pin what the code does now, then the change

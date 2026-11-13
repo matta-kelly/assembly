@@ -17,6 +17,6 @@ export const issueReviewer = (model: string) =>
     instructions: instructions("./issue-review.md", import.meta.url),
     tools: [...readTools, execute],
     // what an issue note holds, its Done above all, which it judges the work against: always in its context
-    middleware: [types("issue")],
+    middleware: [types("terms", "issue", "plan", "cl")],
     output: z.object({ result: resultOf(accept) }),
   });
