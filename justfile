@@ -48,6 +48,18 @@ factory +args:
     fi
     exec "{{root}}/scripts/factory.sh" "$@"
 
+# `factory top` on this laptop, on a copy of the server's ledger and traces, redrawn on each save of its code: to change
+# top and see it at once, before it ships. The copy is taken once, read-only to the server; `fresh` takes a new one.
+top-local fresh="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    copy="${XDG_CACHE_HOME:-$HOME/.cache}/assembly-top"
+    if [ -n "{{fresh}}" ] || [ ! -d "$copy/assembly" ]; then
+      rm -rf "$copy" && mkdir -p "$copy"
+      ssh core@monkeybusiness 'sudo tar -C /home/assembly/.local/state -cf - assembly' | tar -C "$copy" -xf -
+    fi
+    ASSEMBLY_HOME="$copy/assembly" exec node --watch --disable-warning=ExperimentalWarning cli/index.ts top
+
 # Run a command in the Node image: `just run npm install zod`
 run +command:
     @just _node "$@"

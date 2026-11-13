@@ -89,6 +89,8 @@ mounts=(-v "$repos:$repos" -v "$home:$home")
 # the host account's ssh: its key, which crate takes for a push or fetch, and the known hosts it checks crate by
 [ -d "$HOME/.ssh" ] && mounts+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
 [ "$repos" = "$lot" ] || mounts+=(-v "$lot:$lot")
+# the host's time zone, so the times the factory shows are the host's
+[ -e /etc/localtime ] && mounts+=(-v /etc/localtime:/etc/localtime:ro)
 
 # top draws a live screen, so its container gets the terminal.
 it=()

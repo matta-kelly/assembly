@@ -203,6 +203,7 @@ launch_args() { # cwd, repos, home, verb, args...
     "$want_home:$want_home"
   )
   if [ "$want_repos" != "$lot" ]; then run_args+=(-v "$lot:$lot"); fi
+  if [ -e /etc/localtime ]; then run_args+=(-v /etc/localtime:/etc/localtime:ro); fi
   run_args+=(
     -w
     "$cwd"

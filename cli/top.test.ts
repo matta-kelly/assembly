@@ -44,6 +44,20 @@ const spans = (names: string[], lastEnd: string) => {
               endTimeUnixNano: String(
                 end - BigInt(names.length - 1 - i) * 1_000_000_000n,
               ),
+              ...(name.startsWith("chat ")
+                ? {
+                    attributes: [
+                      {
+                        key: "gen_ai.usage.input_tokens",
+                        value: { intValue: "1000" },
+                      },
+                      {
+                        key: "gen_ai.usage.output_tokens",
+                        value: { intValue: 100 },
+                      },
+                    ],
+                  }
+                : {}),
             })),
           },
         ],
@@ -113,14 +127,20 @@ describe("factory top", () => {
       `assembly v0.1.3 · ${at.toTimeString().slice(0, 8)} · spent $0.90`,
     );
     expect(lines).toContain("ISSUE is   open   phase 1 of 3   8m12s   $0.90");
-    expect(lines).toContain(
-      "  phase 1   is-a   green   3 attempts   5 turns   8m12s   $0.90   ▶ cl-review #3, 3m12s, 2 turns, idle 8s",
+    // the cl, then its open attempt live: what it does now, its turns and tokens so far; then why it moved last
+    const i = lines.indexOf(
+      "  phase 1   is-a   green   3 attempts   5 turns   8m12s   $0.90",
     );
+    expect(i).toBeGreaterThan(0);
+    expect(lines.slice(i + 1, i + 3)).toEqual([
+      "    ▶ cl-review #3   3m12s   2 turns   idle 8s   now: model   2k in, 200 out",
+      "    ↳ pass: green",
+    ]);
     expect(lines).toContain("  phase 2   is-b   waiting");
     expect(lines).toContain("  phase 3   is-c   waiting");
     const role = (r: string) =>
       lines
-        .find((l) => l.startsWith(`  ${r} `))
+        .find((l) => l.startsWith(`    ${r} `))
         ?.split(/\s+/)
         .filter(Boolean);
     expect(role("da-nail")).toEqual([
@@ -156,8 +176,37 @@ describe("factory top", () => {
     ]);
   });
 
+  it("shows why a cl waits or is stuck, and the last tool an attempt ran", () => {
+    const f = compose({ home });
+    runsOf = f.runs;
+    const { ledger } = f;
+    ledger.addIssue(issue);
+    ledger.addCl(cl("is-a", 1, 1), "ready");
+    ledger.apply(
+      "is-a",
+      {
+        word: "escalate",
+        reason: "the setup failed: no zod\nmore",
+        findings: [],
+      },
+      "orchestrator",
+    );
+    const lines = screen(ledger, f.runs, new Date(), "v0");
+    expect(lines).toContain("    ↳ escalate: the setup failed: no zod");
+    const dir = join(home, "t.jsonl");
+    writeFileSync(
+      dir,
+      spans(["chat m", "execute_tool bash"], "2026-11-12T15:00:00Z") + "\n",
+    );
+    expect(traceOf(dir).doing).toBe("bash");
+  });
+
   it("reads an attempt with no trace yet as no turns and no idle time, and skips a line it cannot parse", () => {
-    expect(traceOf(join(home, "missing.jsonl"))).toEqual({ turns: 0 });
+    expect(traceOf(join(home, "missing.jsonl"))).toEqual({
+      turns: 0,
+      input: 0,
+      output: 0,
+    });
     const file = join(home, "trace.jsonl");
     writeFileSync(
       file,
@@ -165,7 +214,10 @@ describe("factory top", () => {
     );
     expect(traceOf(file)).toEqual({
       turns: 1,
+      input: 1000,
+      output: 100,
       last: Date.parse("2026-11-12T15:00:00Z"),
+      doing: "model",
     });
   });
 
@@ -176,7 +228,7 @@ describe("factory top", () => {
     ledger.addCl(cl("is-a", 1, 1), "landed");
     ledger.addCl(cl("is-b", 2, 2), "dropped");
     expect(screen(ledger, runs, new Date(), "v0")).toContain(
-      "ISSUE is   open   all 2 phases landed   $0.00",
+      "ISSUE is   open   shipped: all 2 phases landed   $0.00",
     );
   });
 
