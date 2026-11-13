@@ -4,9 +4,8 @@
  * error with exit 2 (clig.dev). The factory is opened only for a verb it has, so a usage error leaves nothing behind.
  *
  *   factory submit <issue> [--repo <path>]...
- *   factory approve <issue>
- *   factory replan <issue>
- *   factory retry <item>
+ *   factory stop <item>
+ *   factory resume <item> [<state>]
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
@@ -25,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../effects/repo.ts";
-import { approve, type Done, replan, retry, submit } from "./levers.ts";
+import { type Done, resume, stop, submit } from "./levers.ts";
 import { blocked, explain, status } from "./report.ts";
 import { run } from "./run.ts";
 import { top, version } from "./top.ts";
@@ -46,9 +45,8 @@ export function notesOf(
 }
 
 export const usage = `factory submit <issue> [--repo <path>]...
-factory approve <issue>
-factory replan <issue>
-factory retry <item>
+factory stop <item>
+factory resume <item> [<state>]
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -106,15 +104,12 @@ export async function main(
       if (done.code === 2) done.lines.push(usage);
       return print(done);
     }
-    case "approve":
+    case "stop":
       if (!arg) break;
-      return print(approve(factory, arg));
-    case "replan":
+      return print(stop(factory, arg));
+    case "resume":
       if (!arg) break;
-      return print(replan(factory, arg));
-    case "retry":
-      if (!arg) break;
-      return print(retry(factory, arg));
+      return print(await resume(factory, arg, positionals[2], { notes }));
     case "run": {
       const every = Number(values.every);
       if (!Number.isFinite(every) || every <= 0)

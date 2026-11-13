@@ -2,25 +2,27 @@
  * What Matt does to the factory from the command line, each a message through the ledger's one door (apply), as Matt.
  * - submit <issue>: the issue's note, `_well/<issue>.md` at the notes' main, enters. With cl notes there that belong to
  *   it, his spec, linted as the planner's is, it enters at building; with none, at open, for the factory's planner
- * - approve <issue>: his pass at plan review, for a plan the factory's planner made: it lands in the notes as it is
- * - replan <issue>: an issue he holds, raised or escalated, back to open, its cls not landed dropped
- * - retry <item>: an escalated item back to where it was when it was escalated
+ * - stop <item>: his escalate. An attempt open on it finishes, and nothing new starts on it, or on an issue's cls
+ * - resume <item> [<state>]: an item he holds, escalated or raised, to a station of its kind, by default where it was
+ *   before, with a fresh budget. He edits the notes in between; the next attempt reads them
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { Built } from "../main.ts";
-import { notesNow } from "../orchestrator/advance.ts";
+import { notesNow, reconcile } from "../orchestrator/advance.ts";
 import { itemsIn } from "../effects/notes.ts";
 import {
   clNotesOf,
   kebab,
   noteOf,
+  plannedOf,
   readSpec,
   specLint,
   typeOf,
 } from "../process/plan.ts";
+import { ends, held, type State, stations } from "../process/table.ts";
 import type { Message } from "../process/step.ts";
 import { type Reader, reposOn } from "../effects/repo.ts";
 
@@ -139,80 +141,106 @@ export async function submit(
   };
 }
 
-/** approve <issue>: Matt's pass at plan review, in place of plan-review's: the plan lands in the notes as it is. */
-export function approve(f: () => Built, name: string): Done {
+/** stop <item>: Matt's escalate. An attempt open on it finishes; nothing new starts on it, nor on an issue's cls. */
+export function stop(f: () => Built, name: string): Done {
   const { ledger } = f();
   const i = ledger.items().find((x) => x.name === name);
   if (!i) return refused(`no item ${name} in the ledger`);
-  if (i.state !== "planned")
-    return refused(`${name} is ${i.state}: approve takes an issue at planned`);
-  if (ledger.open().some((a) => a.name === name))
-    return refused(`${name} has an attempt open: plan-review is judging it`);
-  ledger.apply(name, said("pass", "Matt approved its plan"), "matt");
-  return { code: 0, lines: [`approved ${name}: its plan lands`] };
-}
-
-/**
- * retry <item>: an escalated item back to where it was when it was escalated, once its cause is fixed: its cls and
- * their attempts as they are. An escalated issue takes its escalated cls back with it.
- */
-export function retry(f: () => Built, name: string): Done {
-  const { ledger } = f();
-  const i = ledger.items().find((x) => x.name === name);
-  if (!i) return refused(`no item ${name} in the ledger`);
-  if (i.state !== "escalated")
-    return refused(
-      `${name} is ${i.state}: retry takes an item that is escalated`,
-    );
-  const items = [
-    i,
-    ...(i.kind === "issue"
-      ? ledger.cls(name).filter((c) => c.state === "escalated")
-      : []),
-  ];
-  const moved: string[] = [];
-  ledger.transaction(() => {
-    for (const x of items) {
-      const to = ledger.apply(
-        x.name,
-        said("resume", "Matt retries it"),
-        "matt",
-      );
-      moved.push(`  ${x.name}  ${to}`);
-    }
-  });
-  return { code: 0, lines: [`retried ${name}:`, ...moved] };
-}
-
-/** replan <issue>: an issue Matt holds, back to open, its live cls not landed dropped. */
-export function replan(f: () => Built, name: string): Done {
-  const { ledger } = f();
-  const i = ledger.items().find((x) => x.name === name);
-  if (!i) return refused(`no item ${name} in the ledger`);
-  if (i.kind !== "issue" || (i.state !== "raised" && i.state !== "escalated"))
-    return refused(
-      `${name} is ${i.state}: replan takes an issue that is raised or escalated`,
-    );
-  if (ledger.open().some((a) => a.name === name))
-    return refused(`${name} has an attempt open`);
-  const rest = ledger
-    .cls(name)
-    .filter((c) => !["landed", "dropped"].includes(c.state));
-  ledger.transaction(() => {
-    for (const c of rest)
-      ledger.apply(c.name, said("drop", "Matt replans its issue"), "matt");
-    ledger.apply(
-      name,
-      said("resume", "Matt sends it back to be planned"),
-      "matt",
-      "open",
-    );
-  });
+  if (ends.includes(i.state) || held.includes(i.state))
+    return refused(`${name} is ${i.state}: stop takes an item that moves`);
+  ledger.apply(name, said("escalate", "Matt stopped it"), "matt");
+  const running = ledger.open().some((a) => a.name === name);
   return {
     code: 0,
     lines: [
-      `${name} is open, for the factory's planner`,
-      ...rest.map((c) => `  ${c.name}  dropped`),
+      `stopped ${name}, at ${i.state}${running ? ": its open attempt finishes, and nothing new starts" : ""}`,
     ],
   };
+}
+
+/**
+ * resume <item> [<state>]: an item Matt holds, escalated or raised, to `state`, a station of its kind, or by default
+ * where it was before it was held. Its attempts and rounds count again from here. For an issue:
+ * - to building: its cls are made to match its notes at the notes' main as it is now: a new cl note adds a cl, a cl
+ *   whose note is gone and has not landed is dropped, and the rest keep their state; its held cls go back to where
+ *   they were before
+ * - to open: its cls not landed are dropped, and the planner plans it again, the notes at main its spec before
+ * - to approved: the plan its planner made lands in the notes as it is, Matt's pass of plan review
+ */
+export async function resume(
+  f: () => Built,
+  name: string,
+  state: string | undefined,
+  o: { notes?: string | undefined },
+): Promise<Done> {
+  const { ledger } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (!held.includes(i.state))
+    return refused(
+      `${name} is ${i.state}: resume takes an item that is escalated or raised`,
+    );
+  if (ledger.open().some((a) => a.name === name))
+    return refused(`${name} has an attempt open: it ends first`);
+  if (state !== undefined && !stations[i.kind].includes(state as State))
+    return refused(
+      `${state} is no station of ${i.kind === "issue" ? "an issue" : "a cl"}: ${stations[i.kind].join(", ")}`,
+    );
+  const to = (state as State | undefined) ?? ledger.prior(name);
+  if (!to || held.includes(to) || ends.includes(to))
+    return refused(
+      `${name} was ${to ?? "nowhere"} before: give the state to resume it at, one of ${stations[i.kind].join(", ")}`,
+    );
+  const why = said("resume", `Matt resumes it at ${to}`);
+  const lines = [`resumed ${name}, at ${to}`];
+  if (i.kind === "issue" && to === "approved" && !plannedOf(ledger, name))
+    return refused(`${name} has no plan of its planner's to land`);
+  if (i.kind === "issue" && to === "building") {
+    if (!o.notes)
+      return refused(
+        "resume to building reads the notes repo: ASSEMBLY_NOTES, or ASSEMBLY_REPOS",
+      );
+    let read;
+    try {
+      read = readSpec(await notesNow(o.notes), i.note, name);
+    } catch (e) {
+      return refused(`the notes were not read: ${(e as Error).message}`);
+    }
+    if (!read.ok) return refused(...read.errors);
+    const spec = read.spec;
+    const lint = specLint(spec, {
+      taken: () => false,
+      repos: (i.repos.length ? i.repos : [i.repo]).map((r) => basename(r)),
+    });
+    if (lint.word !== "pass") return refused(lint.reason);
+    ledger.transaction(() => {
+      const before = new Map(ledger.cls(name).map((c) => [c.name, c.state]));
+      for (const c of reconcile(ledger, i, spec, true))
+        lines.push(`  ${c}  ${ledger.item(c).state}, added`);
+      for (const c of ledger.cls(name)) {
+        if (c.state === "dropped" && before.get(c.name) !== "dropped")
+          lines.push(`  ${c.name}  dropped: its note is gone`);
+        if (!held.includes(c.state)) continue;
+        const prior = ledger.prior(c.name);
+        if (!prior || held.includes(prior) || ends.includes(prior)) continue;
+        ledger.apply(c.name, why, "matt", prior);
+        lines.push(`  ${c.name}  ${prior}`);
+      }
+      ledger.apply(name, why, "matt", to);
+    });
+    return { code: 0, lines };
+  }
+  ledger.transaction(() => {
+    if (i.kind === "issue" && to === "open")
+      for (const c of ledger.cls(name).filter((x) => !ends.includes(x.state))) {
+        ledger.apply(
+          c.name,
+          said("drop", "Matt plans its issue again"),
+          "matt",
+        );
+        lines.push(`  ${c.name}  dropped`);
+      }
+    ledger.apply(name, why, "matt", to);
+  });
+  return { code: 0, lines };
 }

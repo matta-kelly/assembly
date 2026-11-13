@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
@@ -16,7 +17,7 @@ import { notesAt } from "../effects/notes.ts";
 import { clOf } from "../process/plan.ts";
 import type { Reader } from "../effects/repo.ts";
 import { npmRegistryUrl } from "../effects/registry.ts";
-import { approve, replan, retry, submit } from "./levers.ts";
+import { resume, stop, submit } from "./levers.ts";
 
 // The notes' main is the kinetic repo's own main: it has no remote to fetch.
 vi.mock("../effects/git.ts", async (original) => ({
@@ -367,108 +368,204 @@ describe("submit", () => {
   });
 });
 
-describe("approve, replan and retry", () => {
-  /** fx submitted with no cl notes: at open, for the planner. */
-  const atOpen = async () => {
+describe("stop and resume", () => {
+  /** fx submitted with Matt's spec and built from his notes: fx-a ready, fx-c waiting. */
+  const building = async () => {
+    specNotes();
+    publish("the spec");
+    expect((await submit(factory, "fx", runK())).code).toBe(0);
+    const { ledger } = factory();
+    await advance(ledger, world());
+    return ledger;
+  };
+  const go = (name: string, state?: string) =>
+    resume(factory, name, state, { notes: kinetic });
+
+  it("stop escalates an item that moves, as Matt; its open attempt ends there, and nothing new starts", async () => {
+    const ledger = await building();
+    const n = ledger.begin("fx-a");
+    expect(stop(factory, "fx-a")).toEqual({
+      code: 0,
+      lines: [
+        "stopped fx-a, at ready: its open attempt finishes, and nothing new starts",
+      ],
+    });
+    expect(ledger.events("fx-a").at(-1)).toMatchObject({
+      by: "matt",
+      word: "escalate",
+      to_state: "escalated",
+    });
+    // the attempt it let finish ends, and the cl stays Matt's
+    ledger.apply(
+      "fx-a",
+      { word: "pass", reason: "red", findings: [] },
+      { attempt: n },
+    );
+    expect(ledger.item("fx-a").state).toBe("escalated");
+    expect(ledger.waiting(["ready", "red"])).toEqual([]);
+    expect(stop(factory, "fx").lines).toEqual(["stopped fx, at building"]);
+  });
+
+  it("stop refuses an item that has ended, one Matt holds, and one not in the ledger", async () => {
+    const ledger = await building();
+    ledger.apply("fx-c", { word: "drop", reason: "r", findings: [] }, "matt");
+    expect(stop(factory, "fx-c").lines[0]).toMatch(/fx-c is dropped/);
+    stop(factory, "fx-a");
+    expect(stop(factory, "fx-a").lines[0]).toMatch(/fx-a is escalated/);
+    expect(stop(factory, "nope").lines).toEqual(["no item nope in the ledger"]);
+  });
+
+  it("resume takes a cl back to where it was stopped, by default, with a fresh budget", async () => {
+    const ledger = await building();
+    ledger.apply(
+      "fx-a",
+      { word: "pass", reason: "red", findings: [] },
+      { attempt: ledger.begin("fx-a") },
+    );
+    ledger.apply(
+      "fx-a",
+      { word: "pass", reason: "green", findings: [] },
+      { attempt: ledger.begin("fx-a") },
+    );
+    const back = {
+      word: "back" as const,
+      reason: "r",
+      findings: [{ about: "code" as const, what: "w", where: "x" }],
+    };
+    ledger.apply("fx-a", back, { attempt: ledger.begin("fx-a") });
+    ledger.apply(
+      "fx-a",
+      { word: "retry", reason: "red", findings: [] },
+      { attempt: ledger.begin("fx-a") },
+    );
+    expect(ledger.rounds("fx-a")).toBe(1);
+    stop(factory, "fx-a");
+    expect(await go("fx-a")).toEqual({
+      code: 0,
+      lines: ["resumed fx-a, at red"],
+    });
+    expect(ledger.item("fx-a").state).toBe("red");
+    expect(ledger.rounds("fx-a")).toBe(0);
+    expect(ledger.attempts("fx-a", "red")).toBe(0);
+  });
+
+  it("resume takes a cl to any station given, and refuses a state that is no station of a cl", async () => {
+    const ledger = await building();
+    stop(factory, "fx-a");
+    expect((await go("fx-a", "building")).lines[0]).toMatch(
+      /building is no station of a cl: ready, red, green, approved/,
+    );
+    expect((await go("fx-a", "green")).code).toBe(0);
+    expect(ledger.item("fx-a").state).toBe("green");
+  });
+
+  it("resume takes a raised cl back to the state it raised from", async () => {
+    const ledger = await building();
+    ledger.apply(
+      "fx-a",
+      {
+        word: "back",
+        reason: "r",
+        findings: [{ about: "cl", what: "w", where: "x" }],
+      },
+      { attempt: ledger.begin("fx-a") },
+    );
+    expect(ledger.item("fx-a").state).toBe("raised");
+    expect(await go("fx-a")).toEqual({
+      code: 0,
+      lines: ["resumed fx-a, at ready"],
+    });
+  });
+
+  it("resume refuses an item Matt does not hold, and one with an attempt still open", async () => {
+    const ledger = await building();
+    expect((await go("fx-a")).lines[0]).toMatch(
+      /fx-a is ready: resume takes an item that is escalated or raised/,
+    );
+    ledger.begin("fx-a");
+    stop(factory, "fx-a");
+    expect((await go("fx-a")).lines[0]).toMatch(/attempt open: it ends first/);
+  });
+
+  it("resume of an issue to building makes its cls match its notes at main: a new cl added, a gone one dropped, its held cls back", async () => {
+    const ledger = await building();
+    stop(factory, "fx-a");
+    await advance(ledger, world());
+    expect(ledger.item("fx").state).toBe("escalated");
+    // Matt edits the notes: fx-c is gone, fx-d is new, in phase 2
+    rmSync(put("fx-c"));
+    note("fx-d", cl("d", 2));
+    note(
+      "fx-plan",
+      plan("- Phase 1: a first\n\t- [[fx-a]]\n- Phase 2: then d\n\t- [[fx-d]]"),
+    );
+    publish("Matt's fix");
+    expect(await go("fx")).toEqual({
+      code: 0,
+      lines: [
+        "resumed fx, at building",
+        "  fx-d  waiting, added",
+        "  fx-a  ready",
+        "  fx-c  dropped: its note is gone",
+      ],
+    });
+    expect(ledger.cls("fx").map((c) => [c.name, c.state])).toEqual([
+      ["fx-a", "ready"],
+      ["fx-c", "dropped"],
+      ["fx-d", "waiting"],
+    ]);
+    expect(ledger.item("fx").state).toBe("building");
+  });
+
+  it("resume of an issue to building refuses notes that do not read as a spec, and changes nothing", async () => {
+    const ledger = await building();
+    stop(factory, "fx");
+    note("fx-c", cl("c", 2).replace("src/b.ts", "../b.ts"));
+    publish("a path outside the repo");
+    expect((await go("fx")).lines).toEqual([
+      expect.stringMatching(/files outside the repo/),
+    ]);
+    expect(ledger.item("fx").state).toBe("escalated");
+  });
+
+  it("resume of an issue to open drops its cls not landed, for its planner to plan again", async () => {
+    const ledger = await building();
+    ledger.landed("fx-a", "c".repeat(40), []);
+    stop(factory, "fx");
+    const db = new DatabaseSync(join(home, "factory", "ledger.db"));
+    db.prepare("UPDATE items SET state = 'landed' WHERE name = 'fx-a'").run();
+    db.close();
+    expect(await go("fx", "open")).toEqual({
+      code: 0,
+      lines: ["resumed fx, at open", "  fx-c  dropped"],
+    });
+    expect(ledger.cls("fx").map((c) => c.state)).toEqual(["landed", "dropped"]);
+    expect(ledger.item("fx").state).toBe("open");
+    // the notes stay as they are: the ledger says the cls are dropped
+    expect(readFileSync(put("fx-c"), "utf8")).toMatch(/^status: new$/m);
+  });
+
+  it("resume of an issue stopped at planned to approved is Matt's pass of plan review: its planner's plan lands", async () => {
     note("fx", issue);
     publish("the issue");
     await submit(factory, "fx", runK());
-  };
-
-  it("approve is Matt's pass at plan review: the plan goes to its land; it refuses any other state", async () => {
-    await atOpen();
-    expect(approve(factory, "fx").lines[0]).toMatch(
-      /fx is open: approve takes an issue at planned/,
-    );
     const { ledger } = factory();
+    stop(factory, "fx");
+    expect((await go("fx", "approved")).lines).toEqual([
+      "fx has no plan of its planner's to land",
+    ]);
+    await resume(factory, "fx", "open", {});
     ledger.apply(
       "fx",
       { word: "pass", reason: "planned", findings: [] },
-      { attempt: ledger.begin("fx") },
+      { attempt: ledger.begin("fx"), result: { word: "done", cls: [] } },
     );
-    expect(approve(factory, "fx")).toEqual({
-      code: 0,
-      lines: ["approved fx: its plan lands"],
-    });
-    expect(ledger.events("fx").at(-1)).toMatchObject({
-      by: "matt",
-      to_state: "approved",
-    });
-  });
-
-  it("approve refuses while plan-review is judging the plan", async () => {
-    await atOpen();
-    const { ledger } = factory();
-    ledger.apply(
-      "fx",
-      { word: "pass", reason: "planned", findings: [] },
-      { attempt: ledger.begin("fx") },
-    );
-    ledger.begin("fx");
-    expect(approve(factory, "fx").lines[0]).toMatch(/attempt open/);
-  });
-
-  it("replan sends an escalated issue back to open, and drops its cls not landed; their notes stay as they are", async () => {
-    specNotes();
-    publish("the spec");
-    expect((await submit(factory, "fx", runK())).code).toBe(0);
-    const { ledger } = factory();
-    await advance(ledger, world());
-    expect(replan(factory, "fx").lines[0]).toMatch(
-      /fx is building: replan takes/,
-    );
-    ledger.apply(
-      "fx",
-      { word: "escalate", reason: "test", findings: [] },
-      "orchestrator",
-    );
-    expect(replan(factory, "fx").code).toBe(0);
-    expect(ledger.item("fx").state).toBe("open");
-    expect(ledger.cls("fx").map((c) => c.state)).toEqual([
-      "dropped",
-      "dropped",
+    stop(factory, "fx");
+    expect((await go("fx")).lines).toEqual(["resumed fx, at planned"]);
+    stop(factory, "fx");
+    expect((await go("fx", "approved")).lines).toEqual([
+      "resumed fx, at approved",
     ]);
-    expect(readFileSync(put("fx-a"), "utf8")).toMatch(/^status: new$/m);
-    expect(git("status", "--porcelain")).toBe("");
-  });
-
-  it("retry takes an escalated issue and its escalated cls back to where each was", async () => {
-    specNotes();
-    publish("the spec");
-    expect((await submit(factory, "fx", runK())).code).toBe(0);
-    const { ledger } = factory();
-    await advance(ledger, world());
-    const [a, c] = ledger.cls("fx").map((x) => x.name) as [string, string];
-    const before = ledger.cls("fx").map((x) => x.state);
-    expect(retry(factory, "fx").lines[0]).toMatch(
-      /fx is building: retry takes an item that is escalated/,
-    );
-    ledger.apply(
-      a,
-      { word: "escalate", reason: "setup", findings: [] },
-      "orchestrator",
-    );
-    ledger.apply(
-      "fx",
-      { word: "escalate", reason: "its cl is", findings: [] },
-      "orchestrator",
-    );
-    expect(retry(factory, "fx")).toEqual({
-      code: 0,
-      lines: ["retried fx:", "  fx  building", `  ${a}  ${before[0]}`],
-    });
-    expect(ledger.item("fx").state).toBe("building");
-    expect(ledger.cls("fx").map((x) => x.state)).toEqual(before);
-    ledger.apply(
-      a,
-      { word: "escalate", reason: "again", findings: [] },
-      "orchestrator",
-    );
-    expect(retry(factory, a).code).toBe(0);
-    expect(ledger.item(a).state).toBe(before[0]);
-    expect(ledger.item(c).state).toBe(before[1]);
-    expect(retry(factory, "nope").lines).toEqual([
-      "no item nope in the ledger",
-    ]);
+    expect(ledger.item("fx").state).toBe("approved");
   });
 });

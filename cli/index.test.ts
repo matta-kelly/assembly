@@ -138,6 +138,26 @@ describe("the command line", () => {
     });
   });
 
+  it("stops an item and resumes it, at a station it is given", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repo = join(home, "repo");
+    onCrate(repo, "img");
+    const notes = notesAt(join(home, "notes"), { fx: issueNote });
+    const env = { ASSEMBLY_HOME: home, ASSEMBLY_NOTES: notes };
+    expect(await main(["submit", "fx", "--repo", repo], env, read)).toBe(0);
+    expect(await main(["stop", "fx"], env)).toBe(0);
+    expect(log).toHaveBeenLastCalledWith("stopped fx, at open");
+    expect(await main(["resume", "fx", "ready"], env)).toBe(1);
+    expect(err).toHaveBeenLastCalledWith(
+      "ready is no station of an issue: open, approved, building, built",
+    );
+    expect(await main(["resume", "fx"], env)).toBe(0);
+    expect(log).toHaveBeenLastCalledWith("resumed fx, at open");
+    expect(compose({ home }).ledger.item("fx").state).toBe("open");
+    expect(await main(["resume"], env)).toBe(2);
+  });
+
   it("refuses a repo that is not one, or a name it has", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
