@@ -5,6 +5,7 @@
  *   notes' main), building (its cls run, phase by phase), built (acceptance's, on main), accepted
  * - a cl: waiting (for the phases before its own), ready (da-nail's step), red (da-hammer's), green (cl-review's),
  *   approved (the land's), landed on main. A cl whose note is gone, or whose issue is planned again, is dropped
+ * - either: dropped, when Matt lets it go: it ends undone, and its record stays
  * A retry stays in its state: the third failed attempt at one state is escalated to Matt, and so is the third
  * send-back for another round. A waiting cl's retry is no attempt: it records why the cl waits, however often. Matt
  * stops an item (escalate) and resumes it at a station, with a fresh budget.
@@ -33,8 +34,8 @@ export type State =
 /**
  * A message's word. pass moves the item on, and retry runs its step again. back sends it up the V, to the owner of the
  * artifact its findings are about: a review's send-back and an agent's raise are both one. The rest are the
- * orchestrator's and Matt's: drop takes a cl out of its plan, escalate gives an item to Matt (his stop too), and resume
- * sends an item he holds back to a station.
+ * orchestrator's and Matt's: drop ends an item undone (a cl out of its plan, or an issue Matt lets go, with its cls),
+ * escalate gives an item to Matt (his stop too), and resume sends an item he holds back to a station.
  */
 export type Word = "pass" | "retry" | "back" | "drop" | "escalate" | "resume";
 
@@ -128,7 +129,7 @@ export function next(
     return "escalated";
   }
   if (word === "drop") {
-    if (kind !== "cl" || ends.includes(state))
+    if (ends.includes(state))
       throw new Error(`no transition from ${state} on drop`);
     return "dropped";
   }

@@ -32,6 +32,15 @@ describe("next", () => {
     );
   });
 
+  it("drops an issue or a cl not ended, and never one that has", () => {
+    expect(next("building", "issue", "drop", [], once)).toBe("dropped");
+    expect(next("escalated", "issue", "drop", [], once)).toBe("dropped");
+    expect(next("green", "cl", "drop", [], once)).toBe("dropped");
+    expect(() => next("accepted", "issue", "drop", [], once)).toThrow(
+      /no transition/,
+    );
+  });
+
   it("keeps an item in its state on retry, until the retry limit escalates it", () => {
     expect(
       next("open", "issue", "retry", [], {

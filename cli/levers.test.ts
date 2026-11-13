@@ -17,7 +17,7 @@ import { notesAt } from "../effects/notes.ts";
 import { clOf } from "../process/plan.ts";
 import type { Reader } from "../effects/repo.ts";
 import { npmRegistryUrl } from "../effects/registry.ts";
-import { resume, stop, submit } from "./levers.ts";
+import { drop, resume, stop, submit } from "./levers.ts";
 
 // The notes' main is the kinetic repo's own main: it has no remote to fetch.
 vi.mock("../effects/git.ts", async (original) => ({
@@ -413,6 +413,42 @@ describe("stop and resume", () => {
     stop(factory, "fx-a");
     expect(stop(factory, "fx-a").lines[0]).toMatch(/fx-a is escalated/);
     expect(stop(factory, "nope").lines).toEqual(["no item nope in the ledger"]);
+  });
+
+  it("drop ends an issue and its cls not ended, as Matt, and keeps their record", async () => {
+    const ledger = await building();
+    ledger.apply(
+      "fx-a",
+      { word: "pass", reason: "red", findings: [] },
+      { attempt: ledger.begin("fx-a") },
+    );
+    stop(factory, "fx");
+    expect(drop(factory, "fx")).toEqual({
+      code: 0,
+      lines: ["dropped fx", "  fx-a  dropped", "  fx-c  dropped"],
+    });
+    for (const name of ["fx", "fx-a", "fx-c"]) {
+      expect(ledger.item(name).state).toBe("dropped");
+      expect(ledger.events(name).at(-1)).toMatchObject({
+        by: "matt",
+        word: "drop",
+      });
+    }
+    // the record stays: fx-a's attempt and its messages
+    expect(ledger.attemptsOf("fx-a")).toHaveLength(1);
+    expect(ledger.waiting(["ready", "red", "waiting"])).toEqual([]);
+  });
+
+  it("drop refuses an item that has ended, one not in the ledger, and one with an attempt open on it or its cls", async () => {
+    const ledger = await building();
+    ledger.begin("fx-a");
+    expect(drop(factory, "fx").lines).toEqual([
+      "fx-a has an attempt open: stop fx, and drop it once the attempt ends",
+    ]);
+    expect(ledger.item("fx").state).toBe("building");
+    ledger.apply("fx-c", { word: "drop", reason: "r", findings: [] }, "matt");
+    expect(drop(factory, "fx-c").lines[0]).toMatch(/fx-c is dropped/);
+    expect(drop(factory, "nope").lines).toEqual(["no item nope in the ledger"]);
   });
 
   it("resume takes a cl back to where it was stopped, by default, with a fresh budget", async () => {

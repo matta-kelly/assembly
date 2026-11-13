@@ -5,6 +5,7 @@
  * - stop <item>: his escalate. An attempt open on it finishes, and nothing new starts on it, or on an issue's cls
  * - resume <item> [<state>]: an item he holds, escalated or raised, to a station of its kind, by default where it was
  *   before, with a fresh budget. He edits the notes in between; the next attempt reads them
+ * - drop <item>: he lets it go. It ends undone, an issue with its cls not ended, and its record stays in the ledger
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
@@ -154,6 +155,41 @@ export function stop(f: () => Built, name: string): Done {
     code: 0,
     lines: [
       `stopped ${name}, at ${i.state}${running ? ": its open attempt finishes, and nothing new starts" : ""}`,
+    ],
+  };
+}
+
+/**
+ * drop <item>: Matt lets an item go. It ends as dropped, and so does each of an issue's cls not ended, in one
+ * transaction; the sweep then takes their worktrees and branches. Their record, every message and attempt, stays. An
+ * item with an attempt open, or a cl of it, is refused: stop it, and drop it once the attempt has ended.
+ */
+export function drop(f: () => Built, name: string): Done {
+  const { ledger } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (ends.includes(i.state))
+    return refused(`${name} is ${i.state}: drop takes an item not ended`);
+  const going = [
+    ...(i.kind === "issue"
+      ? ledger.cls(name).filter((c) => !ends.includes(c.state))
+      : []),
+    i,
+  ];
+  const open = ledger.open().find((a) => going.some((x) => x.name === a.name));
+  if (open)
+    return refused(
+      `${open.name} has an attempt open: stop ${name}, and drop it once the attempt ends`,
+    );
+  const why = said("drop", "Matt drops it");
+  ledger.transaction(() => {
+    for (const x of going) ledger.apply(x.name, why, "matt");
+  });
+  return {
+    code: 0,
+    lines: [
+      `dropped ${name}`,
+      ...going.slice(0, -1).map((c) => `  ${c.name}  dropped`),
     ],
   };
 }
