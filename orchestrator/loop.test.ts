@@ -171,7 +171,8 @@ describe("an attempt", () => {
     await once(make(gives(done("- b1: a.test.ts"))));
     expect(ledger.item("c").state).toBe("red");
     expect(commit).toHaveBeenCalledOnce();
-    expect(vi.mocked(commit).mock.calls[0]?.[1]).toBe("fake(c)");
+    // titled as crate reads a release: a code commit of an issue with no kind is new work, with no description the cl's name
+    expect(vi.mocked(commit).mock.calls[0]?.[1]).toBe("feat(c): c");
     expect(doc()).toBe(cl);
     expect(ledger.attempt("c", 1)).toMatchObject({
       word: "pass",

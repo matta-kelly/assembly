@@ -58,6 +58,7 @@ import {
 import { clOf } from "../process/plan.ts";
 import { type State, top } from "../process/table.ts";
 import { advance, type World } from "./advance.ts";
+import { titleOf } from "./title.ts";
 import type { Event, Ledger, Usage } from "./ledger.ts";
 
 // A step's done shape is its own. The loop needs only its word, so it holds every step by that
@@ -305,8 +306,17 @@ export async function loop({
         }
         // A pass of a step that edits the worktree is its product: the attempt is committed, and becomes the item's
         // branch.
-        if (v.word === "pass" && step.worktree !== "ro")
-          await commit(r, `${step.agent}(${r.name})`);
+        // Its title is the form crate reads for a release: the code of a feature or a fix lands as one.
+        if (v.word === "pass" && step.worktree !== "ro") {
+          const issuePath = ledger
+            .items()
+            .find((i) => i.name === r.issue)?.path;
+          const note = (p?: string) => (p && existsSync(p) ? read(p) : "");
+          await commit(
+            r,
+            titleOf(step.agent, r.name, note(issuePath), note(r.path)),
+          );
+        }
       }
     } catch (e) {
       if (closing) return;
