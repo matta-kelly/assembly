@@ -23,25 +23,29 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 
 - the parts, by where they run
 	- on the server: crate's git hooks on each repo's bare repo, which hold main, check every push to it, copy it to GitHub ([[ci#Merge queue]]), run the slow sets after it moves ([[ci#Postsubmit]]), and version it ([[ci#Release]]). `crate init` makes a bare repo, and `crate apply` makes a server match its declaration in [[dazoo]]
-	- on the machine: the host scripts, `dev-image.sh` and `workspace.sh`, as one tool at a version. They run before any container exists, so no container can carry them. Not built: still copies in each repo
+	- on the machine: crate, one Go binary, the maker of a repo's workspace and dev image (`crate up`, `run`, `down`, `dev-image`). It runs before any container exists, so no container carries it. Installed from its release at `v2`, by deeotee on the laptop and by dazoo for each crate user on the server. The platform's host scripts live in crate, with no copy in a repo
 	- in the container: the base dev image, upstream `devcontainers/javascript-node:22` with the shared tools. Every repo's dev image is `FROM` it. Not built: each Containerfile starts from upstream
-- a repo on crate: its `crate.toml` names the crate version and its check's image (`dev`, or a pinned ref), and its checkouts land on the remote `server`
-- the versions: semver. A server runs crate at its major tag (`v1`), moved by a release (`just release` in crate). crate's own change stays outside the gate it ships, so a broken hook never blocks its own fix
+- a repo on crate: its `crate.toml` names its check's image (`dev`, or a pinned ref), and its checkouts land on the remote `server`
+- the versions: semver. Every machine runs crate at its major tag (`v2`), moved by a release (`just release` in crate). crate's own change stays outside the gate it ships, so a broken hook never blocks its own fix
 - the rule: a part the same in every repo is crate's; a part that differs per repo is the repo's ([[#Environment]])
 
 ## Environment
 
-*A repo defines its environment once. A workspace, CI and an attempt all run that one definition*
+*A repo declares its environment once, in `crate.toml`. A workspace, the check and an attempt are each a system crate makes from it ([[workspace]])*
 
-- four parts, all in the repo, each the repo's own
-	- the dev image: its Containerfile layer, with its system libraries and the package cache of its lockfile, from `.devcontainer/Containerfile` ([[#Dev image]])
-	- the services: what runs beside the dev container, its database first, from `.devcontainer/pod.yaml` (kube YAML, `WORKSPACE` standing for the workspace's name), played by `scripts/workspace.sh` ([[workspace#Services]]). A repo with no services has no file. stateball has the first
-		- the app under test: a repo with a UI runs its runtime image as one more service, `site`, on the same network as its tests, and its tests reach it by name (`http://site:3000`): on the workspace's network on a machine, on the job's own network in CI. Never `--network host`. Held by: publicpersona's check, the first; every repo with a UI follows it
-	- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]])
-	- the ship kind: what a land to main releases, a package, an image, a source, or nothing ([[ci#Release]])
-- `crate.toml`: the crate version the repo runs, its check's image (`dev`, or a pinned ref), its check's time limit, its ship kind (`ship`), its package folders (`packages`), and its slow sets (`postsubmit`) ([[#Platform]])
-- the template: `templates/repo/scripts/` in kinetic: `check.sh`, `dev-image.sh` with its test and its smoke, and `workspace.sh` with its test. A new repo copies them, and its `.devcontainer/Containerfile` from basis, with `<repo>` filled in. crate replaces the copies as it takes each part ([[#Platform]])
-- lot, kinetic and dazoo have none: their lint runs in a pinned Node image
+- `crate.toml`, the declaration
+	- `name`: the repo's name, which names its workspace and its dev image. Required
+	- `[dev]`: the dev image, `inputs` (the files its hash covers, required), and `containerfile` and `smoke` where a repo keeps them elsewhere ([[#Dev image]])
+	- `[tools]`: the tools member, `volumes` (folders of generated files, kept in volumes), `setup` (the install, run once) and `env`
+	- `services`: the services file, Pods named `WORKSPACE-<service>`, each reached by its service's name. stateball's Postgres, the first
+	- `[app]`: the app, `command` (the dev server), `build` (the image that ships, which the check runs as production does), `health`, `env` (the built app's), `ports`, and `needs`
+	- `needs`: the shape of the app's binding, the env every place that runs it gives (a workspace by `[tools] env`, the check by `[app] env`, a node by its unit file). The check proves the built image refuses to start without it. publicpersona's Immich URL and key, the first
+	- the gate's keys: `image`, `timeout`, `ship`, `packages`, `postsubmit`, `postsubmit_timeout` ([[ci]])
+- a repo declares itself: a `crate.toml` with no `name` or no `[dev] inputs` is refused by `crate dev-image` and by the gate, with the key it lacks. crate guesses neither
+- the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]]). A browser test opens the app at `CRATE_APP_URL`
+- the ship kind: what a land to main releases, a package, an image, a source, or nothing ([[ci#Release]])
+- the template: `templates/repo/` in kinetic: `crate.toml` (with the keys a repo adds shown as comments), `scripts/check.sh`, `scripts/dev-image-smoke.sh`, `scripts/workflows.test.sh` and the workflows. A new repo copies them, and its `.devcontainer/Containerfile` from basis, with `<repo>` filled in
+- lot, kinetic and dazoo have no dev image: their lint runs in a pinned Node image
 
 ### Dev image
 
@@ -64,44 +68,12 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 	```
 	- what more than Node it needs goes in the `base` stage: system libraries, and a browser at a fixed path (`PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`), since a volume over `~/.cache` would hide it
 	- the last stage sets no `USER`: a GitHub job container needs root to write its checkout
-- its tag is the hash of its inputs, git's tree entries of the lockfiles, `devcontainer.json` and the Containerfile (`scripts/dev-image.sh hash`), so one commit gives one tag on every machine
-- `dev-image.yml`, on a push to main that changes an input, and by hand: `scripts/dev-image.sh ensure` builds, smokes (`scripts/dev-image-smoke.sh`: an offline install from the cache, with no network) and pushes `:<hash>` only when ghcr lacks it, then `promote` points `:main` at it. The same inputs are never built twice
+- its tag is the hash of its declared inputs (`[dev] inputs`), git's tree entries of each (`crate dev-image hash`), so one commit gives one tag on every machine
+- `dev-image.yml`, on a push to main that changes `crate.toml` or an input, and by hand: it gets crate from its release, then `crate dev-image ensure` builds, smokes (`scripts/dev-image-smoke.sh`: an offline install from the cache, with no network) and pushes `:<hash>` only when ghcr lacks it, and `crate dev-image promote` points `:main` at it. The same inputs are never built twice
 	- the build is tagged `<hash>-candidate` until its smoke passes, so a failed smoke leaves no image
 	- a path filter is allowed: it is not a required check
-- `scripts/dev-image.sh local` puts a commit's image on a machine: its copy, else a pull, else a build and a smoke with no push. A container with no network starts on it
-- used by: each check job ([[ci#One command]]), each workspace (`image: ...-dev:main`), and an attempt's sandbox ([[assembly]])
-
-### devcontainer.json
-
-How a workspace makes its container from the image ([[workspace]]):
-
-```json
-{
-  "name": "<repo>",
-  "image": "ghcr.io/matta-kelly/<repo>-dev:main",
-  "initializeCommand": "(podman pull ghcr.io/matta-kelly/<repo>-dev:main || echo 'could not pull: the copy this machine has is used' >&2) && scripts/workspace.sh up ${localWorkspaceFolder}",
-  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
-  "workspaceFolder": "${localWorkspaceFolder}",
-  "runArgs": ["--userns=keep-id:uid=1000,gid=1000", "--network", "<repo>-${localWorkspaceFolderBasename}", "--network-alias", "<repo>-${localWorkspaceFolderBasename}-app", "--cpus=3", "--cpu-shares=256"],
-  "forwardPorts": [3000],
-  "remoteUser": "node",
-  "updateRemoteUserUID": false,
-  "mounts": [
-    "source=<repo>-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume"
-  ],
-  "postCreateCommand": "sudo chown node:node node_modules && npm ci"
-}
-```
-
-- `initializeCommand` runs on the host before the CLI looks for the image, and the CLI never pulls a tag the machine has: so the pull is what keeps `:main` current
-- `--userns=keep-id:uid=1000,gid=1000`: maps the host user onto the image's `node` user, so files written from inside stay the host user's
-- `--network` and `--network-alias`: the workspace's own network, which `workspace.sh up` made, and the name the router proxies to
-- `forwardPorts`: the app port the router routes `<workspace>.localhost` to. A repo that serves nothing leaves it out
-- `--cpus` and `--cpu-shares`: the container's CPU budget, below the machine's cores, and its low priority, enforced by the kernel (cgroups). They live here and nowhere else: `just` and VS Code both make the container from this file
-- `workspaceMount` at the host path: caches such as `.next` store absolute paths, and a different path inside the container breaks them
-- packages live in a volume, never in the repo folder: Obsidian loads every file in the vault, and `node_modules` is tens of thousands of files. One volume per checkout (`${devcontainerId}` differs per folder), and one more for each folder that fills with generated files (a second `node_modules`, `.next`)
-	- `chown` before the install: a new volume starts owned by root
-	- `npm ci` reads the image's cache (`npm_config_prefer_offline`), so the install copies, and fetches only what the cache lacks
+- `crate dev-image local` puts a commit's image on a machine: its copy, else a pull, else a build and a smoke with no push. `crate up` and the gate call it; the factory calls it for an attempt
+- used by: each workspace's tools member, the gate's check ([[ci#Merge queue]]), a check job of a repo not on crate (`crate dev-image ref`, [[ci#One command]]), and an attempt ([[assembly]])
 
 ## On GitHub
 
@@ -139,7 +111,7 @@ The target. Not every repo meets it yet.
 - code repo
 	- `README.md`: what the project is, its parts (each with its test kind and its path), and how to run, check and ship it
 	- tests ([[tests]])
-	- environment: a dev image, its services and its check ([[#Environment]]), when code work here needs one. dazoo gets one when the factory runs there
+	- environment: its `crate.toml`, a dev image, its services, its app and its check ([[#Environment]]), when code work here needs one. dazoo gets one when the factory runs there
 	- check: lint, types, tests
 	- goes out by
 		- publish: [[basis]], beam-pi-extension

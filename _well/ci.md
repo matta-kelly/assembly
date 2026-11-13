@@ -50,14 +50,14 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 *The same check, on the change's branch, so the commit main takes is the commit that was checked*
 
-- on crate: presubmit and the merge queue are one run, crate's pre-receive hook on the server ([[#Merge queue]]). On crate: que-pasa, basis, kinetic, lot, assembly, homepage, media-stack and deeotee
-- not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
+- on crate: presubmit and the merge queue are one run, crate's pre-receive hook on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack and deeotee
+- not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check, and landl runs it on every push. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
 
 ### checks.yml
 
 *For a repo not on crate: one job, `checks`, on every push, runs the repo's one check command*
 
-- the source: basis's `checks.yml`, copied as it is, until the platform's reusable workflow replaces the copies ([[repo#Platform]]). In `scripts/check.sh`, fill in the sets, their commands and the path rules. Not every repo uses it yet
+- the source: kinetic's template, `templates/repo/.github/workflows/checks.yml`, copied as it is, until the platform's reusable workflow replaces the copies ([[repo#Platform]]). In `scripts/check.sh`, fill in the sets, their commands and the path rules. Not every repo uses it yet
 
 #### When it runs
 
@@ -71,20 +71,22 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 - the job calls the repo's check command, the same one a person or an agent runs before landing. Green means the same in both places: the pipeline confirms, it does not discover
 - it adds no check of its own, and sets up no toolchain: it runs in the repo's dev image ([[repo#Dev image]]), the same environment as every workspace
-	- a job `image` gives the image by digest, so every job of the run uses one image. que's runs `scripts/dev-image.sh ensure`, which builds the image of a commit whose inputs ghcr lacks; basis's, landl's, publicpersona's and que-pasa's run `scripts/dev-image.sh ref`, the commit's image if ghcr has it, else `:main`, so a branch that changes an input runs on `:main` until it lands
+	- a job `image` gives the image by digest, so every job of the run uses one image. que's runs its own `scripts/dev-image.sh ensure`, which builds the image of a commit whose inputs ghcr lacks; landl's gets crate from its release and runs `crate dev-image ref`, the commit's image if ghcr has it, else `:main`, so a branch that changes an input runs on `:main` until it lands
 	- each check job runs in it (`jobs.<id>.container`), and runs the check as the image's `node`, over a checkout `node` owns: `chown -R node:node "$GITHUB_WORKSPACE" && runuser -u node -- env HOME=/home/node scripts/check.sh`. A job container runs as root, which reads every file (a test of a file it may not open passes) and owns none of the checkout (git refuses it)
-	- publicpersona's check drives its runtime image, so its steps run in the dev image by `docker run` on the job's own network, `publicpersona-ci` (its `IN` prefix), and reach the site by name ([[repo#Environment]])
 	- a test that stands in for an engine pins its own `ENGINE`: the job sets `ENGINE` for the check's own containers
 
 ## Merge queue
 
 *Main moves only to a commit whose check passed on the exact tree it becomes, and a change reaches main by no other way*
 
-- crate: each repo on crate keeps main in a bare repo on monkeybusiness (`~/git/<repo>.git`), and crate's pre-receive hook checks every push to it ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))
+- crate: each repo on crate keeps main in a bare repo on monkeybusiness (`~/git/<repo>.git`), and crate's pre-receive hook checks every push to it. crate is one Go binary; its hooks are one-line scripts that run `crate hook` from the install beside them ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))
 	- the queue: one push per repo at a time, under the repo's lock
 	- the tree: git takes only a fast-forward of main, so the tree checked is the tree main becomes. A push that waited while main moved is sent back to rebase
-	- the check: the repo's `scripts/check.sh`, in the image its `crate.toml` names, as `node`, with `CHECK_BASE` the old main, so only the sets a change touched run. Its checkout, packages and image stay warm between pushes. Past its time limit (`timeout` in `crate.toml`, 900 s by default) it is stopped
+	- the check: one run of a system of its own, made by crate from the pushed tree's `crate.toml` as a workspace is ([[workspace#Postures]]): its own network, its services reached by name, its tools member on the image `crate.toml` names, and its built app, run as production runs it and reached as `app`. Before the app, crate proves the built image refuses to start without its `needs`. Then `scripts/check.sh` runs in the tools member, with `CHECK_BASE` the old main, so only the sets a change touched run. Up and the check together stop at its time limit (`timeout` in `crate.toml`, 900 s by default)
+	- warm: the check's checkout, its tools volumes and its dev image stay between pushes; its network, services and app are removed after each
+	- its reach: the check's system reaches the outside, to install and pull. An attempt's has no route out
 	- red: git refuses the push, and the pusher gets the check's output. Main has not moved
+	- refused before any check: a push that waited while main moved (rebase, and push again), a tree the check's checkout cannot take (push again), a repo whose `crate.toml` does not declare itself ([[repo#Environment]]), and a pushed version tag: only crate's release makes those
 	- after: crate's post-receive copies main to GitHub, with the repo's own deploy key
 	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`
 - a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
