@@ -140,7 +140,7 @@ export const cl = defineType({
       .min(1)
       .optional()
       .describe(
-        "The paths its builders get on disk, from its repo's root, as git sparse-checkout patterns: a file, or a folder for all under it. Every path conceivably relevant to the cut, so they start from what the planner found, and its Checkout section says what each is",
+        "Where its change lives, from its repo's root: a file, or a folder for all under it. Every path conceivably relevant to the cut, so its builders start from what the planner found, and its Checkout section says what each is. A starting point, not a wall: they read wider when the work needs it",
       ),
     test: z
       .string()
