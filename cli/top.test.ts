@@ -248,11 +248,11 @@ describe("factory top", () => {
     );
   });
 
-  it("colors the stations, and cuts a line to the screen's width, its colors kept", () => {
+  it("colors the stations, and cuts a line to one column short of the screen's width, its colors kept", () => {
     const { ledger, runs } = compose({ home });
     ledger.addIssue({ ...issue, name: "a-very-long-issue-name-".repeat(5) });
     const lines = screen(ledger, runs, new Date(), "v0", {
-      columns: 60,
+      columns: 61,
       color: true,
     });
     const width = (l: string) =>

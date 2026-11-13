@@ -164,7 +164,8 @@ export function screen(
   version: string,
   look: Look = {},
 ): string[] {
-  const columns = Math.max(60, look.columns ?? 100);
+  // one column short of the terminal's: a line that fills the last column wraps on some terminals
+  const columns = Math.max(60, (look.columns ?? 101) - 1);
   const paint = (code: string) => (t: string) =>
     look.color ? `${esc}[${code}m${t}${esc}[0m` : t;
   const c = {
@@ -311,10 +312,13 @@ export function screen(
   const issues = items.filter((i) => i.kind === "issue");
   const live_ = issues.filter((i) => !ended.has(i.state));
   const gone = issues.length - live_.length;
+  const title = `${c.bold("assembly")} ${c.dim(version)}`;
+  const clock = `${at.toTimeString().slice(0, 8)}   ${c.dim("spent")} ${money(sum(used, (u) => u.cost))}`;
   const lines = [
-    `${c.bold("assembly")} ${c.dim(version)}${" ".repeat(Math.max(1, columns - 30 - version.length))}${at.toTimeString().slice(0, 8)}   ${c.dim("spent")} ${money(sum(used, (u) => u.cost))}`,
+    `${title}${" ".repeat(Math.max(1, columns - width(title) - width(clock)))}${clock}`,
     "",
   ];
+
   if (!live_.length)
     lines.push(
       c.dim(`nothing in the factory${gone ? `, ${gone} ended` : ""}`),
