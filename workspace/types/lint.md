@@ -5,7 +5,7 @@ status: active
 ---
 Lint: a check on code that does not run it. The cheapest check there is.
 
-- [[spine#The checks]]: the map, a gate of the cl's check
+- [[assembly#The checks]]: the map, a gate of the cl's check
 - [[code]]: the rules lint holds
 - [[agent-verification]]: lint as a check the agent cannot change
 

@@ -11,7 +11,7 @@ How code is written.
 - [[#Writing]] how it reads
 - [[#Running]] how it behaves
 
-- [[spine#The build]]: the map, the bar for what a cl writes
+- [[assembly#The build]]: the map, the bar for what a cl writes
 - [[lint]]: holds every rule here a machine can state
 
 ---

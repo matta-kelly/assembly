@@ -13,7 +13,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 - [[#Conventions]] what every repo has, and what each kind adds
 
 - [[operate]]: what runs, watched against its SLOs, after cd
-- [[spine#The checks]]: the map, where a cl lands
+- [[assembly#The checks]]: the map, where a cl lands
 - [[github]]: the account the repos belong to
 
 ---

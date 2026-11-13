@@ -13,7 +13,7 @@ The terms of the work: each names one thing of the V, in one sense, in every not
 - [[#retired words]] the words these replace
 
 - [[issue]], [[plan]], [[cl]]: the states that hold these terms
-- [[spine#The V]]: the levels they move through
+- [[assembly#The V]]: the levels they move through
 
 ---
 ## intent

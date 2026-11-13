@@ -12,7 +12,7 @@ The refinement of the issue: the cls replace its promises with smaller ones ([[t
 - a cut: the cls meet at seams ([[terms#seam]]), each an interface between cuts: what one side promises the other, and what neither touches. Cut along decisions hidden behind an interface, not along the steps of a flow ([Parnas, 1972](https://dl.acm.org/doi/10.1145/361598.361623))
 - a cl ([[cl]]): a contract: its promises, its phase and its seam. It has its own intent and promises that can fail, fits one review, and leaves main working once it lands ([[changelist#Good CL]]). If you can't write a cut's promises, the cut is wrong
 - the boundary: the plan stops at each cut's surface. It names the seams and what each cl promises, never the cases or the build inside, which are its builders'
-- the proof: every promise of the issue is kept by a cl, and every cl serves one. A cl that serves nothing is scope the issue did not ask for. A seam's promise is in the Promises of the cl that creates the seam, and each issue promise's test in the Promises of the cl that completes it ([[spine#Policy]], the promise rule)
+- the proof: every promise of the issue is kept by a cl, and every cl serves one. A cl that serves nothing is scope the issue did not ask for. A seam's promise is in the Promises of the cl that creates the seam, and each issue promise's test in the Promises of the cl that completes it ([[assembly#Policy]], the promise rule)
 - every assumption stands on shown ground: the code or a probe's output, never a summary of them
 - the list: a line for each phase, what it builds and why it comes where it does, and under it a line for each of its cls, what it hides and what crosses to the others
 

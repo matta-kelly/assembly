@@ -1,21 +1,151 @@
 ---
 type: moc
-description: "Root of assembly, the software factory: a deployment of que-pasa that moves an issue through its plan and its cls to accepted. Read for how the factory works as a system, where it meets other systems, what it records, and what is built."
+description: "Root of assembly, the software factory: the process every change moves through, from a signal to met (its policy, the V, the split, the build and the checks), and the machine that runs it, a deployment of que-pasa. Read for how a change is made and checked, how the factory works as a system, where it meets other systems, what it records, and what is built."
 status: active
 ---
-assembly: the software factory, a deployment of [[que-pasa]] that takes an issue through the [[spine]], its plan and its cls, phase by phase, each cl onto main, to accepted. Its method is the spine, its states and its roles; its machine follows one job through the plant: where it is built, where it is done, what it carries, what moves it, one run of it, and where it leaves.
+assembly: the software factory. The process every change moves through, from a signal to met, its intent verified and validated at every level, and the machine that runs it: a deployment of [[que-pasa]] that takes an issue through its plan and its cls, phase by phase, each cl onto main, to accepted.
+- the method: what the factory does, apart from the machine that does it
+	- [[#Policy]] what the process is for, and what it never trades: verification and validation at its core
+	- [[#The V]] each level split on the way down, checked on the way up
+	- [[#The split]] the issue into a plan and its cls
+	- [[#The build]] each cl built
+	- [[#The checks]] each level's check, in the order the work meets them
+- the machine: one job through the plant
+	- [[#The product line]] the repo it builds in
+	- [[#The bench]] where one job is done
+	- [[#The paperwork]] what travels with a job, and the rules a message follows
+	- [[#The plant]] what moves jobs from station to station
+	- [[#One job]] one attempt, from begin to end
+	- [[#The dock]] main, and the land onto it
+	- [[#Seams]] where it meets other systems
+	- [[#Records]] what it keeps
+	- [[#Built]], [[#Not built]] what exists, and what does not yet
+- [[#Sources]] what the method rests on
 
 - [[point-b]]: what it is for, through [[software-factory-v2]]
-- the method: what the factory does, apart from the machine that does it. Three kinds of note, composed by the spine
-	- [[spine]]: the process, the V that links each state to the role that makes it and the check that judges it
-	- the states: the bar, what good looks like at each level, each a note an agent has in its context
-		- the work's: [[issue]], [[plan]] and [[cl]], the type notes of `@mku1tra/work`, in `work/types/`
-		- the factory's, in `workspace/types/`: [[tests]] and [[code]], what the change is judged by; [[changelist]], one change to main; [[playbook]], a proven way to cut or build one kind of change; [[lint]], the check that does not run code
-		- [[terms]]: the words they are written in, each with one meaning
-	- the roles: the method that meets a state, each an agent's instructions, in `workspace/agents/`: [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]], [[daworks/assembly/workspace/agents/da-nail|da-nail]], [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], [[daworks/assembly/workspace/agents/cl-review|cl-review]], [[daworks/assembly/workspace/agents/issue-review|issue-review]]
-- the machine: the sections below, one job through the plant
+- the states: the bar, what good looks like at each level, each a note an agent has in its context
+	- the work's: [[issue]], [[plan]] and [[cl]], the type notes of `@mku1tra/work`, in `work/types/`
+	- the factory's, in `workspace/types/`: [[tests]] and [[code]], what the change is judged by; [[changelist]], one change to main; [[playbook]], a proven way to cut or build one kind of change; [[lint]], the check that does not run code
+	- [[terms]]: the words they are written in, each with one meaning
+- the roles: the method that meets a state, each an agent's instructions, in `workspace/agents/`: [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]], [[daworks/assembly/workspace/agents/da-nail|da-nail]], [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], [[daworks/assembly/workspace/agents/cl-review|cl-review]], [[daworks/assembly/workspace/agents/issue-review|issue-review]]
+- [[kinetic]]: the work that moves through it, as notes
 
 ---
+## Policy
+
+What the system is for, and the rules it never trades.
+
+- the North Star: the stance every rule here serves
+	- entropy: the real cost of code, since what is left stale, half done or done two ways is copied by every agent after. So when the right thing is clear, it goes in this change
+	- intent: the need a piece of work serves. Where a spec disagrees with it, the intent wins
+	- generated code: a black-box artifact, judged by empirical evaluation like any ML model
+	- side by side: each step done with an agent, trying to do better than it, so the process improves from what it gets right and what it misses
+- verification and validation: the core, the two checks that keep what runs aligned with what was meant
+	- verification: the check that it was built right. What was built matches what was specified; a test answers it
+	- validation: the check that it was the right thing. What was specified matches what was needed; a person answers it
+	- the pairing: each level split on the way down and checked on the way up by the side that split it, the [[#The V|V]]
+	- composability: each level a closed unit, with a need, a done and a check that can fail
+		- done: a unit is done when its own check holds, not when its parts say so. Held by: the issue's acceptance, a CL's gate
+		- the seam: what composes is the check, never the method. The method inside a unit is free
+		- one shape: a plan composes CLs and an issue composes its plan, so one rule covers every level
+	- the promise rule: each promise ([[terms#promise]]) is tested once, by the cl that makes it, at the altitude of its source, which sets the kind of its test ([[tests#Kinds]]). It is the rule that makes the V compose, at any size
+		- a seam: tested by the cl that creates it
+		- an issue promise: tested by the cl that completes it, red first, end to end or on the running system. The plan names that cl before any cl starts
+		- the line: promises go down the V, cases never do. Each level writes what holds at its surface and leaves the inside to the level below ([[terms#case]])
+		- composition: the parts' promises, with their seams, imply the whole, so a level tests only what its parts cannot show (assume-guarantee: Abadi and Lamport)
+		- order: the outer promise is written before the work inside it (outside-in: Freeman and Pryce), and a change with seams builds them first, thin and end to end, then fills behind them (walking skeleton: Cockburn)
+		- the shape it forces: none. One cl is its own seam and Done; a cut too big for one cl is an issue of its own, under the same rule
+	- [[backpressure]]: each check pushing a miss back to the level that owns it, so the work reconciles toward the intent
+		- a finding: a fault in one artifact (the issue, the plan, a cl, its tests or its code), with what fails, its evidence and where. A check hands back all it found, in one pass
+		- the owner: who made the artifact, and so who fixes it. The tests are da-nail's, the code da-hammer's, a cl and the plan the planner's, the issue Matt's
+		- back: a finding goes up the V to its artifact's owner. Findings about several artifacts go to the highest one's owner, since its fix can change the rest
+		- raise: a back about a spec (a cl, the plan or the issue), never settled below. A cl's raise goes to its plan first, to the issue only when the intent itself was wrong, and the outcome is said: re-scope, split or drop
+		- escalation: the item goes to Matt on its third retry at one state, its third round back, or a move no rule covers, and the work it holds up waits until he answers
+		- spawn: a new issue, outside this one, only when the issue would still be met without it. A piece the issue's Done needs stays in its plan
+		- from the running system: what [[operate]] finds false comes in as a new issue
+		- the record: every message, whoever sends it, goes through one door and is kept, never edited
+		- the ratchet: a finding that comes back becomes a lens, then a lint or a test. Not built
+		- Held by: [[#The paperwork]], which runs each rule as code
+- the properties: what must hold of the system, read as a [[state-machine]], each held by a check, a review or a person
+	- liveness: what must happen in the end
+		- met or dropped: every issue in progress ends one or the other, and a change to its intent is raised, never made quietly. Held by: a budget of three rounds at each level, then escalation. Across levels, nothing
+		- fairness: a step that stays possible is taken
+	- safety: what must never happen
+		- invariants: true in every state
+			- main: every commit on it passed the full check and a review, by one path. Held by: [[ci]]'s presubmit, the [[repo]]'s ruleset and pre-push hook. Not built: the gate outside dazoo, and a tested push from [[#The dock|the dock]]
+			- isolation: a change never touches another's work. Held by: its [[workspace]]
+			- one owner: open work has at most one worker. Held by: the claim, status `in-progress`, set by the machine
+			- one fact, one place: each fact has one home, and data flows one way. Held by: basis/merge and `just check`
+				- a work note: the spec. Its frontmatter holds the facts a machine acts on, typed in `schema.ts`; its body is prose that no code parses
+				- status: set by hand, or projected one way by a controller from its own record, keyed by the note's name. Not built: the ledger copies a note's facts, and reads notes with its own parser
+				- a view: computed from `belongsTo` and status, never kept by hand
+		- order: true of every step
+			- fixed at entry: a level's intent and check are fixed where work enters it, and inside it the agent is trusted. Held by: validation of the plan
+			- the alarm channel: a finding that changes a level's intent goes to the level that owns it, never settled below (Beer's algedonic signal). Held by: the agent raises it, and review
+			- tests first: tests are committed before the code. Held by: review, from the commit order ([[tests#Characteristics]])
+
+## The V
+
+Each level splits the work on the way down, and designs the check it will face on the way up; each loop owns one stretch (the V-model).
+
+```
+  Issue: Intent, Done ─────────────────────────────── Acceptance: verified, proven, validated, kept
+    │  ╲                                                ╱  ▲
+    │   Plan: seams, phases ────────────── Integration: seam promises
+    │     ╲                                  ╱
+    │      cl: Promises, Seam ─── cl check: red → green, gates, review
+    │        ╲                    ╱
+    │          build: nail → hammer
+    │
+    ├── the split: down the left side (issue → plan → cls): the planner, checked by plan-review
+    ├── the build: the point, and up to main (each cl: da-nail, da-hammer, cl-review, then the dock)
+    └── acceptance: the top of the right side (deploy, prove, validate, keep)
+```
+
+- across: each level on the left is paired with its check on the right, and designs it. So the whole is checked by the level above, and each level below stays small
+- the top of the right side is validation, the right thing; the levels below it are verification, built right
+- [[objective]]: above the V, an end state met when its key results are. Issues hang under it
+- the machine moves an issue through the V, from open to accepted; met is Matt's
+
+## The split
+
+The issue goes down the left side, each level a state, made by one role and checked by another before the next starts. A state is the bar, its type note what good looks like; a role is the method that meets it ([[terms]]).
+- [[issue]]: a need and the promises that meet it, born from a signal (a bug, an idea, a breakage). Made by Matt
+- [[plan]]: the issue cut into cls, only when it takes more than one. Made by the [[daworks/assembly/workspace/agents/planner|planner]], from a known way to cut its kind of change ([[playbook#Cutting a change]]); checked by [[daworks/assembly/workspace/agents/plan-review|plan-review]] before any cl starts
+- [[cl]]: one cut at its surface, its promises, seam and context, the spec its builders work from alone. Made and checked with its plan
+
+## The build
+
+The point of the V and the right side up to main: each cl built in its own [[workspace]], a sparse checkout of its checkout, its tests run in a full one. The method follows the cl's shape ([[playbook#Building a cut]]).
+- the tests: made by [[daworks/assembly/workspace/agents/da-nail|da-nail]], from the cl's promises, before any code
+- the code: made by [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], until the tests pass, never changing one
+- the verdict: [[daworks/assembly/workspace/agents/cl-review|cl-review]]'s, then the dock lands it ([[#The dock]])
+- the whole: judged by [[daworks/assembly/workspace/agents/issue-review|issue-review]] on main. The machine runs the split and the build as code, and reaches verified, never met
+
+## The checks
+
+Each level of the V has a check, met in this order.
+
+- the cl's check: what a CL must pass before it lands. Each one can fail: red first, or a mutant it kills
+	- the gates: the checks the repo runs on every change, in its [[repo#Environment|environment]]
+		- [[tests]]: run the code and assert what it does
+		- [[lint]]: checks the code without running it
+		- simplicity: a score for duplication and complexity that never gets worse. Not built
+	- [[cl-review]]: a review in a fresh context, by an agent that did not build it
+	- breaker: an agent that tries to break the running change. Not built
+	- running-system check: e2e against a preview deploy of the change, with its proof (screenshots, a recording) left on the change. Not built
+- landing: the CL joins main through [[ci]], which builds its artifact
+	- the CL: its [[changelist|commits]], at the bar of [[code]], each naming its issue
+	- a red: goes back to the build. The same intent failing, not a new issue
+	- a flake: a red that passes on a rerun with no change. A new issue for the check
+- integration: each seam's promise, tested by the cl that creates the seam, and green on main from then on
+- acceptance: the issue's Done, met once its CLs are deployed
+	- verified: its acceptance tests pass on main, each carried by the cl that completed its promise. For an issue of one CL, that CL's tests
+	- proven: the running system shows the intent holds, read from it, not from the code. [[cd]] keeps main running only once it is healthy
+	- validated: a person agrees the intent is met. No test can do it
+- dropped: an issue closed unmet, said in the open
+- kept: a [[operate|monitor]] keeps checking an intent that can break again
+
 ## The product line
 
 [[repo]]: what the factory builds in, a repo and the environment it defines once. An issue may change several, a cl one.
@@ -52,7 +182,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 	- its parts: a word, why in one line, a failure's cause, its findings, and notes for the next step
 	- its words: pass, retry or back from a step; pass, drop, escalate or replan from the orchestrator or Matt
 	- its sender: on its event. An attempt as it ends, the orchestrator, or Matt
-	- the rules a message follows: the spine's ([[spine#Policy]], backpressure): the finding, the owner, back, the raise, escalation and the record. Each is held here
+	- the rules a message follows ([[#Policy]], backpressure): the finding, the owner, back, the raise, escalation and the record. Each is held here
 	- finding: `process/step.ts`'s `Finding`, its `about` the artifact
 	- pass: moves the item on
 	- retry: runs its step again
@@ -223,3 +353,16 @@ What it keeps.
 - a tested push, for a repo not on crate: when main moves between the land's retest and `git land`'s push, `git land` rebases again with no test. A repo on crate has none: crate checks the tree main becomes
 - a land of landl-db or lotus-dash: `git land` runs lot's lint for them, and the orchestrator's image has no `just`, so their lands retry and escalate
 - check reuse: runs are recorded with their input hash, and never skipped on it
+
+## Sources
+
+- [Software Engineering at Google](https://abseil.io/resources/swe-book/html/toc.html)
+- [Google Engineering Practices](https://google.github.io/eng-practices/): [the change author's guide](https://google.github.io/eng-practices/review/developer/), [the reviewer's guide](https://google.github.io/eng-practices/review/reviewer/)
+- HumanLayer, agentic workflows where the plan is the expensive piece: [Advanced Context Engineering for Coding Agents](https://github.com/humanlayer/advanced-context-engineering-for-coding-agents/blob/main/ace-fca.md), [Select a workflow for the task](https://docs.humanlayer.com/guide/skills-workflows)
+- p-stack, trust inside and verify against the real thing: [[mkultra/loke/ext-plugins/pstack/README|pstack]], and its [[mkultra/loke/ext-plugins/pstack/docs/guide/README|guide]]
+- the V-model: each level of the split paired with its check
+- Stafford Beer, *Brain of the Firm* (1972): the algedonic signal
+- Kent Beck, *Tidy First?*: a change is behavior or structure, never both
+- Martín Abadi and Leslie Lamport, "Composing Specifications" (1993): assume-guarantee, the parts' promises imply the whole
+- Steve Freeman and Nat Pryce, *Growing Object-Oriented Software, Guided by Tests* (2009): outside-in, the double loop, and the walking skeleton
+- Alistair Cockburn, "Walking Skeleton": the thinnest end-to-end slice through every part, first

@@ -10,7 +10,7 @@ The cl's promises ([[terms#promise]]): what is true once it lands, each an outco
 
 - a promise: one outcome, said as what holds and for whom. Never how it is built, never an input or a test to write: a line that reads as a test case is a case written too soon ([[terms#case]])
 - its source: what it serves, which sets the kind of its test ([[terms#promise]], its altitude)
-	- an issue's promise it completes: its test, written red first by this cl, at the system altitude ([[spine#Policy]], the promise rule)
+	- an issue's promise it completes: its test, written red first by this cl, at the system altitude ([[assembly#Policy]], the promise rule)
 	- a seam it creates: the promise that the seam holds, at its surface
 	- its own intent: a unit promise, where its logic is decided
 - by shape ([[terms#shape]]): behavior, each promise false before and true after; structure, each promise true before and after, by the test files that pin it

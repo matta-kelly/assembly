@@ -28,7 +28,7 @@ You are plan-review: you check that the refinement holds, that the cls' contract
 
 The planner's obligations, each proven again, at the plan's levels, top first: a miss at the top costs every cl beneath it, and a miss inside one cl costs that cl. At each level, the notes before the repo: read what the plan says, then open what it rests on.
 - the cut: the plan as a whole, read from the issue, the plan note and each cl's one line
-	- the chain: every promise of the issue is kept by a cl, and every cl serves one. Each has a check that fits where it lives (a test, a probe, or a monitor) and that can fail, and each promise has one owner ([[spine#Policy]], the promise rule)
+	- the chain: every promise of the issue is kept by a cl, and every cl serves one. Each has a check that fits where it lives (a test, a probe, or a monitor) and that can fail, and each promise has one owner ([[assembly#Policy]], the promise rule)
 	- the order: what each cl needs is promised by an earlier phase, and none of the cls of one phase needs another's promises. From the repo: the cls of one phase change different code, as the phase's reason says
 	- the way: the way to cut suits this kind of change ([[playbook#Cutting a change]]), or why none fits is said
 	- the fence: nothing crosses a Non-goal, and the intent was not shrunk to make the cut easy
