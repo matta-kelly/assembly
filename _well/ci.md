@@ -88,6 +88,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 	- red: git refuses the push, and the pusher gets the check's output. Main has not moved
 	- refused before any check: a push that waited while main moved (rebase, and push again), a tree the check's checkout cannot take (push again), a repo whose `crate.toml` does not declare itself ([[repo#Environment]]), and a pushed version tag: only crate's release makes those
 	- after: crate's post-receive copies main to GitHub, with the repo's own deploy key
+	- the record: each check, postsubmit, copy and release is a run in `~/git/<repo>.git/crate/log.jsonl`, one JSON line per step with its seconds, so a slow check says where its time went. The push shows the check's summary line. Queried with `jq` or `duckdb` (crate's README, The record)
 	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`
 - a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
 
@@ -193,7 +194,7 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 - red: one commit on main undoes every commit since the last green main, landed through the check like any push
 	- the failure, kept: its last lines in the revert's message, all of it in the server's `<repo>.git/crate/postsubmit/<sha>.log`
 	- the revert passes postsubmit with no run, since its tree is the last green's
-	- a revert that does not apply leaves main as it is, and the log says it needs a hand
+	- a revert that does not apply leaves main as it is, and the record's total line says it needs a hand
 - Not built: no repo names a postsubmit set yet. assembly's `just e2e`, the first, needs the engine's socket in the check's container. The dock is not told when its landed cl is reverted ([[assembly-on-server]])
 
 ## Release
