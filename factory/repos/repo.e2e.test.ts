@@ -18,12 +18,7 @@ import {
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Run } from "../line/step.ts";
-import {
-  containerfile,
-  devcontainer,
-  devToml,
-  smoke,
-} from "./dev-image.fixture.ts";
+import { containerfile, devToml, smoke } from "./dev-image.fixture.ts";
 import { npmSetup, settingsAt } from "./repo.ts";
 import { needsSetup, runSetup } from "../runs/setup.ts";
 
@@ -64,7 +59,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       async () => {
         const repo = join(dir, "repo");
         mkdirSync(join(repo, "scripts"), { recursive: true });
-        mkdirSync(join(repo, ".devcontainer"), { recursive: true });
+        mkdirSync(join(repo, ".crate"), { recursive: true });
         git(repo, "init", "-q", "-b", "main");
         writeFileSync(join(repo, "crate.toml"), devToml("repo"));
         writeFileSync(join(repo, "scripts", "check.sh"), "#!/bin/sh\nexit 0\n");
@@ -74,12 +69,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         chmodSync(join(repo, "scripts", "dev-image-smoke.sh"), 0o755);
         writeFileSync(join(repo, ".gitignore"), "node_modules/\n");
         writeFileSync(
-          join(repo, ".devcontainer", "Containerfile"),
+          join(repo, ".crate", "Containerfile"),
           containerfile("repo"),
-        );
-        writeFileSync(
-          join(repo, ".devcontainer", "devcontainer.json"),
-          devcontainer("repo"),
         );
         writeFileSync(
           join(repo, "package.json"),

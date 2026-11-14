@@ -8,4 +8,4 @@ ship = "source"
 packages = ". work"
 
 [dev]   # the dev image: the files its hash covers
-inputs = [".devcontainer/devcontainer.json", ".devcontainer/Containerfile", "package-lock.json"]
+inputs = [".crate/Containerfile", "package-lock.json"]

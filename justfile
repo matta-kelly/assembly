@@ -8,9 +8,8 @@ root := justfile_directory()
 default:
     @just --list
 
-# The check set: scripts/check.sh, in the Node image: the notes lint, then the code (types, lint, format). The pre-push hook runs it.
+# The check set: scripts/check.sh, in the Node image: the notes lint, then the code (types, lint, format). crate's merge queue runs it.
 check:
-    git -C "{{root}}" config core.hooksPath .githooks
     @just _node scripts/check.sh
 
 # Who the e2e commits and pushes as: Matt, by the host's git config, with git-land, the host's, mounted read-only, for

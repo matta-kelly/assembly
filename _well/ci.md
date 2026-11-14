@@ -113,7 +113,7 @@ The rest of this section is the path through the gate, as dazoo runs it.
 - where: code is made in its workspace ([[workspace]]). A note is edited in its vault checkout, checked there (`just check`, the repo's own lint), committed there, and landed from there. `git land` fast-forwards the repo's checkout after it lands, so the checkout never falls behind
 - before: fetch, rebase onto origin/main, and run the repo's check (`just check`, or its check script), but not in a submodule's vault checkout
 - then: `git land`, from the change's checkout. It is `~/.local/bin/git-land`, from deeotee, so it works in every repo
-	- it pushes HEAD to a short branch (`land/<short commit>`). The pre-push hook runs the check, and a failed check pushes nothing; from `~/lot`, lot's hook runs `just check`. In a checkout that is a submodule (for a submodule of lot, its vault checkout), its pushes skip the hook (`--no-verify`), and it says so
+	- it pushes HEAD to a short branch (`land/<short commit>`). The pre-push hook runs the check, and a failed check pushes nothing. In a checkout that is a submodule (for a submodule of lot, its vault checkout), its pushes skip the hook (`--no-verify`), and it says so
 	- it waits for `checks` on that commit
 	- it pushes the same commit to main, by fast-forward
 	- it deletes the branch, and fast-forwards the repo's main checkout to the commit. A checkout with its own commits, or an uncommitted change in the same files, is left as it is, and it says so

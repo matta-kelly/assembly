@@ -44,7 +44,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 - a repo declares itself: a `crate.toml` with no `name` or no `[dev] inputs` is refused by `crate dev-image` and by the gate, with the key it lacks. crate guesses neither
 - the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]]). A browser test opens the app at `CRATE_APP_URL`
 - the ship kind: what a land to main releases, a package, an image, a source, or nothing ([[ci#Release]])
-- the template: `templates/repo/` in kinetic: `crate.toml` (with the keys a repo adds shown as comments), `scripts/check.sh`, `scripts/dev-image-smoke.sh`, `scripts/workflows.test.sh` and the workflows. A new repo copies them, and its `.devcontainer/Containerfile` from basis, with `<repo>` filled in
+- the template: `templates/repo/` in kinetic: `crate.toml` (with the keys a repo adds shown as comments), `scripts/check.sh`, `scripts/dev-image-smoke.sh`, `scripts/workflows.test.sh` and the workflows. A new repo copies them, and its `.crate/Containerfile` from basis, with `<repo>` filled in
 - lot, kinetic and dazoo have no dev image: their lint runs in a pinned Node image
 
 ### Dev image

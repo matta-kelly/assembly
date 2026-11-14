@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The smoke check of assembly's dev image (.devcontainer/Containerfile), run on the image before any push
+# The smoke check of assembly's dev image (.crate/Containerfile), run on the image before any push
 # (scripts/dev-image.sh ensure). The image owes it this: the checkout installs from its npm cache with
 # no network, and it holds no checkout file. It installs into a copy in the container's /tmp, never
 # into the checkout.

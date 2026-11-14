@@ -22,7 +22,7 @@ Unit tests sit beside each file, with git and podman faked; the e2e tests are `*
 
 Node runs in a pinned image, never on the host. You need `just` and `podman`, and the podman socket for the e2e and a run.
 
-- `just check`: the check set, `scripts/check.sh`: notes, then types, lint, format and the unit tests. The pre-push hook and the pipeline run the same file
+- `just check`: the check set, `scripts/check.sh`: notes, then types, lint, format and the unit tests. crate's merge queue runs the same file
 - `just e2e`: the whole loop on scripted models, with real sandboxes, through the host's podman socket. Not in the check set, since the pipeline has no podman socket
 - `just factory <verb>`: the factory itself, on the server, through its door (`factory door`). `submit <issue> [--repo <path>]...` takes an issue by its name, its note read at the main of the notes repo (`ASSEMBLY_NOTES`, else kinetic among the clones): with Matt's cl notes it enters at building, without them at open, for the factory's planner. It runs over every repo on crate unless `--repo` narrows it; each attempt reads its repo's image, suite and setup from its worktree, a dev image made by crate from the host's install, mounted read-only. `stop <item>` holds an item; `resume <item> [<state>]` sends it back to a station once its notes are fixed; `drop <item>` lets it go, its record kept. Then `run`, `status`, `blocked`, `explain`, `top` (the factory live)
 - `just smoke-model`: one real call per model the bins name. The key comes from the vault (`secrets.toml`, through rbw-run)

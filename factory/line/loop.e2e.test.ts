@@ -42,12 +42,7 @@ import { issueReviewer } from "../../workspace/agents/issue-review.ts";
 import { planReviewer } from "../../workspace/agents/plan-review.ts";
 import { planner } from "../../workspace/agents/planner.ts";
 import { crateTarget, landTarget } from "../repos/land-target.fixture.ts";
-import {
-  containerfile,
-  devcontainer,
-  devToml,
-  smoke,
-} from "../repos/dev-image.fixture.ts";
+import { containerfile, devToml, smoke } from "../repos/dev-image.fixture.ts";
 import { standInRegistry } from "../repos/registry.fixture.ts";
 import { gitReader } from "../repos/repo.ts";
 import { npmRegistryUrl } from "../repos/registry.ts";
@@ -1337,7 +1332,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             const r = join(at, name);
             mkdirSync(join(r, "scripts"), { recursive: true });
             mkdirSync(join(r, "test"), { recursive: true });
-            mkdirSync(join(r, ".devcontainer"), { recursive: true });
+            mkdirSync(join(r, ".crate"), { recursive: true });
             git(r, "init", "-q", "-b", "main");
             writeFileSync(join(r, "crate.toml"), devToml(name));
             // the repo's check: its dependencies installed, then its tests
@@ -1351,12 +1346,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             chmodSync(join(r, "scripts", "dev-image-smoke.sh"), 0o755);
             writeFileSync(join(r, ".gitignore"), "node_modules/\n");
             writeFileSync(
-              join(r, ".devcontainer", "Containerfile"),
+              join(r, ".crate", "Containerfile"),
               containerfile(name),
-            );
-            writeFileSync(
-              join(r, ".devcontainer", "devcontainer.json"),
-              devcontainer(name),
             );
             writeFileSync(
               join(r, "test", "base.test.mjs"),
