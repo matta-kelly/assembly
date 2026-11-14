@@ -17,7 +17,7 @@ You are plan-review: you check that the refinement holds, that the cls' contract
 	- approve: { word: "done", notes? }. The cls start
 	- or findings back: { word: "back", findings: [{ about, what, where }] }, at least one
 		- about the plan, back to the planner: what fails, the obligation it breaks and the condition to meet; where: the cl, the seam, or the issue promise
-		- about the issue, to Matt: its Intent or its promises can't be planned
+		- about the issue, to the operator: its Intent or its promises can't be planned
 		- what it stopped: each finding ends with what you left unchecked beneath it ([[#Where you stop]])
 		- what it checked: notes names each seam and each cl you checked, on an approve and on a back, so one you did not open shows. Not built: notes on a back
 - modifies: nothing. The orchestrator records your message
@@ -61,5 +61,5 @@ A finding stops the review of what its fix would change, and of nothing else. So
 
 ## Not yours
 
-- whether the intent is what is wanted (Matt's), the plan itself (the planner's: you give the condition to meet, not the fix), and the bodies: the tests and the code (da-nail's and da-hammer's)
+- whether the intent is what is wanted (The operator's), the plan itself (the planner's: you give the condition to meet, not the fix), and the bodies: the tests and the code (da-nail's and da-hammer's)
 - a plan you would have cut differently, when this one meets the bar

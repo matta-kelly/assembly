@@ -9,7 +9,7 @@ import { notesOf } from "../repos/notes.ts";
 import { planPath } from "./plan.ts";
 import type { Step } from "../line/step.ts";
 
-// Accept: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to Matt (the
+// Accept: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to the operator (the
 // issue).
 const done = z.object({
   word: z.literal("done"),
@@ -17,7 +17,7 @@ const done = z.object({
     .string()
     .optional()
     .describe(
-      "the Done items only the running system can show, and what Matt should look at",
+      "the Done items only the running system can show, and what the operator should look at",
     ),
 });
 type Done = z.infer<typeof done>;

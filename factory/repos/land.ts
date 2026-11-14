@@ -16,7 +16,7 @@
  * - a cl whose change main holds already passes as it is: a land a stop cut off, after its push, is not landed twice
  * - when main moved under the cl, run its test command on the rebased tree. A red is a back about the code, and the
  *   cl's branch stays on the rebased tree, so da-hammer works on the code main will hold
- * - `git land`, which pushes to main through the repo's gate, as Matt. A land it refuses is a retry
+ * - `git land`, which pushes to main through the repo's gate, as the operator. A land it refuses is a retry
  * On a pass, the cl's branch is the commit main took, which the land gives back. A push to GitHub is authenticated by
  * GH_TOKEN, through gh as git's credential helper, set for this one command, so no credential is written to disk.
  */

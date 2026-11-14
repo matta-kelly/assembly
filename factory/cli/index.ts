@@ -15,7 +15,7 @@
  *   factory top
  *   factory door
  *
- * door is the way in from Matt's laptop: the ssh key's forced command runs it, and it runs the command ssh was given,
+ * door is the way in from the operator's laptop: the ssh key's forced command runs it, and it runs the command ssh was given,
  * `factory <verb> [args...]`, for a remote verb only (door.ts). run is never one: it is the server's.
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
  * Its note is in the notes repo, $ASSEMBLY_NOTES, else $ASSEMBLY_REPOS/kinetic: the only spec, read at its main.

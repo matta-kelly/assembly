@@ -12,9 +12,9 @@ default:
 check:
     @just _node scripts/check.sh
 
-# Who the e2e commits and pushes as: Matt, by the host's git config, with git-land, the host's, mounted read-only, for
+# Who the e2e commits and pushes as: the operator, by the host's git config, with git-land, the host's, mounted read-only, for
 # the land to a repo not on crate.
-as_matt := '-e GIT_AUTHOR_NAME="$(git config user.name)" -e GIT_AUTHOR_EMAIL="$(git config user.email)" -e GIT_COMMITTER_NAME="$(git config user.name)" -e GIT_COMMITTER_EMAIL="$(git config user.email)" -v "$HOME/.local/bin/git-land:/usr/local/bin/git-land:ro"'
+as_operator := '-e GIT_AUTHOR_NAME="$(git config user.name)" -e GIT_AUTHOR_EMAIL="$(git config user.email)" -e GIT_COMMITTER_NAME="$(git config user.name)" -e GIT_COMMITTER_EMAIL="$(git config user.email)" -v "$HOME/.local/bin/git-land:/usr/local/bin/git-land:ro"'
 
 # The factory's image, the one the server runs (factory/Containerfile), built from this checkout.
 image:
@@ -25,7 +25,7 @@ image:
 # factory makes each dev image, and a crate land target takes its hooks from it (CRATE_ROOT).
 e2e: image
     @just _node true
-    podman run --rm --entrypoint= --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e ASSEMBLY_E2E=1 -e ASSEMBLY_E2E_KEEP -e CRATE_ROOT=/usr/local/share/crate -v "$HOME/.local/share/crate:/usr/local/share/crate:ro" {{as_matt}} -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly:dev npx vitest run e2e.test
+    podman run --rm --entrypoint= --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e ASSEMBLY_E2E=1 -e ASSEMBLY_E2E_KEEP -e CRATE_ROOT=/usr/local/share/crate -v "$HOME/.local/share/crate:/usr/local/share/crate:ro" {{as_operator}} -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly:dev npx vitest run e2e.test
 
 # One real call per model the bins name, through que-pasa: the key, the model ids and structured output, for a fraction
 # of a cent. The key comes from the vault (secrets.toml, through rbw-run) into the orchestrator's environment only.

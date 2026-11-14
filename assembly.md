@@ -57,10 +57,10 @@ What the system is for, and the rules it never trades.
 		- the shape it forces: none. One cl is its own seam and Done; a cut too big for one cl is an issue of its own, under the same rule
 	- [[backpressure]]: each check pushing a miss back to the level that owns it, so the work reconciles toward the intent
 		- a finding: a fault in one artifact (the issue, the plan, a cl, its tests or its code), with what fails, its evidence and where. A check hands back all it found, in one pass
-		- the owner: who made the artifact, and so who fixes it. The tests are da-nail's, the code da-hammer's, a cl and the plan the planner's, the issue Matt's
+		- the owner: who made the artifact, and so who fixes it. The tests are da-nail's, the code da-hammer's, a cl and the plan the planner's, the issue the operator's
 		- back: a finding goes up the V to its artifact's owner. Findings about several artifacts go to the highest one's owner, since its fix can change the rest
-		- raise: a back about a spec (a cl, the plan or the issue), never settled below. A cl's raise holds its issue for Matt, who fixes the notes where the fault is, its cl, its plan or the intent, and resumes it, and the outcome is said: re-scope, split or drop
-		- escalation: the item goes to Matt on its third retry at one state, its third round back, or a move no rule covers, and the work it holds up waits until he answers
+		- raise: a back about a spec (a cl, the plan or the issue), never settled below. A cl's raise holds its issue for the operator, who fixes the notes where the fault is, its cl, its plan or the intent, and resumes it, and the outcome is said: re-scope, split or drop
+		- escalation: the item goes to the operator on its third retry at one state, its third round back, or a move no rule covers, and the work it holds up waits until the operator answers
 		- spawn: a new issue, outside this one, only when the issue would still be met without it. A piece the issue's Done needs stays in its plan
 		- from the running system: what [[operate]] finds false comes in as a new issue
 		- the record: every message, whoever sends it, goes through one door and is kept, never edited
@@ -105,12 +105,12 @@ Each level splits the work on the way down, and designs the check it will face o
 - across: each level on the left is paired with its check on the right, and designs it. So the whole is checked by the level above, and each level below stays small
 - the top of the right side is validation, the right thing; the levels below it are verification, built right
 - [[objective]]: above the V, an end state met when its key results are. Issues hang under it
-- the machine moves an issue through the V, from open to accepted; met is Matt's
+- the machine moves an issue through the V, from open to accepted; met is the operator's
 
 ## The split
 
 The issue goes down the left side, each level a state, made by one role and checked by another before the next starts. A state is the bar, its type note what good looks like; a role is the method that meets it ([[terms]]).
-- [[issue]]: a need and the promises that meet it, born from a signal (a bug, an idea, a breakage). Made by Matt
+- [[issue]]: a need and the promises that meet it, born from a signal (a bug, an idea, a breakage). Made by the operator
 - [[plan]]: the issue cut into cls, only when it takes more than one. Made by the [[daworks/assembly/workspace/agents/planner|planner]], from a known way to cut its kind of change ([[playbook#Cutting a change]]); checked by [[daworks/assembly/workspace/agents/plan-review|plan-review]] before any cl starts
 - [[cl]]: one cut at its surface, its promises, seam and context, the spec its builders work from alone. Made and checked with its plan
 
@@ -156,7 +156,7 @@ Each level of the V has a check, met in this order.
 
 ## The bench
 
-[[workspace]]: where one job is done, a branch, a worktree and a running copy of the repo's environment, made for the job and removed after. The same bench for Matt and for an attempt.
+[[workspace]]: where one job is done, a branch, a worktree and a running copy of the repo's environment, made for the job and removed after. The same bench for the operator and for an attempt.
 
 - worktree: the item's one checkout, the whole repo, beside its attempts' folders (`runs/<issue>/cl/<cut>/work`, `runs/<issue>/issue/work`), which every attempt of the item works in. Removed when the item ends ([[#The plant]], the sweep)
 	- a cl's: on its branch, `assembly/<cl>/head`, made from main when the cl first needs it
@@ -174,7 +174,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 	- shapes: held by the process. `factory/repos/notes.ts` reads them at a commit of the notes' main, never from a working tree
 	- the commit: each attempt fetches the notes' main as it starts and pins its commit on the attempt, so its note, a cl's test command and every review's input are the spec as it was then, and an edit is read by the next attempt
 	- writes: the engine writes only the notes of a spec the factory's planner made, in kinetic's format, and lands them on the notes' main as the issue's land ([[#The dock]]). No note's `status` is written: the ledger is the status. A finding is never written into a note
-	- Matt's spec: his own notes on the notes' main, which the engine reads and never writes
+	- the operator's spec: the operator's own notes on the notes' main, which the engine reads and never writes
 - product: the files a cl's builders make, its tests and its code, in git
 	- judged by: the process's checks. Red at an assertion, no test changed, green
 	- held by: `factory/repos/git.ts`. The engine commits it, and lands it on main ([[#The dock]])
@@ -182,15 +182,15 @@ The model: the four things that travel with a job, each with its rules in the pr
 	- run by: `factory/runs/runner.ts`, from the agent and the bin its step names
 - message: the record a step ends with, saying what it concluded and who acts next (`factory/line/step.ts`'s `Message`)
 	- its parts: a word, why in one line, a failure's cause, its findings, and notes for the next step
-	- its words: pass, retry or back from a step; pass, drop, escalate or resume from the orchestrator or Matt
-	- its sender: on its event. An attempt as it ends, the orchestrator, or Matt
+	- its words: pass, retry or back from a step; pass, drop, escalate or resume from the orchestrator or the operator
+	- its sender: on its event. An attempt as it ends, the orchestrator, or the operator
 	- the rules a message follows ([[#Policy]], backpressure): the finding, the owner, back, the raise, escalation and the record. Each is held here
 	- finding: `factory/line/step.ts`'s `Finding`, its `about` the artifact
 	- pass: moves the item on
 	- retry: runs its step again
 	- back: a sender is any step. An agent hands back findings in place of its done result; a check can too (a red suite at acceptance)
-		- raise: a cl's escalates its issue to Matt, with its findings, whoever made the spec (`advance.ts`). He fixes the notes, and resumes it
-		- escalation: none of an escalated issue's cls starts an attempt, and a raised cl blocks the phases after it, until Matt answers
+		- raise: a cl's escalates its issue to the operator, with its findings, whoever made the spec (`advance.ts`). The operator fixes the notes, and resumes it
+		- escalation: none of an escalated issue's cls starts an attempt, and a raised cl blocks the phases after it, until the operator answers
 	- routing: `factory/line/table.ts`, as data: each move, `owner`, the state of each artifact's owner, and the highest artifact a back's findings name
 	- the one door: `ledger.apply`, which every message goes through, whoever sends it
 	- the record: the ledger's events, one per message, appended and never edited. An item's state is their projection, moved in the same transaction
@@ -205,9 +205,9 @@ The machine: what moves jobs from station to station. Its code is in two folders
 		- an issue's repos: the ones its cls may change. By default every repo on crate under `ASSEMBLY_REPOS` (lot when it is not set; a git repo with a `server` remote) but the notes repo, and the planner picks among them; `factory submit --repo` narrows them. Each repo's image, full suite and setup are read from the item's worktree at each attempt (`factory/repos/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, which crate makes from the worktree (`crate dev-image local`) in the orchestrator, from the host's install mounted read-only there, so a repo with no copy of the script is taken; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile. A repo not on crate breaks the item's contract (`contract_invalid`); crate's failure is a dependency (`missing_dependency`)
 			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
 			- the issue's own steps: each repo at `/work/<repo>`, in a plain Node image, since they only read; acceptance runs each repo's full suite
-		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review can send it back to the planner, and so can a plan land the notes' check refuses. An issue Matt submits with his cl notes enters at building
+		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review can send it back to the planner, and so can a plan land the notes' check refuses. An issue the operator submits with its cl notes enters at building
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code, or da-nail's tests that pass at once: the code there already meets them) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
-		- Matt's levers: stop, his escalate of any item that moves; resume, an item he holds back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from his move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item he lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a cl he holds put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is his to judge
+		- the operator's levers: stop, the operator's escalate of any item that moves; resume, a held item back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from the operator's move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item the operator lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a held cl put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is the operator's to judge
 	- a step: one per state, with its agent, its result's shape and its check (`factory/stations/*.ts`, listed in `factory/stations/index.ts`)
 		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (the tests run to an assertion: red to hammer, green to review), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
@@ -284,7 +284,7 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 
 - the gate: the check passes on the exact commit, then main moves by fast-forward
 - the land target: the remote a cl lands on: `server`, main's bare repo guarded by crate ([[repo#Platform]]), when the repo has it; else `local`, a bare repo on this machine; else `origin`. Main is its main, fetched as each attempt starts
-- the land: each approved cl onto main, as Matt, in the cl's worktree (`factory/repos/land.ts`)
+- the land: each approved cl onto main, as the operator, in the cl's worktree (`factory/repos/land.ts`)
 	- landed already: a cl whose change main holds passes as it is, so a land a stop cut off is safe to run again. On crate, the server's `refs/landed/<its sha>` says so exactly; elsewhere, `git land` finds nothing to land
 	- through crate's merge queue (`server`): `crate land`, the queue's own client, puts the branch in the queue and waits for crate's verdict. The commit main took is its `refs/landed/<sha>`. crate checks it on top of the changes ahead of it and picks it onto main, so the land neither rebases nor tests, and main may hold the change as a commit of its own
 		- does not apply on main and the changes ahead: a back about the plan (`restack_conflict`), with the files, since keeping the cls of one phase apart is the plan's work
@@ -296,9 +296,9 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 		- push: `git land`, through the repo's gate. A land it refuses is a retry
 	- landed: the cl's branch is the commit main took, and the ledger keeps that commit, which its version tags are read from, and the files it changed
 	- an issue's plan: its land writes the plan and cl notes its planner made on the issue's branch of the notes repo, from main as it is now, replacing the notes of its cls not landed, commits them as `docs(<issue>): its plan`, and lands them as a cl lands, so the notes' own check lints them. A refusal is a back about the plan, to the planner
-- the identity: Matt's
-	- the author: his name, from the host's git config
-	- the push: to `server`, over SSH as the server's git user; to GitHub through `git land`, his GH_TOKEN from the orchestrator's environment (on the laptop, the vault's, through rbw-run; on the server, the service's), set as gh's credential for the push alone
+- the identity: the operator's
+	- the author: the name in the host's git config
+	- the push: to `server`, over SSH as the server's git user; to GitHub through `git land`, the GH_TOKEN from the orchestrator's environment (on the laptop, the vault's, through rbw-run; on the server, the service's), set as gh's credential for the push alone
 - after the dock: [[cd]] ships main onto a node, outside the plant
 
 ## Seams
@@ -339,16 +339,16 @@ What it keeps.
 ## Built
 
 - the machine: an issue from open to accepted, proven end to end on scripted models, its plan landed on a real notes repo, with an attempt taken up after a stop, its cls landed through crate's merge queue, and nothing of the issue left behind once accepted (`just e2e`)
-- the factory on the server: the service at the release dazoo names, moved by a commit to it; on real models, a cl built, reviewed and landed through crate; Matt's resume; and the sweep, which took away an older scheme's branches and worktrees
+- the factory on the server: the service at the release dazoo names, moved by a commit to it; on real models, a cl built, reviewed and landed through crate; the operator's resume; and the sweep, which took away an older scheme's branches and worktrees
 - the command line: `factory`, the image's entrypoint: its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, its repos from `$ASSEMBLY_REPOS`, and its notes repo `$ASSEMBLY_NOTES`, else kinetic among the repos
 	- on the laptop: `just factory <verb>` runs the verb on the server through its door, with its exit code and output
-	- each command: a message through the one door, as Matt
+	- each command: a message through the one door, as the operator
 	- `submit <issue> [--repo <path>]...`: the issue's note, `_well/<issue>.md`, as the notes' main holds it now, read with git, never from a working tree
-		- with cl notes that belong to it: Matt's spec, whole, each cl new, its fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is. It enters at building
+		- with cl notes that belong to it: the operator's spec, whole, each cl new, its fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is. It enters at building
 		- with none: it enters at open, for the planner
-	- `stop <item>`: his escalate of an item that moves. Its open attempt finishes, and nothing new starts on it, or on an issue's cls
-	- `resume <item> [<state>]`: an item he holds, escalated or raised, to a station of its kind, by default where it was ([[#The plant]], Matt's levers)
-	- `drop <item>`: an item he lets go, dropped, an issue with its cls not ended. It refuses while an attempt is open on it
+	- `stop <item>`: the operator's escalate of an item that moves. Its open attempt finishes, and nothing new starts on it, or on an issue's cls
+	- `resume <item> [<state>]`: a held item, escalated or raised, to a station of its kind, by default where it was ([[#The plant]], the operator's levers)
+	- `drop <item>`: an item the operator lets go, dropped, an issue with its cls not ended. It refuses while an attempt is open on it
 	- `rebase <cl>`: a held cl's branch on main as the land target has it now, with its worktree's change, or nothing and the conflicting files. A move is a message that keeps the cl where it is, and its next attempt sets up again
 	- `run`: the loop, until a signal stops it. Its attempts stay open. It needs crate's install, which makes each attempt's dev image
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's note, messages, attempts, costs, the notes' commit each attempt read, and traces)
@@ -359,7 +359,7 @@ What it keeps.
 ## Not built
 
 - the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
-- an issue whole on the server: from submit to accepted, with no step from Matt. A cl has landed there, never a whole issue
+- an issue whole on the server: from submit to accepted, with no step from the operator. A cl has landed there, never a whole issue
 - an agent's conversation across attempts in que-pasa's runtime: proven in the unit tests only, on a stand-in runner
 - the command line's `ask`
 - a thinking level per bin: each model runs at its provider's default

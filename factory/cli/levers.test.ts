@@ -176,7 +176,7 @@ const specNotes = () => {
 };
 
 describe("submit", () => {
-  it("puts an issue with Matt's spec at building, and the engine builds it by phase from his notes at main", async () => {
+  it("puts an issue with the operator's spec at building, and the engine builds it by phase from those notes at main", async () => {
     specNotes();
     publish("the spec");
     expect(await submit(factory, "fx", runK())).toEqual({
@@ -339,7 +339,7 @@ describe("submit", () => {
     expect(factory().ledger.items()).toEqual([]);
   });
 
-  it("sends its issue to Matt, escalated, on a raise about its plan, with the raise's findings", async () => {
+  it("sends its issue to the operator, escalated, on a raise about its plan, with the raise's findings", async () => {
     specNotes();
     publish("the spec");
     expect((await submit(factory, "fx", runK())).code).toBe(0);
@@ -364,7 +364,7 @@ describe("submit", () => {
 });
 
 describe("stop and resume", () => {
-  /** fx submitted with Matt's spec and built from his notes: fx-a ready, fx-c waiting. */
+  /** fx submitted with the operator's spec and built from those notes: fx-a ready, fx-c waiting. */
   const building = async () => {
     specNotes();
     publish("the spec");
@@ -376,7 +376,7 @@ describe("stop and resume", () => {
   const go = (name: string, state?: string) =>
     resume(factory, name, state, { notes: kinetic });
 
-  it("stop escalates an item that moves, as Matt; its open attempt ends there, and nothing new starts", async () => {
+  it("stop escalates an item that moves, as the operator; its open attempt ends there, and nothing new starts", async () => {
     const ledger = await building();
     const n = ledger.begin("fx-a");
     expect(stop(factory, "fx-a")).toEqual({
@@ -386,11 +386,11 @@ describe("stop and resume", () => {
       ],
     });
     expect(ledger.events("fx-a").at(-1)).toMatchObject({
-      by: "matt",
+      by: "operator",
       word: "escalate",
       to_state: "escalated",
     });
-    // the attempt it let finish ends, and the cl stays Matt's
+    // the attempt it let finish ends, and the cl stays the operator's
     ledger.apply(
       "fx-a",
       { word: "pass", reason: "red", findings: [] },
@@ -401,16 +401,20 @@ describe("stop and resume", () => {
     expect(stop(factory, "fx").lines).toEqual(["stopped fx, at building"]);
   });
 
-  it("stop refuses an item that has ended, one Matt holds, and one not in the ledger", async () => {
+  it("stop refuses an item that has ended, one the operator holds, and one not in the ledger", async () => {
     const ledger = await building();
-    ledger.apply("fx-c", { word: "drop", reason: "r", findings: [] }, "matt");
+    ledger.apply(
+      "fx-c",
+      { word: "drop", reason: "r", findings: [] },
+      "operator",
+    );
     expect(stop(factory, "fx-c").lines[0]).toMatch(/fx-c is dropped/);
     stop(factory, "fx-a");
     expect(stop(factory, "fx-a").lines[0]).toMatch(/fx-a is escalated/);
     expect(stop(factory, "nope").lines).toEqual(["no item nope in the ledger"]);
   });
 
-  it("drop ends an issue and its cls not ended, as Matt, and keeps their record", async () => {
+  it("drop ends an issue and its cls not ended, as the operator, and keeps their record", async () => {
     const ledger = await building();
     ledger.apply(
       "fx-a",
@@ -425,7 +429,7 @@ describe("stop and resume", () => {
     for (const name of ["fx", "fx-a", "fx-c"]) {
       expect(ledger.item(name).state).toBe("dropped");
       expect(ledger.events(name).at(-1)).toMatchObject({
-        by: "matt",
+        by: "operator",
         word: "drop",
       });
     }
@@ -441,7 +445,11 @@ describe("stop and resume", () => {
       "fx-a has an attempt open: stop fx, and drop it once the attempt ends",
     ]);
     expect(ledger.item("fx").state).toBe("building");
-    ledger.apply("fx-c", { word: "drop", reason: "r", findings: [] }, "matt");
+    ledger.apply(
+      "fx-c",
+      { word: "drop", reason: "r", findings: [] },
+      "operator",
+    );
     expect(drop(factory, "fx-c").lines[0]).toMatch(/fx-c is dropped/);
     expect(drop(factory, "nope").lines).toEqual(["no item nope in the ledger"]);
   });
@@ -508,7 +516,7 @@ describe("stop and resume", () => {
     });
   });
 
-  it("resume refuses an item Matt does not hold, and one with an attempt still open", async () => {
+  it("resume refuses an item the operator does not hold, and one with an attempt still open", async () => {
     const ledger = await building();
     expect((await go("fx-a")).lines[0]).toMatch(
       /fx-a is ready: resume takes an item that is escalated or raised/,
@@ -518,7 +526,7 @@ describe("stop and resume", () => {
     expect((await go("fx-a")).lines[0]).toMatch(/attempt open: it ends first/);
   });
 
-  it("rebase puts a held cl on main, as Matt, in a message that moves nothing, and the next attempt sets up again", async () => {
+  it("rebase puts a held cl on main, as the operator, in a message that moves nothing, and the next attempt sets up again", async () => {
     const ledger = await building();
     stop(factory, "fx-a");
     const setup = join(home, "factory", "runs", "fx", "cl", "a", "setup.done");
@@ -543,11 +551,12 @@ describe("stop and resume", () => {
     });
     expect(ledger.item("fx-a").state).toBe("escalated");
     expect(ledger.events("fx-a").at(-1)).toMatchObject({
-      by: "matt",
+      by: "operator",
       word: "rebase",
       from_state: "escalated",
       to_state: "escalated",
-      reason: "Matt rebased it onto server/main, 3 commits on, at bbbbbbb",
+      reason:
+        "the operator rebased it onto server/main, 3 commits on, at bbbbbbb",
     });
     expect(existsSync(setup)).toBe(false);
     // a rebase is no move: resume still takes the cl back to where it was stopped
@@ -589,7 +598,11 @@ describe("stop and resume", () => {
     expect((await rebase(factory, "fx-a")).lines[0]).toMatch(
       /fx-a is ready: rebase takes a cl that is escalated or raised. Stop it first/,
     );
-    ledger.apply("fx-c", { word: "drop", reason: "r", findings: [] }, "matt");
+    ledger.apply(
+      "fx-c",
+      { word: "drop", reason: "r", findings: [] },
+      "operator",
+    );
     expect((await rebase(factory, "fx-c")).lines[0]).toMatch(/fx-c is dropped/);
     ledger.begin("fx-a");
     stop(factory, "fx-a");
@@ -607,14 +620,14 @@ describe("stop and resume", () => {
     stop(factory, "fx-a");
     await advance(ledger, world());
     expect(ledger.item("fx").state).toBe("escalated");
-    // Matt edits the notes: fx-c is gone, fx-d is new, in phase 2
+    // The operator edits the notes: fx-c is gone, fx-d is new, in phase 2
     rmSync(put("fx-c"));
     note("fx-d", cl("d", 2));
     note(
       "fx-plan",
       plan("- Phase 1: a first\n\t- [[fx-a]]\n- Phase 2: then d\n\t- [[fx-d]]"),
     );
-    publish("Matt's fix");
+    publish("The operator's fix");
     expect(await go("fx")).toEqual({
       code: 0,
       lines: [
@@ -660,7 +673,7 @@ describe("stop and resume", () => {
     expect(readFileSync(put("fx-c"), "utf8")).toMatch(/^status: new$/m);
   });
 
-  it("resume of an issue stopped at planned to approved is Matt's pass of plan review: its planner's plan lands", async () => {
+  it("resume of an issue stopped at planned to approved is the operator's pass of plan review: its planner's plan lands", async () => {
     note("fx", issue);
     publish("the issue");
     await submit(factory, "fx", runK());

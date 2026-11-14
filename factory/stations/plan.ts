@@ -441,7 +441,7 @@ export function clNotesOf(
 /**
  * An issue's spec, from the notes beside its issue's: its cls (every cl note that belongs to the issue, or to its
  * plan) and its plan, `<issue>-plan.md`, when it has one. The issue has Done items, and each cl holds kinetic's cl
- * fields. A spec Matt submits is `fresh`: each cl is new, the plan is active, and its Phases list names exactly its
+ * fields. A spec the operator submits is `fresh`: each cl is new, the plan is active, and its Phases list names exactly its
  * cls, each under its own phase. What the repo must hold is spec lint's.
  */
 export function readSpec(

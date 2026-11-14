@@ -236,7 +236,11 @@ describe("factory top", () => {
     ledger.addCl(cl("is-a", 1, 1), "landed");
     ledger.addCl(cl("is-b", 2, 2), "dropped");
     ledger.addIssue({ ...issue, name: "old", note: "_well/old.md" });
-    ledger.apply("old", { word: "drop", reason: "r", findings: [] }, "matt");
+    ledger.apply(
+      "old",
+      { word: "drop", reason: "r", findings: [] },
+      "operator",
+    );
     const lines = screen(ledger, runs, new Date(), "v0");
     expect(lines.some((l) => l.startsWith("┌ is  open · every cl ended"))).toBe(
       true,

@@ -34,7 +34,7 @@ const age = (at: string, now: number): string => {
   return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
 };
 
-/** The items that wait for Matt: each one raised or escalated, with the reason of its last move, and how long ago that was. */
+/** The items that wait for the operator: each one raised or escalated, with the reason of its last move, and how long ago that was. */
 export function blocked(ledger: Ledger): string[] {
   const stuck = ledger
     .items()

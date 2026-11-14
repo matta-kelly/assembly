@@ -1075,7 +1075,7 @@ describe("a message with no move", () => {
   });
 });
 
-describe("an issue escalated to Matt", () => {
+describe("an issue escalated to the operator", () => {
   /** The issue "i" escalated; its cls: e ready (the raised cl's phase), l landed, w waiting for l's phase. */
   function escalated() {
     const add = (name: string, seq: number, phase: number, to: string) => {

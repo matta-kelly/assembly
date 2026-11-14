@@ -193,7 +193,7 @@ describe("ledger", () => {
     expect(l.passed("is", "built")).toBeUndefined();
   });
 
-  it("moves items with no attempt, by the orchestrator or Matt, and counts a state's attempts again from the move", () => {
+  it("moves items with no attempt, by the orchestrator or the operator, and counts a state's attempts again from the move", () => {
     const l = open(file);
     l.addIssue(issue);
     l.apply(
@@ -294,11 +294,11 @@ describe("ledger", () => {
     ]);
     l.apply(
       "is",
-      { word: "pass", reason: "Matt planned it", findings: [] },
-      "matt",
+      { word: "pass", reason: "the operator planned it", findings: [] },
+      "operator",
     );
     expect(l.inbox("is", "planned")).toMatchObject([
-      { by: "matt", word: "pass", reason: "Matt planned it" },
+      { by: "operator", word: "pass", reason: "the operator planned it" },
     ]);
   });
 
@@ -332,7 +332,9 @@ describe("ledger", () => {
     );
     expect(l.apply("is-a", say("drop"), "orchestrator")).toBe("dropped");
     expect(l.apply("is", say("escalate"), "orchestrator")).toBe("escalated");
-    expect(l.apply("is", say("resume"), "matt", "building")).toBe("building");
+    expect(l.apply("is", say("resume"), "operator", "building")).toBe(
+      "building",
+    );
   });
 
   it("resumes a held item, by default, to where it was before it was held", () => {
@@ -344,15 +346,15 @@ describe("ledger", () => {
       reason: "r",
       findings: word === "back" ? [f("cl")] : [],
     });
-    l.apply("is-a", said("escalate"), "matt");
+    l.apply("is-a", said("escalate"), "operator");
     expect(l.prior("is-a")).toBe("red");
-    expect(l.apply("is-a", said("resume"), "matt")).toBe("red");
+    expect(l.apply("is-a", said("resume"), "operator")).toBe("red");
     l.apply("is-a", said("back"), { attempt: l.begin("is-a") });
     expect(l.item("is-a").state).toBe("raised");
-    expect(l.apply("is-a", said("resume"), "matt")).toBe("red");
+    expect(l.apply("is-a", said("resume"), "operator")).toBe("red");
   });
 
-  it("gives a resumed item a fresh budget: its rounds count from Matt's last move", () => {
+  it("gives a resumed item a fresh budget: its rounds count from the operator's last move", () => {
     const l = open(file);
     l.addIssue(issue);
     l.addCl(cl("is-a", 1), "green");
@@ -365,11 +367,15 @@ describe("ledger", () => {
     );
     l.apply("is-a", back, { attempt: l.begin("is-a") });
     expect(l.rounds("is-a")).toBe(2);
-    l.apply("is-a", { word: "escalate", reason: "stop", findings: [] }, "matt");
+    l.apply(
+      "is-a",
+      { word: "escalate", reason: "stop", findings: [] },
+      "operator",
+    );
     l.apply(
       "is-a",
       { word: "resume", reason: "go", findings: [] },
-      "matt",
+      "operator",
       "green",
     );
     expect(l.rounds("is-a")).toBe(0);
@@ -442,7 +448,7 @@ describe("ledger", () => {
       INSERT INTO items VALUES ('is', 'issue', 'is', 0, '/home/a/lot/kinetic/_well/is.md', '/a', 'img', 's', '',
         'building', NULL, '[{"name":"a","repo":"/a","image":"i","test":"t","setup":""},{"name":"b","repo":"/b","image":"i","test":"t","setup":""}]');
       INSERT INTO items VALUES ('is-x', 'cl', 'is', 1, '/home/a/lot/kinetic/_well/is-x.md', '/a', 'img', 't', '', 'red', 1, '[]');
-      INSERT INTO specs VALUES ('is', '{}', 'matt', NULL);
+      INSERT INTO specs VALUES ('is', '{}', 'operator', NULL);
       INSERT INTO attempts (name, n, step, started) VALUES ('is-x', 1, 'ready', '2026-01-01T00:00:00Z');
     `);
     db.close();

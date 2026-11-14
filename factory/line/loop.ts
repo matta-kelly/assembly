@@ -14,8 +14,8 @@
  * worktrees. Each tick then sweeps again, and does two things:
  * - it makes the orchestrator's own moves (advance.ts): a building issue's cls, phase by phase, and their issue built.
  * - it starts attempts, up to `concurrent` at once: first the open attempts this process is not running, taken up,
- *   then a new one for each item waiting in a state that has a step, except the cls of an issue escalated to Matt: they
- *   stay in their state until he answers. Each is readied first: its worktree, the notes' main fetched and its commit
+ *   then a new one for each item waiting in a state that has a step, except the cls of an issue escalated to the operator: they
+ *   stay in their state until the operator answers. Each is readied first: its worktree, the notes' main fetched and its commit
  *   pinned on the attempt, its repo's settings read from the worktree, and its setup. It does not wait for one: the run
  *   goes on as a task, under a time limit, and settles the attempt when it ends. Its result is checked against the
  *   step's shape, the step's check picks the word from the result and the attempt's worktree, which the loop answers
@@ -246,10 +246,10 @@ export async function loop({
   let closing = false;
   // Closing stops the checks running now, and never the runs: que-pasa keeps those for the next process.
   const closed = new AbortController();
-  // Who a message is from: the agent of the step it ended, or the orchestrator or Matt, for their own moves.
+  // Who a message is from: the agent of the step it ended, or the orchestrator or the operator, for their own moves.
   const fromOf = (e: Event) =>
-    e.by === "matt"
-      ? "Matt"
+    e.by === "operator"
+      ? "the operator"
       : (e.by === "attempt" && stepAt(e.from_state as State)?.agent) ||
         "the orchestrator";
   // An attempt ends through the ledger's one door, which routes its message by the table.
@@ -757,11 +757,13 @@ export async function loop({
       log(r, `taken up by a new orchestrator`);
       launch(r, a.step, step);
     }
-    // An issue escalated waits for Matt: none of its cls starts an attempt, whatever its state.
-    const withMatt = new Set(ledger.inState("escalated").map((e) => e.name));
+    // An issue escalated waits for the operator: none of its cls starts an attempt, whatever its state.
+    const withOperator = new Set(
+      ledger.inState("escalated").map((e) => e.name),
+    );
     for (const i of ledger.waiting([...steps.map((s) => s.from), landing])) {
       if (running.size >= concurrent) return;
-      if (i.kind === "cl" && withMatt.has(i.issue)) continue;
+      if (i.kind === "cl" && withOperator.has(i.issue)) continue;
       const n = ledger.begin(i.name);
       if (i.state === landing) {
         launchLand(runOf(i, n, runs));

@@ -1,12 +1,14 @@
 /**
- * What Matt does to the factory from the command line, each a message through the ledger's one door (apply), as Matt.
+ * What the operator does to the factory from the command line, each a message through the ledger's one door (apply),
+ * as the operator.
  * - submit <issue>: the issue's note, `_well/<issue>.md` at the notes' main, enters. With cl notes there that belong to
- *   it, his spec, linted as the planner's is, it enters at building; with none, at open, for the factory's planner
- * - stop <item>: his escalate. An attempt open on it finishes, and nothing new starts on it, or on an issue's cls
- * - resume <item> [<state>]: an item he holds, escalated or raised, to a station of its kind, by default where it was
- *   before, with a fresh budget. He edits the notes in between; the next attempt reads them
- * - drop <item>: he lets it go. It ends undone, an issue with its cls not ended, and its record stays in the ledger
- * - rebase <cl>: a cl he holds, its branch on main as it is now, with its uncommitted change, or nothing on a conflict
+ *   it, the operator's spec, linted as the planner's is, it enters at building; with none, at open, for the planner
+ * - stop <item>: the operator's escalate. An attempt open on it finishes, and nothing new starts on it, or on an
+ *   issue's cls
+ * - resume <item> [<state>]: a held item, escalated or raised, to a station of its kind, by default where it was
+ *   before, with a fresh budget. The operator edits the notes in between; the next attempt reads them
+ * - drop <item>: the operator lets it go. It ends undone, an issue with its cls not ended, and its record stays
+ * - rebase <cl>: a held cl, its branch on main as it is now, with its uncommitted change, or nothing on a conflict
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
@@ -78,7 +80,7 @@ const wellDir = "_well";
 
 /**
  * submit <issue>: the issue's note `_well/<issue>.md` at the notes' main as it is now, read with git, never from a
- * working tree. With cl notes that belong to it, the spec Matt made, it is linted as the factory's own planner's is
+ * working tree. With cl notes that belong to it, the spec the operator made, it is linted as the factory's own planner's is
  * (specLint), each cl new, and enters at building, where the factory builds it from those notes. With none, it enters at
  * open, for the factory's planner.
  */
@@ -146,14 +148,14 @@ export async function submit(
   };
 }
 
-/** stop <item>: Matt's escalate. An attempt open on it finishes; nothing new starts on it, nor on an issue's cls. */
+/** stop <item>: the operator's escalate. An attempt open on it finishes; nothing new starts on it, nor on an issue's cls. */
 export function stop(f: () => Built, name: string): Done {
   const { ledger } = f();
   const i = ledger.items().find((x) => x.name === name);
   if (!i) return refused(`no item ${name} in the ledger`);
   if (ends.includes(i.state) || held.includes(i.state))
     return refused(`${name} is ${i.state}: stop takes an item that moves`);
-  ledger.apply(name, said("escalate", "Matt stopped it"), "matt");
+  ledger.apply(name, said("escalate", "the operator stopped it"), "operator");
   const running = ledger.open().some((a) => a.name === name);
   return {
     code: 0,
@@ -164,7 +166,7 @@ export function stop(f: () => Built, name: string): Done {
 }
 
 /**
- * drop <item>: Matt lets an item go. It ends as dropped, and so does each of an issue's cls not ended, in one
+ * drop <item>: the operator lets an item go. It ends as dropped, and so does each of an issue's cls not ended, in one
  * transaction; the sweep then takes their worktrees and branches. Their record, every message and attempt, stays. An
  * item with an attempt open, or a cl of it, is refused: stop it, and drop it once the attempt has ended.
  */
@@ -185,9 +187,9 @@ export function drop(f: () => Built, name: string): Done {
     return refused(
       `${open.name} has an attempt open: stop ${name}, and drop it once the attempt ends`,
     );
-  const why = said("drop", "Matt drops it");
+  const why = said("drop", "the operator drops it");
   ledger.transaction(() => {
-    for (const x of going) ledger.apply(x.name, why, "matt");
+    for (const x of going) ledger.apply(x.name, why, "operator");
   });
   return {
     code: 0,
@@ -199,10 +201,10 @@ export function drop(f: () => Built, name: string): Done {
 }
 
 /**
- * rebase <cl>: a cl Matt holds, its branch put on main as the land target has it now, with its worktree's uncommitted
+ * rebase <cl>: a cl the operator holds, its branch put on main as the land target has it now, with its worktree's uncommitted
  * change, as one move or none (rebaseOnMain). It runs at once, so the outcome is in its answer. It takes a held cl only,
  * on which the loop starts nothing, so nothing else works in the worktree meanwhile. A rebase that moved is a message,
- * and the next attempt runs the setup again. A conflict changes nothing, and is his to judge: resume the cl, or plan its
+ * and the next attempt runs the setup again. A conflict changes nothing, and is the operator's to judge: resume the cl, or plan its
  * issue again.
  */
 export async function rebase(f: () => Built, name: string): Promise<Done> {
@@ -238,9 +240,9 @@ export async function rebase(f: () => Built, name: string): Promise<Done> {
     name,
     said(
       "rebase",
-      `Matt rebased it onto ${r.main}, ${on}, at ${r.to.slice(0, 7)}`,
+      `the operator rebased it onto ${r.main}, ${on}, at ${r.to.slice(0, 7)}`,
     ),
-    "matt",
+    "operator",
   );
   return {
     code: 0,
@@ -251,13 +253,13 @@ export async function rebase(f: () => Built, name: string): Promise<Done> {
 }
 
 /**
- * resume <item> [<state>]: an item Matt holds, escalated or raised, to `state`, a station of its kind, or by default
+ * resume <item> [<state>]: an item the operator holds, escalated or raised, to `state`, a station of its kind, or by default
  * where it was before it was held. Its attempts and rounds count again from here. For an issue:
  * - to building: its cls are made to match its notes at the notes' main as it is now: a new cl note adds a cl, a cl
  *   whose note is gone and has not landed is dropped, and the rest keep their state; its held cls go back to where
  *   they were before
  * - to open: its cls not landed are dropped, and the planner plans it again, the notes at main its spec before
- * - to approved: the plan its planner made lands in the notes as it is, Matt's pass of plan review
+ * - to approved: the plan its planner made lands in the notes as it is, the operator's pass of plan review
  */
 export async function resume(
   f: () => Built,
@@ -283,7 +285,7 @@ export async function resume(
     return refused(
       `${name} was ${to ?? "nowhere"} before: give the state to resume it at, one of ${stations[i.kind].join(", ")}`,
     );
-  const why = said("resume", `Matt resumes it at ${to}`);
+  const why = said("resume", `the operator resumes it at ${to}`);
   const lines = [`resumed ${name}, at ${to}`];
   if (i.kind === "issue" && to === "approved" && !plannedOf(ledger, name))
     return refused(`${name} has no plan of its planner's to land`);
@@ -315,10 +317,10 @@ export async function resume(
         if (!held.includes(c.state)) continue;
         const prior = ledger.prior(c.name);
         if (!prior || held.includes(prior) || ends.includes(prior)) continue;
-        ledger.apply(c.name, why, "matt", prior);
+        ledger.apply(c.name, why, "operator", prior);
         lines.push(`  ${c.name}  ${prior}`);
       }
-      ledger.apply(name, why, "matt", to);
+      ledger.apply(name, why, "operator", to);
     });
     return { code: 0, lines };
   }
@@ -327,12 +329,12 @@ export async function resume(
       for (const c of ledger.cls(name).filter((x) => !ends.includes(x.state))) {
         ledger.apply(
           c.name,
-          said("drop", "Matt plans its issue again"),
-          "matt",
+          said("drop", "the operator plans its issue again"),
+          "operator",
         );
         lines.push(`  ${c.name}  dropped`);
       }
-    ledger.apply(name, why, "matt", to);
+    ledger.apply(name, why, "operator", to);
   });
   return { code: 0, lines };
 }

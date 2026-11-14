@@ -1,6 +1,6 @@
 /**
- * The door: the way in from Matt's laptop. His ssh key's forced command is `factory door` in the running factory's
- * container, and ssh hands it the command he typed as SSH_ORIGINAL_COMMAND. The door runs it when it is
+ * The door: the way in from the operator's laptop. The operator's ssh key's forced command is `factory door` in the
+ * running factory's container, and ssh hands it the command typed as SSH_ORIGINAL_COMMAND. The door runs it when it is
  * `factory <verb> [args...]` for a remote verb, and refuses anything else. The verbs are the factory's own, so the
  * list is here, beside them, and nowhere else.
  */

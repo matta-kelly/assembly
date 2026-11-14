@@ -11,7 +11,7 @@ import { notesOf } from "../repos/notes.ts";
 import { plannedOf, specText } from "./plan.ts";
 import type { Step } from "../line/step.ts";
 
-// Approve: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to Matt (the
+// Approve: no findings. A finding is handed back as the back shape, and goes to the planner (the plan) or to the operator (the
 // issue).
 const done = z.object({
   word: z.literal("done"),

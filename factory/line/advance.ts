@@ -7,7 +7,7 @@
  * - a phase starts once every cl of the phases before it has landed on main, and all its cls start together. A cl
  *   whose repo depends on a package a landed cl made waits until that version is on npm, with why as its last message;
  *   a wait past its limit escalates the issue
- * - a cl that raised, or is escalated, escalates its issue, its message and findings with it: Matt fixes the notes and
+ * - a cl that raised, or is escalated, escalates its issue, its message and findings with it: the operator fixes the notes and
  *   resumes it
  * The issue's land writes its planner's spec as notes (writePlan) and lands them on the notes' main.
  */
@@ -102,7 +102,7 @@ export function reconcile(
   if (drop)
     for (const c of had)
       if (!names.has(c.name) && !ends.includes(c.state))
-        ledger.apply(c.name, say("drop", "its note is gone"), "matt");
+        ledger.apply(c.name, say("drop", "its note is gone"), "operator");
   const seq = Math.max(0, ...had.map((c) => c.seq));
   const added: string[] = [];
   // In the plan's order: by phase, then as the notes list them.
@@ -355,7 +355,7 @@ export async function advance(ledger: Ledger, world: World) {
 
   // A phase starts once every cl of the phases before it has landed or been dropped: a raised cl has not landed.
   for (const cl of ledger.inState("waiting")) {
-    // An issue escalated waits for Matt: its waiting cls move nothing, and start nothing.
+    // An issue escalated waits for the operator: its waiting cls move nothing, and start nothing.
     if (ledger.inState("escalated").some((e) => e.name === cl.issue)) continue;
     const before = ledger
       .cls(cl.issue)
@@ -406,7 +406,7 @@ export async function advance(ledger: Ledger, world: World) {
     );
   }
 
-  // A cl held for Matt holds its issue: the raise's message, or the escalation, goes to the issue, with its findings.
+  // A cl held for the operator holds its issue: the raise's message, or the escalation, goes to the issue, with its findings.
   for (const cl of ledger
     .items()
     .filter(

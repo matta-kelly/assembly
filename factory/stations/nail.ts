@@ -3,7 +3,7 @@
  * The check confirms each promise has a test in a file that exists, then runs the cl's test command on the worktree as
  * it is, and the run decides where the cl goes: tests that do not load go back to da-nail; tests that fail at an
  * assertion go to da-hammer, there is code to write (red.sh in loke's v1 gates); tests that pass go to the review, the
- * code meets them. One rule on every pass: a cl comes back here (from da-hammer, a review, or Matt) with its code in
+ * code meets them. One rule on every pass: a cl comes back here (from da-hammer, a review, or the operator) with its code in
  * the worktree, and its fixed tests may pass at once. A test that passes because it checks nothing is the review's to
  * find.
  */

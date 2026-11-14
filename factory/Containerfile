@@ -2,7 +2,7 @@
 # built from, its entrypoint the command line (factory/cli/index.ts). It is built from the repo's root. The factory runs
 # here, never on the host. It starts its attempts' containers through the host's podman socket, so every path it hands
 # podman is a host path, mounted at the same path in here. It lands each cl with crate, the host's install mounted
-# read-only, and commits and pushes as Matt, his name and his GH_TOKEN given by whoever runs it (the server's Quadlet).
+# read-only, and commits and pushes as the operator, the name and GH_TOKEN given by whoever runs it (the server's Quadlet).
 # trixie, for git 2.47: crate's hooks pick a change onto main with `cherry-pick --empty` (git 2.45 and later), and a land
 # target on this machine (the e2e's) runs them with this git.
 FROM docker.io/library/node:22.23.4-trixie-slim

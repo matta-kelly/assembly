@@ -1,5 +1,5 @@
 /**
- * top: the factory, live. A card for each issue not ended, its phase, time and spend on its border, red when Matt holds
+ * top: the factory, live. A card for each issue not ended, its phase, time and spend on its border, red when the operator holds
  * it or one of its cls; inside, each cl on its stations (nail, hammer, review, land: done, at work, held there, or to
  * come), its attempts, turns, time and spend, the attempt open now (which try of its role, what its agent is doing,
  * its turns and tokens so far, how long since it last did anything), and why it last moved, with who said it; then
@@ -101,7 +101,7 @@ const sum = (rows: Used[], f: (u: Used) => number | null) =>
 
 /** The states an item has ended in: an issue in one is left off the screen. */
 const ended = new Set(["landed", "dropped", "accepted"]);
-/** The states an item is held in, for Matt. */
+/** The states an item is held in, for the operator. */
 const held = new Set(["raised", "escalated"]);
 
 /** A cl's stations, in order: the state each starts from, and its name on the screen. */
@@ -242,8 +242,8 @@ export function screen(
       .at(-1);
     if (!last) return undefined;
     const who =
-      last.by === "matt"
-        ? "Matt"
+      last.by === "operator"
+        ? "the operator"
         : last.by === "attempt"
           ? roleOf(last.from_state)
           : "factory";

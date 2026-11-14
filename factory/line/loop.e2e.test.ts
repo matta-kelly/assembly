@@ -529,7 +529,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     let notes: string;
     let notesBare: string;
 
-    /** Puts notes, by name, in the notes repo's _well/ and lands them on its main, as Matt does. */
+    /** Puts notes, by name, in the notes repo's _well/ and lands them on its main, as the operator does. */
     const publish = (named: Record<string, string>) => {
       git(notes, "pull", "-q", "--ff-only", "local", "main");
       for (const [name, text] of Object.entries(named))
@@ -550,7 +550,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     const onMain = (name: string) =>
       git(notesBare, "show", `main:_well/${name}.md`);
 
-    /** The notes of Matt's spec for `issue`: its cl notes, and its plan's, when it has more than one. */
+    /** The notes of the operator's spec for `issue`: its cl notes, and its plan's, when it has more than one. */
     const spec = (issue: string, cls: ClSpec[], plan?: PlanSpec) => {
       const at = join(dir, "spec", issue);
       mkdirSync(at, { recursive: true });
@@ -822,7 +822,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
         ).toContainEqual(expect.stringMatching(/node --test/));
 
-        // The planner's raise is a message about the issue, to Matt, and each cl's landed files are kept.
+        // The planner's raise is a message about the issue, to the operator, and each cl's landed files are kept.
         expect(
           ledger.events("gap").find((e) => e.word === "back"),
         ).toMatchObject({
@@ -904,7 +904,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       async () => {
         const at = join(dir, "restart");
         mkdirSync(at, { recursive: true });
-        // A lone cl, Matt's spec in the notes.
+        // A lone cl, the operator's spec in the notes.
         publish({
           rs: issueNote(false),
           ...spec("rs", [
@@ -1045,12 +1045,12 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     );
 
     it(
-      "escalates a submitted issue to Matt with the findings of a cl that raised, and builds no further",
+      "escalates a submitted issue to the operator with the findings of a cl that raised, and builds no further",
       { timeout: 300_000 },
       async () => {
         const at = join(dir, "raise");
         mkdirSync(at, { recursive: true });
-        // Matt's spec in the notes: two cls, in two phases.
+        // The operator's spec in the notes: two cls, in two phases.
         publish({
           rz: issueNote(false),
           ...spec(
@@ -1118,7 +1118,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         }
         await l.close();
 
-        // The issue is Matt's, with the cl's findings in its message.
+        // The issue is the operator's, with the cl's findings in its message.
         expect(ledger.item("rz").state).toBe("escalated");
         expect(ledger.item("rz-one").state).toBe("raised");
         expect(ledger.inbox("rz", "escalated")).toMatchObject([

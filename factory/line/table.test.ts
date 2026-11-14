@@ -72,7 +72,7 @@ describe("next", () => {
       expect(next("ready", "cl", "back", [a], once)).toBe("raised");
   });
 
-  it("sends an issue back to the planner for its plan, and to Matt for itself", () => {
+  it("sends an issue back to the planner for its plan, and to the operator for itself", () => {
     expect(next("planned", "issue", "back", ["plan"], once)).toBe("open");
     expect(next("built", "issue", "back", ["plan"], once)).toBe("open");
     expect(next("open", "issue", "back", ["issue"], once)).toBe("raised");
@@ -152,7 +152,7 @@ describe("resume", () => {
     );
   });
 
-  it("has no row from a state Matt does not hold, with no state to go to, or to an end or a hold", () => {
+  it("has no row from a state the operator does not hold, with no state to go to, or to an end or a hold", () => {
     expect(() =>
       next("ready", "cl", "resume", [], { ...c, prior: "ready" }),
     ).toThrow("no transition from ready on resume");

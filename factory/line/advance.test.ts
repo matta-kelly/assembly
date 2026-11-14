@@ -917,7 +917,7 @@ describe("advance across repos", () => {
         "npm error code E404: @s/gamma@2.0.0 is not in this registry",
       );
       expect(ledger.attemptsOf("y-b")).toEqual([]);
-      // its issue is Matt's now: it moves nothing more, and escalates it once
+      // its issue is the operator's now: it moves nothing more, and escalates it once
       await advance(ledger, world);
       expect(
         ledger.events("y").filter((e) => e.word === "escalate"),
@@ -969,7 +969,7 @@ describe("advance across repos", () => {
           expect(escalation?.reason).toContain(output);
           expect(state("x-b")).toBe("waiting");
           expect(ledger.attemptsOf("x-b")).toEqual([]);
-          // its issue is Matt's now: the next tick moves nothing more, and escalates it once
+          // its issue is the operator's now: the next tick moves nothing more, and escalates it once
           await advance(ledger, world);
           expect(
             ledger.events("x").filter((e) => e.word === "escalate"),

@@ -69,7 +69,7 @@ export interface Used {
   cost: number | null;
 }
 
-/** Who sends a message: an agent's attempt as it ends, the orchestrator, or Matt through the command line. */
+/** Who sends a message: an agent's attempt as it ends, the orchestrator, or the operator through the command line. */
 export type By =
   | {
       attempt: number;
@@ -78,12 +78,12 @@ export type By =
       ran?: CheckRun | undefined;
     }
   | "orchestrator"
-  | "matt";
+  | "operator";
 
 /** An event: one message, and the move it made. word is null when an item is added. */
 export interface Event {
   n: number | null;
-  by: string | null; // attempt, orchestrator or matt
+  by: string | null; // attempt, orchestrator or operator
 
   from_state: string;
   word: string | null;
@@ -317,7 +317,7 @@ export function open(file: string) {
     });
   }
 
-  /** Moves an item with no attempt, by the orchestrator or Matt, at the item's last attempt number. */
+  /** Moves an item with no attempt, by the orchestrator or the operator, at the item's last attempt number. */
   function moveTo(name: string, to: State, m: Message, by: string) {
     const { state } = item(name);
     db.prepare("UPDATE items SET state = ? WHERE name = ?").run(to, name);
@@ -352,14 +352,14 @@ export function open(file: string) {
   }
 
   /**
-   * The times the item was sent back for another round since Matt last moved it: each back that did not raise it. A
+   * The times the item was sent back for another round since the operator last moved it: each back that did not raise it. A
    * resume gives a fresh budget.
    */
   function roundsOf(name: string): number {
     const { c } = db
       .prepare(
         `SELECT COUNT(*) AS c FROM events WHERE name = ? AND word = 'back' AND to_state != 'raised'
-         AND id > (SELECT COALESCE(MAX(id), 0) FROM events WHERE name = ? AND by = 'matt')`,
+         AND id > (SELECT COALESCE(MAX(id), 0) FROM events WHERE name = ? AND by = 'operator')`,
       )
       .get(name, name) as { c: number };
     return c;
@@ -528,7 +528,7 @@ export function open(file: string) {
     /** The attempts made at this state since the item last entered it. */
     attempts: attemptsAt,
 
-    /** The times the item was sent back for another round since Matt last moved it. */
+    /** The times the item was sent back for another round since the operator last moved it. */
     rounds: roundsOf,
 
     /** Where the item was before it came to its state: where a resume takes it by default. */
@@ -538,7 +538,7 @@ export function open(file: string) {
      * The one door: applies a message to an item by the table, whoever sends it, in one transaction with one event. An
      * attempt's message counts against the limits, ends the attempt with its result, usage and test run, and a word the
      * table has no row for escalates the item, with why, so it is never left open to run again. The orchestrator's and
-     * Matt's are applied as the table says, and a word with no row throws: a resume goes to `target`, else to where
+     * The operator's are applied as the table says, and a word with no row throws: a resume goes to `target`, else to where
      * the item was before. Gives back the item's new state.
      */
     apply(name: string, m: Message, by: By, target?: State): State {
