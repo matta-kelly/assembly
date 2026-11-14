@@ -18,20 +18,22 @@ export const ran = (code: number, out: string): TestRun => ({
 });
 
 /**
- * A worktree whose test run gives `test`, whose changed files are `changed`, and which holds `files`. It counts its
- * test runs and keeps what `changed` was asked.
+ * A worktree whose test run gives `test`, whose red run gives `red` (else `test`), whose changed files are `changed`,
+ * and which holds `files`. It counts its test runs, and keeps what `changed` and `red` were asked.
  */
 export function fakeWorktree(
   o: {
     test?: TestRun;
+    red?: TestRun;
     changed?: string[];
     files?: string[];
     touched?: string[];
   } = {},
-): Worktree & { runs: number; asked: string[][] } {
+): Worktree & { runs: number; asked: string[][]; reds: string[][] } {
   const at = {
     runs: 0,
     asked: [] as string[][],
+    reds: [] as string[][],
     test: async () => {
       at.runs++;
       return o.test ?? ran(0, "ok");
@@ -41,6 +43,10 @@ export function fakeWorktree(
       return (o.changed ?? []).filter((f) => files.includes(f));
     },
     touched: async () => o.touched ?? o.changed ?? [],
+    red: async (files: string[]) => {
+      at.reds.push(files);
+      return o.red ?? o.test ?? ran(0, "ok");
+    },
     exists: (files: string[]) =>
       files.filter((f) => (o.files ?? []).includes(f)),
   };

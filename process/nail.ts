@@ -1,14 +1,15 @@
 /**
  * The nail step: ready to red. da-nail writes a test for each promise in the cl's Promises, each failing at its assertion.
- * The check confirms each promise has a test in a file that exists, then runs the cl's test command and passes only
- * when it fails at an assertion (red.sh in loke's v1 gates). A review that sends the cl back to its tests brings it
- * here again, and da-nail reads the findings in its messages. On such a return the code is already there, so a test
- * that pins what it already does passes at once, and that passes too: red is owed only before any code.
+ * The check confirms each promise has a test in a file that exists, then runs the cl's test command on those tests
+ * without the cl's code (its red run, effects/tests.ts) and passes only when it fails at an assertion (red.sh in loke's
+ * v1 gates). A cl sent back to its tests (by da-hammer, a review, or Matt) brings it here again, with its code still in
+ * the worktree; the red run sets that code aside, so red means the same thing on every pass.
  */
 
 import { z } from "zod";
 import { itemsIn, notesOf } from "../effects/notes.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
+import { pathsIn } from "./plan.ts";
 import { type Message, say, type Step } from "./step.ts";
 
 const done = z.object({
@@ -66,14 +67,9 @@ const notLoaded =
 // a test that throws before it asserts fails too.
 const assertion = /AssertionError|ERR_ASSERTION|expect\(received\)/;
 
-/**
- * Red, from a test run's exit code and output: it failed, and at an assertion. `back`: the cl came back from its
- * review, its code written, so tests that pass pass too.
- */
-export function judge(code: number, out: string, back = false): Message {
+/** Red, from a test run's exit code and output: it failed, and at an assertion. */
+export function judge(code: number, out: string): Message {
   const tail = out.slice(-400);
-  if (code === 0 && back)
-    return say("pass", "green on a return: the tests hold what the code does");
   if (code === 0)
     return say(
       "retry",
@@ -95,7 +91,7 @@ export const nail: Step<Done> = {
   agent: "da-nail",
   done,
   about: ["cl", "plan", "issue"],
-  async check(r, d, at, ledger) {
+  async check(r, d, at) {
     const want = promises(notesOf(r).text(r.note)).length;
     const have = new Set(d.tests.map((t) => t.promise));
     for (let b = 1; b <= want; b++) {
@@ -118,10 +114,10 @@ export const nail: Step<Done> = {
         `test files not in the worktree: ${missing.join(", ")}`,
         "invalid_output",
       );
-    const { code, out } = await at.test();
-    // back from its review: the cl was green once, so its code is written
-    const back = ledger.events(r.name).some((e) => e.to_state === "green");
-    const m = judge(code, out, back);
+    const { code, out } = await at.red([
+      ...new Set([...files, ...pathsIn(r.test)]),
+    ]);
+    const m = judge(code, out);
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;
   },
 };

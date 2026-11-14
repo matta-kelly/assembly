@@ -11,7 +11,8 @@ import {
   testFilesOf,
   testsOf,
 } from "./nail.ts";
-import { fakeWorktree } from "./fake-worktree.ts";
+import { fakeWorktree, ran } from "./fake-worktree.ts";
+import { pathsIn } from "./plan.ts";
 
 const at = fakeWorktree({ files: ["a.test.ts"] });
 const none = { events: () => [] } as unknown as Ledger;
@@ -85,21 +86,22 @@ describe("da-nail's tests, as the steps after it read them", () => {
   });
 });
 
-describe("the nail step's check, on a return from review", () => {
-  const both = { word: "done" as const, tests: [t(1), t(2)] };
-  const passing = fakeWorktree({ files: ["a.test.ts"] });
-  it("passes tests that pass when the cl was green before: its code is written", async () => {
-    const back = {
-      events: () => [{ to_state: "green" }, { to_state: "ready" }],
-    } as unknown as Ledger;
-    expect((await tests.check(r, both, passing, back)).word).toBe("pass");
+describe("the nail step's check runs the tests without the cl's code", () => {
+  const both = { word: "done" as const, tests: [t(1), t(2, "b.test.ts")] };
+  it("asks the red run for the hand-in's test files and the ones its test command names, and passes red at an assertion", async () => {
+    const w = fakeWorktree({
+      files: ["a.test.ts", "b.test.ts"],
+      red: ran(1, "AssertionError: expected 2 mounts"),
+    });
+    expect((await tests.check(r, both, w, none)).word).toBe("pass");
+    expect(w.reds).toEqual([
+      [...new Set(["a.test.ts", "b.test.ts", ...pathsIn(r.test)])],
+    ]);
   });
 
-  it("retries tests that pass when the cl was never green: red is owed before any code", async () => {
-    const first = {
-      events: () => [{ to_state: "ready" }],
-    } as unknown as Ledger;
-    expect(await tests.check(r, both, passing, first)).toMatchObject({
+  it("retries tests that pass without the cl's code: they test nothing it adds", async () => {
+    const w = fakeWorktree({ files: ["a.test.ts", "b.test.ts"] });
+    expect(await tests.check(r, both, w, none)).toMatchObject({
       word: "retry",
       reason: /nothing is red/,
     });
@@ -160,15 +162,6 @@ describe("judge", () => {
     expect(
       judge(1, "TypeError: x is not a function\n Tests  1 failed").word,
     ).toBe("retry");
-  });
-
-  it("passes a run that passes when the cl is back from its review, its code written", () => {
-    expect(judge(0, "Tests 3 passed", true)).toMatchObject({
-      word: "pass",
-      reason: /green on a return/,
-    });
-    // a return still owes a run that loads and asserts
-    expect(judge(1, "TypeError: x is not a function", true).word).toBe("retry");
   });
 
   it("retries a run that passes", () => {
