@@ -8,8 +8,8 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { openRuntime } from "@mku1tra/que-pasa/loop";
 import { z } from "zod";
-import { bins, models } from "../effects/models.ts";
-import { total } from "../effects/runner.ts";
+import { bins, models } from "../factory/runs/models.ts";
+import { total } from "../factory/runs/runner.ts";
 
 const m = models();
 let failed = 0;

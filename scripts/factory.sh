@@ -55,7 +55,7 @@ if [ "$verb" = run ]; then
 fi
 
 mkdir -p "$home"
-podman build -q -t localhost/assembly-orchestrator -f "$root/orchestrator/Containerfile" "$root/orchestrator" >/dev/null
+podman build -q -t localhost/assembly-orchestrator -f "$root/factory/Containerfile" "$root/factory" >/dev/null
 
 # Who the factory commits and pushes as: Matt, by the host's git config, with git-land, the host's, mounted read-only,
 # and crate's install beside it, mounted read-only too.
@@ -77,4 +77,4 @@ case "$notes" in "$repos"/*) ;; *) mounts+=(-v "$notes:$notes") ;; esac
 it=()
 [ "$verb" = top ] && it=(-it)
 
-podman run "${it[@]}" --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_REPOS -e ASSEMBLY_NOTES "${as_matt[@]}" -e ASSEMBLY_HOME -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" "${mounts[@]}" -w "$PWD" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "$root/cli/index.ts" "$@"
+podman run "${it[@]}" --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -e GH_TOKEN -e ASSEMBLY_REPOS -e ASSEMBLY_NOTES "${as_matt[@]}" -e ASSEMBLY_HOME -e HOST_HOME="$HOME" -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" "${mounts[@]}" -w "$PWD" localhost/assembly-orchestrator node --disable-warning=ExperimentalWarning "$root/factory/cli/index.ts" "$@"

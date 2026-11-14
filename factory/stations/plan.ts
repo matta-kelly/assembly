@@ -1,0 +1,525 @@
+/**
+ * The plan step: an issue from open to planned. The planner reads the issue and the code, read-only, and hands back the
+ * spec as data, in the shape of kinetic's plan and cl types: its plan (the approach, each phase's reason, and what does
+ * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, test, promises, seam and
+ * core context). The check is spec lint, in code: what can be decided without judgment.
+ * Whether the cut is good is the plan review's. Nothing is written yet: once the plan review approves, the issue's land
+ * commits the plan and its cl notes to the notes repo and lands them (factory/line/advance.ts, writePlan). From then on
+ * the notes are the spec: every attempt reads them at its own commit (readSpec, clOf), whoever made them.
+ */
+
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
+import { parse } from "yaml";
+import { z } from "zod";
+import type { Ledger } from "../line/ledger.ts";
+import { itemsIn, type Notes, notesOf, sectionIn } from "../repos/notes.ts";
+import type { Message, Run, Step } from "../line/step.ts";
+
+/** A lint's word, and why: a spec lints, or its attempt is a retry with the cause. */
+type Lint = Omit<Message, "findings">;
+
+/** A name the factory can use in its branches and its containers: kebab-case. */
+export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+/** One cl, as kinetic's cl type holds it: its frontmatter fields and the prose of its body. */
+export const clSpec = z.object({
+  name: z
+    .string()
+    .regex(kebab)
+    .describe("the cut's name, kebab-case. Its cl is named <issue>-<name>"),
+  intent: z
+    .string()
+    .min(1)
+    .describe("one sentence of done: what is true once its CL lands"),
+  phase: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("its phase in the plan, from 1. None for an issue's lone cl"),
+  repo: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "the repo it changes, by its folder's name: one of the issue's. Needed when the issue has more than one; its paths and test are from that repo's root",
+    ),
+  shape: z.object({
+    change: z
+      .enum(["behavior", "structure"])
+      .describe(
+        "behavior: its check fails before and passes after. structure: it passes before and after",
+      ),
+    checked: z
+      .enum(["repo", "system"])
+      .describe("where its check runs: in the repo, or on the running system"),
+  }),
+  test: z
+    .string()
+    .min(1)
+    .describe(
+      "the command its checks run, from the repo's root: its new test files and the existing ones that test what it changes",
+    ),
+  promises: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe(
+      "its promises: each an outcome at the cut's surface that can fail, traced to the issue's promise or the seam it serves; never a case or a build step",
+    ),
+  seam: z
+    .string()
+    .min(1)
+    .describe(
+      "the decision it hides from the other cls, what it must not change, and what crosses to them",
+    ),
+  context: z
+    .string()
+    .min(1)
+    .describe(
+      "its Core context section: every path conceivably relevant to the cut, from the repo's root, each with what it is and why it is there, and one exemplar: the file its builders should write like. Err wide: its builders start here, and read wider only when the work needs it",
+    ),
+});
+export type ClSpec = z.infer<typeof clSpec>;
+
+/** The plan, as kinetic's plan type holds it: its reasoning. Each phase's cls are the cls with that phase. */
+export const planSpec = z.object({
+  approach: z
+    .string()
+    .min(1)
+    .describe(
+      "in one or two sentences: how the cls, in order, meet the issue's Done",
+    ),
+  phases: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe(
+      "each phase's reason, in order from phase 1: what it builds, and why it comes where it does",
+    ),
+  doesNotFit: z
+    .string()
+    .optional()
+    .describe("what could not be made to fit, said plainly"),
+});
+export type PlanSpec = z.infer<typeof planSpec>;
+
+/** A spec: the cls, and their plan when there is more than one. */
+export type Spec = { plan?: PlanSpec | undefined; cls: ClSpec[] };
+
+const done = z.object({
+  word: z.literal("done"),
+  plan: planSpec
+    .optional()
+    .describe(
+      "the plan, when the issue takes more than one cl; none for its lone cl",
+    ),
+  cls: z.array(clSpec).min(1),
+  notes: z.string().optional(),
+});
+export type Planned = z.infer<typeof done>;
+
+/** Where the issue's plan note and its cl notes go: beside the issue's note. */
+export const planPath = (issuePath: string, issue: string) =>
+  join(dirname(issuePath), `${issue}-plan.md`);
+export const clPath = (issuePath: string, issue: string, cut: string) =>
+  join(dirname(issuePath), `${issue}-${cut}.md`);
+
+/** The spec the issue's planner last made, its last passed result at open, or undefined: before it is in the notes. */
+export function plannedOf(ledger: Ledger, issue: string): Spec | undefined {
+  const p = ledger.passed(issue, "open") as Planned | undefined;
+  return p && { ...(p.plan ? { plan: p.plan } : {}), cls: p.cls };
+}
+
+/** A cl's spec, from its note at the attempt's commit. Throws, with why, when the note is not a cl. */
+export function clOf(
+  notes: Notes,
+  r: Pick<Run, "name" | "issue" | "note">,
+): ClSpec {
+  const doc = notes.text(r.note);
+  if (!doc) throw new Error(`no note ${r.note} at the notes' commit`);
+  const c = clIn(doc, r.name.replace(`${r.issue}-`, ""));
+  if (!c.success) throw new Error(`${r.note}: ${c.error}`);
+  return c.data;
+}
+
+/** The spec as text, for a review to read. */
+export function specText(s: Spec): string {
+  return [
+    ...(s.plan
+      ? [
+          `The approach: ${s.plan.approach}`,
+          "",
+          "## Phases",
+          ...s.plan.phases.map((why, i) => `- Phase ${i + 1}: ${why}`),
+          ...(s.plan.doesNotFit
+            ? ["", "## Does not fit", s.plan.doesNotFit]
+            : []),
+          "",
+        ]
+      : []),
+    "## Cls",
+    ...s.cls.flatMap((c) => [
+      `### ${c.name}${c.phase ? `, phase ${c.phase}` : ""}: ${c.intent}`,
+      `- shape: ${c.shape.change}, checked in the ${c.shape.checked}`,
+      `- test: \`${c.test}\``,
+      "- promises:",
+      ...c.promises.map((b) => `  - ${b}`),
+      `- seam: ${c.seam}`,
+      "- core context:",
+      c.context,
+    ]),
+  ].join("\n");
+}
+
+/**
+ * The files a test command names, by path: each argument after the program that is not a flag and looks like a path
+ * (a folder in it, or a file extension). `node --test test/a.test.mjs` names test/a.test.mjs.
+ */
+export function pathsIn(command: string): string[] {
+  const [, ...args] = command.trim().split(/\s+/);
+  return args.filter(
+    (a) => !a.startsWith("-") && /^[\w.@/-]+$/.test(a) && /\/|\.\w+$/.test(a),
+  );
+}
+
+/** The names of the repos an issue's cls may change: its several, or its one, by their folders' names. */
+export const reposOf = (r: Pick<Run, "repo" | "repos">): string[] =>
+  r.repos?.length ? r.repos.map((p) => p.name) : [basename(r.repo)];
+
+/** A file in the repo, from its root: not the root itself, nor outside it. */
+const inside = (f: string) => {
+  const n = normalize(f).replace(/\/+$/, "");
+  return !isAbsolute(f) && n !== "." && !n.startsWith("..");
+};
+
+const no = (reason: string): Lint => ({
+  word: "retry",
+  cause: "contract_invalid",
+  reason,
+});
+
+/**
+ * Spec lint: what can be decided about a spec without judgment, the same rules kinetic's lint holds and what only the
+ * repo can say. A plan's cls each have a phase, the phases run from 1 with no gap, and each has a reason; a lone cl has
+ * no plan and no phase. The cls' names are their own and new. A cl names a repo of the issue's, and must when the issue
+ * has more than one. The files its test command runs are in its repo. Whether
+ * the cls of one phase stay apart is a judgment: the plan review's.
+ */
+export function specLint(
+  s: Spec,
+  o: { taken: (cut: string) => boolean; repos: string[] },
+): Lint {
+  const names = s.cls.map((c) => c.name);
+  const twice = names.filter((n, i) => names.indexOf(n) !== i);
+  if (twice.length) return no(`two cls share a name: ${twice.join(", ")}`);
+  const taken = names.filter(o.taken);
+  if (taken.length)
+    return no(`a cl of this issue already has the name: ${taken.join(", ")}`);
+  if (!s.plan) {
+    if (s.cls.length > 1) return no("more than one cl, and no plan");
+    if (s.cls[0]?.phase !== undefined)
+      return no("a lone cl has no phase: it has no plan");
+  } else {
+    const none = s.cls.filter((c) => c.phase === undefined).map((c) => c.name);
+    if (none.length)
+      return no(`cls of the plan with no phase: ${none.join(", ")}`);
+    if (s.cls.length < 2)
+      return no("a plan of one cl: a lone cl needs no plan");
+    const have = new Set(s.cls.map((c) => c.phase as number));
+    const top = Math.max(...have);
+    const gap = [...Array(top).keys()]
+      .map((i) => i + 1)
+      .filter((p) => !have.has(p));
+    if (gap.length)
+      return no(`the phases have a gap: no cl in phase ${gap.join(", ")}`);
+    if (s.plan.phases.length !== top)
+      return no(
+        `the plan gives ${s.plan.phases.length} phase reasons for ${top} phases`,
+      );
+  }
+  for (const c of s.cls) {
+    if (c.repo === undefined && o.repos.length > 1)
+      return no(
+        `cl ${c.name}: names no repo, and the issue has ${o.repos.length}: ${o.repos.join(", ")}`,
+      );
+    if (c.repo !== undefined && !o.repos.includes(c.repo))
+      return no(
+        `cl ${c.name}: its repo ${c.repo} is not the issue's: ${o.repos.join(", ")}`,
+      );
+    const outside = pathsIn(c.test).filter((f) => !inside(f));
+    if (outside.length)
+      return no(
+        `cl ${c.name}: its test command runs files outside the repo, or its root: ${outside.join(", ")}`,
+      );
+  }
+  return { word: "pass", reason: "the spec lints" };
+}
+
+/**
+ * The issue as the planner reads it: its note, and the spec before in the notes, if the issue came back to be planned
+ * again.
+ */
+function input(r: Run, ledger: Ledger): string {
+  const notes = notesOf(r);
+  const read = readSpec(notes, r.note, r.name);
+  const before = read.ok ? read.spec : undefined;
+  const landed = ledger.cls(r.name).filter((c) => c.state === "landed");
+  return [
+    notes.text(r.note),
+    ...(before
+      ? ["", "# The spec before, which came back", specText(before)]
+      : []),
+    ...(landed.length
+      ? [
+          "",
+          "# The cls already landed on main, which a new plan builds on",
+          ...landed.map((c) => `- ${c.name}`),
+        ]
+      : []),
+  ].join("\n");
+}
+
+export const plan: Step<Planned> = {
+  from: "open",
+  agent: "planner",
+  worktree: "ro",
+  done,
+  about: ["issue"],
+  input,
+  // The spec is the attempt's result, in the ledger. Its notes are written once the plan review approves it.
+  async check(r, d, _at, ledger) {
+    if (!itemsIn(notesOf(r).text(r.note), "Done").length)
+      return {
+        word: "back",
+        reason: "the issue has no Done items to meet",
+        findings: [
+          {
+            about: "issue",
+            what: "its Done has no items, so no plan can be shown to meet it",
+            where: `${r.note}, ## Done`,
+          },
+        ],
+      };
+    const v = specLint(d, {
+      taken: (c) => ledger.items().some((i) => i.name === `${r.issue}-${c}`),
+      repos: reposOf(r),
+    });
+    return { ...v, findings: [], ...(d.notes ? { notes: d.notes } : {}) };
+  },
+};
+
+const link = (name: string) => `[[${name}]]`;
+
+/** The plan note's body, in kinetic's plan type: the approach, each phase's reason and its cls, and what does not fit. */
+export function planNote(issue: string, s: Spec & { plan: PlanSpec }): string {
+  return [
+    s.plan.approach,
+    "",
+    "---",
+    "## Phases",
+    "",
+    ...s.plan.phases.flatMap((why, i) => [
+      `- Phase ${i + 1}: ${why}`,
+      ...s.cls
+        .filter((c) => c.phase === i + 1)
+        .map((c) => `\t- ${link(`${issue}-${c.name}`)}: ${c.seam}`),
+    ]),
+    "",
+    "## Does not fit",
+    "",
+    s.plan.doesNotFit ?? "Nothing.",
+  ].join("\n");
+}
+
+/** A cl note's body, in kinetic's cl type: its intent, Promises, Seam and Core context. */
+export function clNote(c: ClSpec): string {
+  return [
+    c.intent,
+    "",
+    "---",
+    "## Promises",
+    "",
+    ...c.promises.map((b) => `- ${b}`),
+    "",
+    "## Seam",
+    "",
+    c.seam,
+    "",
+    "## Core context",
+    "",
+    c.context,
+  ].join("\n");
+}
+
+/** A cl note's frontmatter fields, in kinetic's cl type. */
+export const clFields = (issue: string, c: ClSpec, plan: boolean) => ({
+  type: "cl",
+  description: `The cut ${c.name} of ${issue}: ${c.intent}`,
+  belongsTo: link(plan ? `${issue}-plan` : issue),
+  status: "new",
+  ...(c.phase === undefined ? {} : { phase: c.phase }),
+  ...(c.repo === undefined ? {} : { repo: c.repo }),
+  shape: c.shape,
+  test: c.test,
+});
+
+/** A note's frontmatter, parsed, and its body. A note with none has an empty one. */
+export function noteOf(doc: string): {
+  fields: Record<string, unknown>;
+  body: string;
+} {
+  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(doc);
+  if (!m) return { fields: {}, body: doc };
+  const fields = parse(m[1] ?? "") as Record<string, unknown> | null;
+  return { fields: fields ?? {}, body: m[2] ?? "" };
+}
+
+/** A link field's name: `[[name]]` to name. */
+const linked = (v: unknown) =>
+  typeof v === "string" ? (/^\[\[([^\]|#]+)/.exec(v)?.[1] ?? v) : "";
+
+/** A note's kinetic type, from its frontmatter: issue, plan, cl, and the rest. Empty when it has none. */
+export const typeOf = (doc: string) => {
+  const t = noteOf(doc).fields["type"];
+  return typeof t === "string" ? t : "";
+};
+
+/** The first line of a note's body: its intent, or its approach. */
+const firstLine = (body: string) =>
+  body
+    .split("\n")
+    .find((l) => l.trim())
+    ?.trim() ?? "";
+
+/** What reading a spec from notes gives: the spec, or each reason it can't. */
+export type Read = { ok: true; spec: Spec } | { ok: false; errors: string[] };
+
+/** A cl note's text as a cl's spec, its cut named `cut`, or why it is not one. */
+function clIn(
+  doc: string,
+  cut: string,
+): { success: true; data: ClSpec } | { success: false; error: string } {
+  const { fields, body } = noteOf(doc);
+  const c = clSpec.safeParse({
+    name: cut,
+    intent: firstLine(body),
+    ...(fields["phase"] === undefined ? {} : { phase: fields["phase"] }),
+    ...(fields["repo"] === undefined ? {} : { repo: fields["repo"] }),
+    shape: fields["shape"],
+    test: fields["test"],
+    promises: itemsIn(body, "Promises").map((x) => x.slice(2)),
+    seam: sectionIn(body, "Seam").trim(),
+    context: sectionIn(body, "Core context").trim(),
+  });
+  return c.success
+    ? { success: true, data: c.data }
+    : {
+        success: false,
+        error: `not a cl: ${c.error.issues.map((x) => `${x.path.join(".") || "it"} ${x.message}`).join("; ")}`,
+      };
+}
+
+/** The names of the cl notes beside the issue's that belong to it, or to its plan: `<issue>-<cut>`, each. */
+export function clNotesOf(
+  notes: Notes,
+  issuePath: string,
+  issue: string,
+): string[] {
+  const dir = dirname(issuePath);
+  return notes
+    .names(dir)
+    .sort()
+    .filter((f) => {
+      const { fields } = noteOf(notes.text(join(dir, f)));
+      const to = linked(fields["belongsTo"]);
+      return (
+        fields["type"] === "cl" && (to === issue || to === `${issue}-plan`)
+      );
+    })
+    .map((f) => f.slice(0, -3));
+}
+
+/**
+ * An issue's spec, from the notes beside its issue's: its cls (every cl note that belongs to the issue, or to its
+ * plan) and its plan, `<issue>-plan.md`, when it has one. The issue has Done items, and each cl holds kinetic's cl
+ * fields. A spec Matt submits is `fresh`: each cl is new, the plan is active, and its Phases list names exactly its
+ * cls, each under its own phase. What the repo must hold is spec lint's.
+ */
+export function readSpec(
+  notes: Notes,
+  issuePath: string,
+  issue: string,
+  fresh = false,
+): Read {
+  const errors: string[] = [];
+  const doc = notes.text(issuePath);
+  if (!doc) return { ok: false, errors: [`no issue note at ${issuePath}`] };
+  if (typeOf(doc) !== "issue") errors.push(`${issuePath}: not an issue note`);
+  if (!itemsIn(noteOf(doc).body, "Done").length)
+    errors.push(`${issuePath}: its Done has no items`);
+  const dir = dirname(issuePath);
+  const planFile = planPath(issuePath, issue);
+  const planDoc = notes.text(planFile);
+  const cls: ClSpec[] = [];
+  for (const name of clNotesOf(notes, issuePath, issue)) {
+    if (!name.startsWith(`${issue}-`)) {
+      errors.push(`${name}: a cl of ${issue} is named ${issue}-<cut>`);
+      continue;
+    }
+    const text = notes.text(join(dir, `${name}.md`));
+    if (fresh && noteOf(text).fields["status"] !== "new")
+      errors.push(`${name}: it is not new`);
+    const c = clIn(text, name.slice(issue.length + 1));
+    if (!c.success) errors.push(`${name}: ${c.error}`);
+    else cls.push(c.data);
+  }
+  if (!cls.length && !errors.length)
+    errors.push(`no cl note belongs to ${issue} or its plan`);
+  let planned: PlanSpec | undefined;
+  if (planDoc) {
+    const { fields, body } = noteOf(planDoc);
+    if (fresh && fields["status"] !== "active")
+      errors.push(`${planFile}: the plan is not active`);
+    const phases: string[] = [];
+    const listed = new Map<string, number>();
+    let at = 0;
+    for (const line of sectionIn(body, "Phases").split("\n")) {
+      const ph = /^- Phase (\d+):\s*(.*)$/.exec(line);
+      if (ph) {
+        at = Number(ph[1]);
+        phases[at - 1] = ph[2] ?? "";
+        continue;
+      }
+      const cl = /^\s+- \[\[([^\]|#]+)\]\]/.exec(line);
+      if (cl && at) listed.set(cl[1] ?? "", at);
+    }
+    if (fresh) {
+      for (const c of cls) {
+        const name = `${issue}-${c.name}`;
+        if (listed.get(name) !== c.phase)
+          errors.push(
+            `${planFile}: its Phases list puts ${name} ${listed.has(name) ? `in phase ${listed.get(name)}` : "nowhere"}, and the cl says phase ${c.phase ?? "none"}`,
+          );
+        listed.delete(name);
+      }
+      for (const n of listed.keys())
+        errors.push(
+          `${planFile}: its Phases list names ${n}, which is no cl of ${issue}`,
+        );
+    }
+    const p = planSpec.safeParse({
+      approach: firstLine(body),
+      phases: [...phases].map((x) => x ?? ""),
+      ...(sectionIn(body, "Does not fit").trim() &&
+      sectionIn(body, "Does not fit").trim() !== "Nothing."
+        ? { doesNotFit: sectionIn(body, "Does not fit").trim() }
+        : {}),
+    });
+    if (!p.success)
+      errors.push(
+        `${planFile}: not a plan: its approach and each phase's reason`,
+      );
+    else planned = p.data;
+  }
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, spec: { ...(planned ? { plan: planned } : {}), cls } };
+}

@@ -4,12 +4,19 @@ The software factory: a deployment of que-pasa (`@mku1tra/que-pasa`) that moves 
 
 ## Parts
 
-- `process/`: what the work is, the states and steps. Unit tests, beside each file
-- `workspace/`: what the agents are made of: each agent's role note and code (`agents/`), the one tool of the factory's own, `test` (`tools/`), and the notes a role works to (`types/`). Unit tests, beside each file
-- `orchestrator/`: the engine, the loop, the orchestrator's own moves and the ledger. Unit tests, with git and podman faked; the end-to-end test, `loop.e2e.test.ts`
-- `effects/`: how it touches the world, git, the sandbox, test runs, the runner, notes and traces. Unit tests, with the sandbox faked
-- `main.ts`: the wiring. Unit tests
-- `cli/`: the factory's command line, one module per command. Unit tests
+Two folders, after que-pasa's workspace layout: who the agents are, and the host that runs them on the line.
+
+- `workspace/`: what the agents are made of: each agent's role note and code (`agents/`), the factory's own tools, `test` and `remove` (`tools/`), and the notes a role works to (`types/`)
+- `factory/`: the host, the factory itself. `main.ts` wires it
+  - `stations/`: each station's step: its result's shape and its check (plan, plan review, nail, hammer, review, accept)
+  - `line/`: what moves the work: the states (`table.ts`), the step's contract (`step.ts`), the ledger, the loop and the orchestrator's own moves. The end-to-end test, `loop.e2e.test.ts`
+  - `runs/`: what an attempt runs in: the runner, the sandbox, the models, test runs, setup and traces
+  - `repos/`: git: worktrees, the land, the notes, version moves and dev images
+  - `cli/`: the factory's command line, one module per command
+  - `Containerfile`: the orchestrator's image
+- `work/`: the work types package (`@mku1tra/work`)
+
+Unit tests sit beside each file, with git and podman faked; the e2e tests are `*.e2e.test.ts`.
 
 ## Run and check
 

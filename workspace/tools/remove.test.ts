@@ -8,8 +8,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { Run } from "../../process/step.ts";
-import { type Context, keep } from "../../effects/runs.ts";
+import type { Run } from "../../factory/line/step.ts";
+import { type Context, keep } from "../../factory/runs/runs.ts";
 import { inWork, remove } from "./remove.ts";
 
 const work = mkdtempSync(join(tmpdir(), "remove-tool-"));

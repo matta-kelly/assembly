@@ -14,14 +14,9 @@
     "types": ["node"]
   },
   "include": [
-    "orchestrator",
-    "process",
+    "factory",
     "workspace",
     "work",
-    "effects",
-    "main.ts",
-    "main.test.ts",
-    "cli",
     "scripts",
     "schema.ts",
     "basis.config.ts",

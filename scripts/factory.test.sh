@@ -162,8 +162,8 @@ launch_args() { # cwd, repos, home, verb, args...
     -t
     localhost/assembly-orchestrator
     -f
-    "$root/orchestrator/Containerfile"
-    "$root/orchestrator"
+    "$root/factory/Containerfile"
+    "$root/factory"
   )
   run_args=(
     run
@@ -213,7 +213,7 @@ launch_args() { # cwd, repos, home, verb, args...
     localhost/assembly-orchestrator
     node
     --disable-warning=ExperimentalWarning
-    "$root/cli/index.ts"
+    "$root/factory/cli/index.ts"
     "$verb"
   )
   run_args+=("$@")
@@ -240,7 +240,7 @@ check_crate_on_path() { # mount, what
   local target=${1#*:} bin path
   target=${target%:ro}
   bin="$target/bin"
-  path=$(grep -E '^ENV PATH=' "$root/orchestrator/Containerfile" 2>/dev/null | sed -E 's/^ENV PATH=//' || true)
+  path=$(grep -E '^ENV PATH=' "$root/factory/Containerfile" 2>/dev/null | sed -E 's/^ENV PATH=//' || true)
   case ":$path:" in
     *":$bin:"*) return 0 ;;
   esac

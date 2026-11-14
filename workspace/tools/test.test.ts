@@ -2,13 +2,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { Run } from "../../process/step.ts";
-import { type Context, keep } from "../../effects/runs.ts";
+import type { Run } from "../../factory/line/step.ts";
+import { type Context, keep } from "../../factory/runs/runs.ts";
 import { maxAnswer } from "@mku1tra/que-pasa/sandbox";
-import { runTests } from "../../effects/tests.ts";
+import { runTests } from "../../factory/runs/tests.ts";
 import { test } from "./test.ts";
 
-vi.mock("../../effects/tests.ts", () => ({ runTests: vi.fn() }));
+vi.mock("../../factory/runs/tests.ts", () => ({ runTests: vi.fn() }));
 
 const run = { name: "is-b", n: 2, test: "node --test test/b.test.ts" } as Run;
 const context: Context = {

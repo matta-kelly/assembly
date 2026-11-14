@@ -4,8 +4,8 @@
 
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
-import { accept } from "../../process/accept.ts";
-import { resultOf } from "../../process/step.ts";
+import { accept } from "../../factory/stations/accept.ts";
+import { resultOf } from "../../factory/line/step.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 import { types } from "./types.ts";

@@ -1,14 +1,14 @@
 /**
  * `remove`: takes a file out of /work, the cl's worktree, for nail and hammer. Whatever /work holds is the cl's change,
  * so a builder that can add and edit a file can remove one too: a scratch file it left, or a file its cl retires. What
- * a builder may touch is its step's check, at its hand-in, which counts a removed file as touched (process/hammer.ts).
+ * a builder may touch is its step's check, at its hand-in, which counts a removed file as touched (factory/stations/hammer.ts).
  */
 
 import { lstatSync, rmSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { defineTool, type Runtime } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
-import { type Context, current } from "../../effects/runs.ts";
+import { type Context, current } from "../../factory/runs/runs.ts";
 
 /** The path inside the worktree that `path` names, as /work/<path> or from the repo's root, or undefined for none. */
 export function inWork(path: string): string | undefined {

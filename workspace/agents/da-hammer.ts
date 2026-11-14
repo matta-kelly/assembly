@@ -5,8 +5,8 @@
 
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
-import { hammer } from "../../process/hammer.ts";
-import { resultOf } from "../../process/step.ts";
+import { hammer } from "../../factory/stations/hammer.ts";
+import { resultOf } from "../../factory/line/step.ts";
 import { fileTools } from "@mku1tra/que-pasa/sandbox";
 import { remove } from "../tools/remove.ts";
 import { test } from "../tools/test.ts";

@@ -20,14 +20,14 @@ as_matt := '-e GIT_AUTHOR_NAME="$(git config user.name)" -e GIT_AUTHOR_EMAIL="$(
 # crate, the host's install, is mounted where the image's PATH has it, so the orchestrator makes each dev image, and a
 # crate land target takes its hooks from it (CRATE_ROOT).
 e2e:
-    podman build -q -t localhost/assembly-orchestrator -f orchestrator/Containerfile orchestrator >/dev/null
+    podman build -q -t localhost/assembly-orchestrator -f factory/Containerfile factory >/dev/null
     @just _node true
     podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e ASSEMBLY_E2E=1 -e ASSEMBLY_E2E_KEEP -e CRATE_ROOT=/usr/local/share/crate -v "$HOME/.local/share/crate:/usr/local/share/crate:ro" {{as_matt}} -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly-orchestrator npx vitest run e2e.test
 
 # One real call per model the bins name, through que-pasa: the key, the model ids and structured output, for a fraction
 # of a cent. The key comes from the vault (secrets.toml, through rbw-run) into the orchestrator's environment only.
 smoke-model:
-    podman build -q -t localhost/assembly-orchestrator -f orchestrator/Containerfile orchestrator >/dev/null
+    podman build -q -t localhost/assembly-orchestrator -f factory/Containerfile factory >/dev/null
     @just _node true
     rbw-run -f "{{root}}/secrets.toml" -- podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly-orchestrator node scripts/smoke-model.ts
 
@@ -56,7 +56,7 @@ top-local fresh="":
       rm -rf "$copy" && mkdir -p "$copy"
       ssh core@monkeybusiness 'sudo tar -C /home/assembly/.local/state -cf - assembly' | tar -C "$copy" -xf -
     fi
-    ASSEMBLY_HOME="$copy/assembly" exec node --watch --disable-warning=ExperimentalWarning cli/index.ts top
+    ASSEMBLY_HOME="$copy/assembly" exec node --watch --disable-warning=ExperimentalWarning factory/cli/index.ts top
 
 # Run a command in the Node image: `just run npm install zod`
 run +command:
