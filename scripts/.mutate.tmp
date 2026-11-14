@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+# mutation check, run by hand: not a test (kept out of the suite; no runner finds it)

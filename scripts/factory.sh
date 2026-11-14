@@ -67,9 +67,12 @@ export ASSEMBLY_REPOS="$repos" ASSEMBLY_NOTES="$notes" ASSEMBLY_HOME="$home"
 mounts=(-v "$repos:$repos" -v "$home:$home")
 # the notes repo, when it is not among the clones
 case "$notes" in "$repos"/*) ;; *) mounts+=(-v "$notes:$notes") ;; esac
-# the host account's ssh: its key, which crate takes for a push or fetch, and the known hosts it checks crate by
-[ -d "$HOME/.ssh" ] && mounts+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
 [ "$repos" = "$lot" ] || mounts+=(-v "$lot:$lot")
+# the host account's ssh, file by file: its key, which crate takes for a push or fetch, then the known hosts it checks
+# crate by. Nothing else of ~/.ssh goes in, and a file the account does not have is not mounted.
+for f in id_ed25519 known_hosts; do
+  [ -e "$HOME/.ssh/$f" ] && mounts+=(-v "$HOME/.ssh/$f:/home/node/.ssh/$f:ro")
+done
 # the host's time zone, so the times the factory shows are the host's
 [ -e /etc/localtime ] && mounts+=(-v /etc/localtime:/etc/localtime:ro)
 
