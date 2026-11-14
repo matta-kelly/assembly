@@ -31,7 +31,7 @@ e2e: image
 # of a cent. The key comes from the vault (secrets.toml, through rbw-run) into the orchestrator's environment only.
 smoke-model: image
     @just _node true
-    rbw-run -f "{{root}}/secrets.toml" -- podman run --rm --entrypoint= --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly:dev node scripts/smoke-model.ts
+    rbw-run -f "{{root}}/secrets.toml" -- podman run --rm --entrypoint= --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly:dev node factory/runs/smoke-model.ts
 
 # The factory, on the server, through its door: `just factory status`, `just factory top`. A live screen asks for a
 # terminal.

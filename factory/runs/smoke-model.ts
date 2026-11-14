@@ -1,15 +1,15 @@
 /**
  * The real model path, once per model the bins name: a small que-pasa agent on it must call submit with a checked
  * result. Proves the key, the model ids, and structured output on a real model, for a fraction of a cent. Run by
- * `just smoke-model`, in the orchestrator's image, with FIREWORKS_API_KEY from the vault.
+ * `just smoke-model`, in the factory's image, with FIREWORKS_API_KEY from the vault.
  */
 
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { openRuntime } from "@mku1tra/que-pasa/loop";
 import { z } from "zod";
-import { bins, models } from "../factory/runs/models.ts";
-import { total } from "../factory/runs/runner.ts";
+import { bins, models } from "./models.ts";
+import { total } from "./runner.ts";
 
 const m = models();
 let failed = 0;
