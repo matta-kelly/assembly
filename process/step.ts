@@ -64,13 +64,11 @@ export interface TestRun {
  * - changed: which of `files` differ from the item's branch, committed or not
  * - exists: which of `files` are in the worktree
  * - touched: every file that differs from where the attempt started, the item's branch, new and removed ones too
- * - red: runs a cl's test command on `files`, its tests, without its code (effects/tests.ts, runRed)
  */
 export interface Worktree {
   test(): Promise<TestRun>;
   changed(files: string[]): Promise<string[]>;
   touched(): Promise<string[]>;
-  red(files: string[]): Promise<TestRun>;
   exists(files: string[]): string[];
 }
 
@@ -96,6 +94,7 @@ export interface Message {
   cause?: Cause;
   findings: Finding[];
   notes?: string;
+  met?: boolean; // a pass whose tests already pass: the code meets them, so the table takes it past the code (table.ts)
 }
 
 /** The back shape: what an agent hands back in place of its done result, findings about the artifacts it may name. */
@@ -153,7 +152,6 @@ export type Run = Omit<Tree, "repos"> & {
   image: string; // the repo's image: the sandbox and the checks run in it
   test: string; // a cl: the command that runs its test files, from its note. An issue: the repo's full suite
   setup: string; // the command that installs the repo's dependencies into the worktree, offline. '' for none
-  tests?: string[]; // a cl's test files, as da-nail last handed them in: what its own red run copies
   // An issue's repos when it has more than one: its own steps see each at work/<name>, and its suite runs in each. Its
   // repo, test and setup are then the first's, and its image the one its own steps' sandbox runs.
   repos?: Repo[];

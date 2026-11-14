@@ -11,8 +11,7 @@ import {
   testFilesOf,
   testsOf,
 } from "./nail.ts";
-import { fakeWorktree, ran } from "./fake-worktree.ts";
-import { pathsIn } from "./plan.ts";
+import { fakeWorktree } from "./fake-worktree.ts";
 
 const at = fakeWorktree({ files: ["a.test.ts"] });
 const none = { events: () => [] } as unknown as Ledger;
@@ -86,24 +85,13 @@ describe("da-nail's tests, as the steps after it read them", () => {
   });
 });
 
-describe("the nail step's check runs the tests without the cl's code", () => {
-  const both = { word: "done" as const, tests: [t(1), t(2, "b.test.ts")] };
-  it("asks the red run for the hand-in's test files and the ones its test command names, and passes red at an assertion", async () => {
-    const w = fakeWorktree({
-      files: ["a.test.ts", "b.test.ts"],
-      red: ran(1, "AssertionError: expected 2 mounts"),
-    });
-    expect((await tests.check(r, both, w, none)).word).toBe("pass");
-    expect(w.reds).toEqual([
-      [...new Set(["a.test.ts", "b.test.ts", ...pathsIn(r.test)])],
-    ]);
-  });
-
-  it("retries tests that pass without the cl's code: they test nothing it adds", async () => {
-    const w = fakeWorktree({ files: ["a.test.ts", "b.test.ts"] });
-    expect(await tests.check(r, both, w, none)).toMatchObject({
-      word: "retry",
-      reason: /nothing is red/,
+describe("the nail step's check, on tests that pass", () => {
+  it("passes them as met, first pass or a return: the code meets them, so the cl goes to its review", async () => {
+    const both = { word: "done" as const, tests: [t(1), t(2)] };
+    const passing = fakeWorktree({ files: ["a.test.ts"] });
+    expect(await tests.check(r, both, passing, none)).toMatchObject({
+      word: "pass",
+      met: true,
     });
   });
 });
@@ -164,11 +152,12 @@ describe("judge", () => {
     ).toBe("retry");
   });
 
-  it("retries a run that passes", () => {
+  it("passes a run that passes as met, and a red one not", () => {
     expect(judge(0, "Tests 3 passed")).toMatchObject({
-      word: "retry",
-      reason: /nothing is red/,
+      word: "pass",
+      met: true,
     });
+    expect(judge(1, "AssertionError: x").met).toBeUndefined();
   });
 
   it("retries a run that fails before any assertion", () => {

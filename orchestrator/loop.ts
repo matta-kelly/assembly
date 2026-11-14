@@ -55,7 +55,7 @@ import {
 import { folderOf, last, log, partsOf, runOf } from "../effects/runs.ts";
 import { close, imageOf, open } from "../effects/sandbox.ts";
 import { forgetSetup, needsSetup, runSetup } from "../effects/setup.ts";
-import { runRed, runTests } from "../effects/tests.ts";
+import { runTests } from "../effects/tests.ts";
 import {
   checkSpan,
   endAttempt,
@@ -63,7 +63,6 @@ import {
   within,
 } from "../effects/trace.ts";
 import { clOf } from "../process/plan.ts";
-import { testFilesOf } from "../process/nail.ts";
 import {
   type Cause,
   type CheckRun,
@@ -208,11 +207,6 @@ function worktreeOf(
         ran = t.check;
         return t;
       })),
-    red: (files) =>
-      runRed(r, files, signal).then((t) => {
-        ran = t.check;
-        return t;
-      }),
     changed: (files) => changed(r, files),
     touched: () => touched(r),
     // A path that leaves the worktree is never in it.
@@ -552,8 +546,8 @@ export async function loop({
     const live = items.filter(
       (i) => !ends.includes(i.state) || open.has(i.name),
     );
-    const keep = new Set([
-      ...live.flatMap((i) => {
+    const keep = new Set(
+      live.flatMap((i) => {
         const t = runOf(i, 0, runs);
         return [
           t.work,
@@ -561,11 +555,7 @@ export async function loop({
           ...(i.kind === "issue" ? [join(folderOf(i, runs), "notes")] : []),
         ];
       }),
-      // an open attempt's red run, its throwaway checkout (effects/tests.ts, runRed)
-      ...ledger
-        .open()
-        .map((a) => join(runOf(ledger.item(a.name), a.n, runs).dir, "red")),
-    ]);
+    );
     const branches = new Set(live.map((i) => branchOf(i.name)));
     const repos = new Set([
       world.notes,
@@ -639,7 +629,6 @@ export async function loop({
       image: repos.length > 1 ? readerImage : first.image,
       test,
       setup: first.setup,
-      ...(t.kind === "cl" ? { tests: testFilesOf(ledger, t.name) } : {}),
       ...(repos.length > 1 ? { repos } : {}),
     };
   }

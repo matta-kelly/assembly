@@ -566,6 +566,7 @@ export function open(file: string) {
           to = next(state, kind, m.word, about, {
             attempts: attemptsAt(name, state),
             rounds: roundsOf(name) + (m.word === "back" ? 1 : 0),
+            ...(m.met ? { met: true } : {}),
           });
         } catch (e) {
           to = "escalated";

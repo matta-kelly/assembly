@@ -1,15 +1,16 @@
 /**
  * The nail step: ready to red. da-nail writes a test for each promise in the cl's Promises, each failing at its assertion.
- * The check confirms each promise has a test in a file that exists, then runs the cl's test command on those tests
- * without the cl's code (its red run, effects/tests.ts) and passes only when it fails at an assertion (red.sh in loke's
- * v1 gates). A cl sent back to its tests (by da-hammer, a review, or Matt) brings it here again, with its code still in
- * the worktree; the red run sets that code aside, so red means the same thing on every pass.
+ * The check confirms each promise has a test in a file that exists, then runs the cl's test command on the worktree as
+ * it is, and the run decides where the cl goes: tests that do not load go back to da-nail; tests that fail at an
+ * assertion go to da-hammer, there is code to write (red.sh in loke's v1 gates); tests that pass go to the review, the
+ * code meets them. One rule on every pass: a cl comes back here (from da-hammer, a review, or Matt) with its code in
+ * the worktree, and its fixed tests may pass at once. A test that passes because it checks nothing is the review's to
+ * find.
  */
 
 import { z } from "zod";
 import { itemsIn, notesOf } from "../effects/notes.ts";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import { pathsIn } from "./plan.ts";
 import { type Message, say, type Step } from "./step.ts";
 
 const done = z.object({
@@ -67,15 +68,11 @@ const notLoaded =
 // a test that throws before it asserts fails too.
 const assertion = /AssertionError|ERR_ASSERTION|expect\(received\)/;
 
-/** Red, from a test run's exit code and output: it failed, and at an assertion. */
+/** Where a test run sends the cl: green to its review (met), red at an assertion to its code, else back to da-nail. */
 export function judge(code: number, out: string): Message {
   const tail = out.slice(-400);
   if (code === 0)
-    return say(
-      "retry",
-      `the tests pass, nothing is red: ${tail}`,
-      "check_failed",
-    );
+    return { ...say("pass", "green: the code meets the tests"), met: true };
   if (notLoaded.test(out))
     return say("retry", `red before any assertion: ${tail}`, "check_failed");
   if (assertion.test(out)) return say("pass", "red at an assertion");
@@ -114,9 +111,7 @@ export const nail: Step<Done> = {
         `test files not in the worktree: ${missing.join(", ")}`,
         "invalid_output",
       );
-    const { code, out } = await at.red([
-      ...new Set([...files, ...pathsIn(r.test)]),
-    ]);
+    const { code, out } = await at.test();
     const m = judge(code, out);
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;
   },

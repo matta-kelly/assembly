@@ -1,7 +1,7 @@
 /**
  * The worktrees on real git, in the orchestrator's image (`just e2e`), since that git is the one that runs: a cl's one
  * worktree on its branch, made from main as the land target has it, the whole repo in it; a pass commits there, and a
- * failed attempt's change stays in it; an issue's worktree moves to main; and the sweep
+ * failed attempt leaves its change as a diff and a clean worktree; an issue's worktree moves to main; and the sweep
  * keeps a live item's worktree and branch and nothing else.
  */
 

@@ -18,6 +18,9 @@ describe("next", () => {
 
   it("moves a cl along on pass: ready to red, red to green, green to approved", () => {
     expect(next("ready", "cl", "pass", [], once)).toBe("red");
+    expect(next("ready", "cl", "pass", [], { ...once, met: true })).toBe(
+      "green",
+    );
     expect(next("red", "cl", "pass", [], once)).toBe("green");
     expect(next("green", "cl", "pass", [], once)).toBe("approved");
   });

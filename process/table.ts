@@ -55,7 +55,7 @@ export const reviewRounds = 2;
  */
 export const table: Record<
   "issue" | "cl",
-  Partial<Record<State, Partial<Record<"pass" | "retry", State>>>>
+  Partial<Record<State, Partial<Record<"pass" | "met" | "retry", State>>>>
 > = {
   issue: {
     open: { pass: "planned", retry: "open" },
@@ -66,7 +66,8 @@ export const table: Record<
   },
   cl: {
     waiting: { pass: "ready", retry: "waiting" },
-    ready: { pass: "red", retry: "ready" },
+    // met: da-nail's tests already pass, so the code meets them and the cl goes to its review (process/nail.ts)
+    ready: { pass: "red", met: "green", retry: "ready" },
     red: { pass: "green", retry: "red" },
     green: { pass: "approved", retry: "green" },
     approved: { pass: "landed", retry: "approved" },
@@ -113,6 +114,7 @@ export interface Counts {
   attempts: number; // this state's attempts since the item last entered it
   rounds: number; // the sends back for another round since Matt last moved it: each back that did not raise
   prior?: State; // where a resume takes a held item: the station Matt names, else where it was before
+  met?: boolean; // the pass's tests already pass (Message.met)
 }
 
 /** The next state, from where the item stands, its kind, and the message's word and what its findings are about. */
@@ -149,7 +151,10 @@ export function next(
     if (to !== "raised" && c.rounds > reviewRounds) return "escalated";
     return to;
   }
-  const to = table[kind][state]?.[word as "pass" | "retry"];
+  const to =
+    table[kind][state]?.[
+      word === "pass" && c.met ? "met" : (word as "pass" | "retry")
+    ];
   if (!to) throw new Error(`no transition from ${state} on ${word}`);
   if (word === "retry" && c.attempts >= retryLimit) return "escalated";
   return to;
