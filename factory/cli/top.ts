@@ -420,8 +420,10 @@ export function screen(
   return lines;
 }
 
-/** The version the factory runs: `git describe` of its own checkout, or "unknown" when git cannot say. */
+/** The version the factory runs: its image's (ASSEMBLY_VERSION), else `git describe` of its checkout, else "unknown". */
 export function version(): string {
+  // the image's, stamped when it was built; else the checkout's
+  if (process.env["ASSEMBLY_VERSION"]) return process.env["ASSEMBLY_VERSION"];
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   try {
     return execFileSync("git", ["-C", root, "describe", "--tags", "--always"], {

@@ -12,7 +12,10 @@
  *   factory blocked
  *   factory explain <item>
  *   factory top
+ *   factory door
  *
+ * door is the way in from Matt's laptop: the ssh key's forced command runs it, and it runs the command ssh was given,
+ * `factory <verb> [args...]`, for a remote verb only (door.ts). run is never one: it is the server's.
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
  * Its note is in the notes repo, $ASSEMBLY_NOTES, else $ASSEMBLY_REPOS/kinetic: the only spec, read at its main.
  *
@@ -27,6 +30,7 @@ import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../repos/repo.ts";
 import { type Done, drop, resume, stop, submit } from "./levers.ts";
 import { blocked, explain, status } from "./report.ts";
+import { door } from "./door.ts";
 import { run } from "./run.ts";
 import { top, version } from "./top.ts";
 
@@ -122,6 +126,15 @@ export async function main(
           code: 1,
           lines: [`--every is a number of seconds above 0: ${values.every}`],
         });
+      // run takes its two keys from its environment, and starts nothing without them
+      const missing = ["FIREWORKS_API_KEY", "GH_TOKEN"].filter((k) => !env[k]);
+      if (missing.length)
+        return print({
+          code: 2,
+          lines: [
+            `factory: run needs ${missing.join(" and ")} in its environment`,
+          ],
+        });
       await run(factory(), every);
       return 0;
     }
@@ -132,6 +145,8 @@ export async function main(
       return 0;
     case "blocked":
       return print({ code: 0, lines: blocked(factory().ledger) });
+    case "door":
+      return door(env, (args) => main(args, env, read));
     case "explain": {
       if (!arg) break;
       const f = factory();

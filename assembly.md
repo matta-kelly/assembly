@@ -308,15 +308,16 @@ Where it meets other systems, and what crosses each.
 - [[que-pasa]]: the harness. assembly gives it agents, each with its tools and its middleware, a conversation per agent on each item, a model per run; it gives back the result and the usage, keeps the conversation and the run across a stop, and traces it. `@mku1tra/que-pasa` on npm, by version range
 - [[kinetic]]: the work, the notes repo (`ASSEMBLY_NOTES`, else kinetic among the clones). The spec is kinetic's, of the types of `@mku1tra/work`, which kinetic imports from npm; assembly is its controller, and the ledger is the status, keyed by the note's name. Kinetic lints the notes where they live; assembly reads them at a commit of its main, pinned on each attempt, and writes only the notes of a spec its planner made, which land on its main as any change does
 - evals: the traces and the ledger, read later. Scores and labels are their own records, keyed by trace or span id
-- the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, reaches the orchestrator only, never a sandbox, through its environment: `scripts/factory.sh run` refuses to start without it. On the laptop `just factory run` fills it from the vault (`secrets.toml`, through rbw-run); on the server the factory's service fills it. `just smoke-model` makes one real call per model
+- the model provider: pi-ai's Fireworks provider. Its key, `FIREWORKS_API_KEY`, reaches the orchestrator only, never a sandbox, through its environment: `factory run` refuses to start without it. The server's Quadlet fills it from the account's `keys.env`. `just smoke-model` makes one real call per model
 - the server: monkeybusiness, where the factory runs, declared in [[dazoo]] (`nodes/mutable/monkeybusiness/assembly/`)
 	- the account: `assembly`, its own user. Its home holds the clones of the repos on crate (`ASSEMBLY_REPOS`, `~/repos`), the notes repo among them (`ASSEMBLY_NOTES`), and the factory's home (`ASSEMBLY_HOME`). It cannot read or write `core`'s files, and its key reaches `core`'s repos for git alone
-	- the service: a user service of the account, `factory.sh run` at a release, the tag crate makes on a land (`v<x.y.z>`). dazoo's `version` file names it, and a commit to it checks the tag out and restarts the factory on it
+	- the image: `factory/Containerfile`, the factory's tools and then its code at a release, the tag crate makes on a land (`v<x.y.z>`), its entrypoint the command line. The account's Quadlet builds it from its clone at that tag (`assembly.build`, which names the release: the one deploy lever)
+	- the service: a Quadlet of the account (`assembly.container`), the image running `factory run`, with the account's repos, the factory's home, the podman socket, crate's install, the ssh key and known hosts, and the git identity mounted. A commit to either Quadlet file rebuilds and restarts it
 	- its keys: the model key and the GitHub token, sealed in dazoo, unsealed by root into the account's `keys.env`, which the service reads
-	- the laptop: reaches it over ssh when `ASSEMBLY_SERVER` is set (`assembly@monkeybusiness`). The laptop's key is forced through `factory-ssh.sh`, which lets through only the commands Matt gives (submit, stop, resume, drop, status, blocked, explain, top), never `run`
+	- the laptop: reaches it over ssh (`just factory <verb>`). The laptop's key is forced into `factory door` in the running factory's container (`factory/cli/door.ts`), which lets through only the remote verbs (submit, stop, resume, drop, status, blocked, explain, top), never `run`. The verbs live beside the command line, so there is one list
 - the host: git and podman
 	- branches: each item's work on `assembly/<name>/head`: a cl's passed work in its repo, an issue's plan in the notes repo. A live item has its branch and its worktree, and nothing else under `assembly/` stays
-	- the orchestrator: its own image (`factory/Containerfile`: node, git, gh, skopeo, the podman client, and the host's git-land and crate mounted read-only), starting containers through the host's podman socket, with host paths at the same path
+	- the orchestrator: its own image (`factory/Containerfile`: node, git, gh, skopeo, the podman client, the factory's code, and the host's crate mounted read-only), starting containers through the host's podman socket, with host paths at the same path
 
 ## Records
 
@@ -339,8 +340,8 @@ What it keeps.
 
 - the machine: an issue from open to accepted, proven end to end on scripted models, its plan landed on a real notes repo, with an attempt taken up after a stop, its cls landed through crate's merge queue, and nothing of the issue left behind once accepted (`just e2e`)
 - the factory on the server: the service at the release dazoo names, moved by a commit to it; on real models, a cl built, reviewed and landed through crate; Matt's resume; and the sweep, which took away an older scheme's branches and worktrees
-- the command line: `scripts/factory.sh`, which `just factory` calls and the gate tests without `just`: its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, its repos from `$ASSEMBLY_REPOS`, else lot, and its notes repo `$ASSEMBLY_NOTES`, else kinetic among the repos
-	- on the laptop: `ASSEMBLY_SERVER` set runs the verb on the server over ssh, with its exit code and output
+- the command line: `factory`, the image's entrypoint: its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, its repos from `$ASSEMBLY_REPOS`, and its notes repo `$ASSEMBLY_NOTES`, else kinetic among the repos
+	- on the laptop: `just factory <verb>` runs the verb on the server through its door, with its exit code and output
 	- each command: a message through the one door, as Matt
 	- `submit <issue> [--repo <path>]...`: the issue's note, `_well/<issue>.md`, as the notes' main holds it now, read with git, never from a working tree
 		- with cl notes that belong to it: Matt's spec, whole, each cl new, its fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is. It enters at building
@@ -352,7 +353,7 @@ What it keeps.
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's note, messages, attempts, costs, the notes' commit each attempt read, and traces)
 	- `top`: the factory live, redrawn every 2s until `q`: each issue with its phase and spend, each cl with its state, its attempts and the one open now, and the tokens and cost of each role. Over ssh it asks for a terminal
 - the dependencies in an attempt: an offline install from the dev image's cache, once per worktree, proven on a que-pasa worktree (setup in 11 s, then its tests pass, no network)
-- the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests, then `scripts/factory.test.sh` (podman, ssh and rbw-run faked; git is real), so a fault in the recipe fails the check. `just e2e` is not in it, since it needs the podman socket
+- the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests. `just e2e` is not in it, since it needs the podman socket
 
 ## Not built
 

@@ -1,7 +1,8 @@
-# The orchestrator's image: node, git, ssh, gh, skopeo and the podman client. The orchestrator runs here, never on the host. It
-# starts its attempts' containers through the host's podman socket, so every path it hands podman is a host path, mounted
-# at the same path in here. It lands each cl with the host's git-land, mounted read-only, and commits and pushes as Matt:
-# his name from the host's git config, and his GH_TOKEN, both given by `just factory`.
+# The factory's image: node, git, ssh, gh, skopeo and the podman client, then the factory itself at the version it is
+# built from, its entrypoint the command line (factory/cli/index.ts). It is built from the repo's root. The factory runs
+# here, never on the host. It starts its attempts' containers through the host's podman socket, so every path it hands
+# podman is a host path, mounted at the same path in here. It lands each cl with crate, the host's install mounted
+# read-only, and commits and pushes as Matt, his name and his GH_TOKEN given by whoever runs it (the server's Quadlet).
 # trixie, for git 2.47: crate's hooks pick a change onto main with `cherry-pick --empty` (git 2.45 and later), and a land
 # target on this machine (the e2e's) runs them with this git.
 FROM docker.io/library/node:22.23.4-trixie-slim
@@ -36,3 +37,19 @@ RUN printf 'Host localhost\n  HostName host.containers.internal\n  HostKeyAlias 
 
 # crate, the host's install, is mounted read-only here, so the orchestrator makes each dev repo's image with it.
 ENV PATH=/usr/local/share/crate/bin:$PATH
+
+# The factory, at the version it is built from: its runtime packages, then its code. The role notes and type notes are
+# read from beside the code (workspace/, work/types/), so they ship with it.
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY factory factory
+COPY workspace workspace
+COPY work/types work/types
+ARG VERSION=dev
+ENV ASSEMBLY_VERSION=$VERSION
+# `factory`: the command line by name, for the entrypoint and for `podman exec <container> factory <verb>`, the door's way in
+RUN printf '#!/bin/sh\nexec node --disable-warning=ExperimentalWarning /app/factory/cli/index.ts "$@"\n' > /usr/local/bin/factory \
+  && chmod 755 /usr/local/bin/factory
+USER node
+ENTRYPOINT ["factory"]

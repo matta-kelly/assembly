@@ -13,38 +13,31 @@ check:
     git -C "{{root}}" config core.hooksPath .githooks
     @just _node scripts/check.sh
 
-# Who the factory commits and pushes as: Matt, by the host's git config, with git-land, the host's, mounted read-only.
+# Who the e2e commits and pushes as: Matt, by the host's git config, with git-land, the host's, mounted read-only, for
+# the land to a repo not on crate.
 as_matt := '-e GIT_AUTHOR_NAME="$(git config user.name)" -e GIT_AUTHOR_EMAIL="$(git config user.email)" -e GIT_COMMITTER_NAME="$(git config user.name)" -e GIT_COMMITTER_EMAIL="$(git config user.email)" -v "$HOME/.local/bin/git-land:/usr/local/bin/git-land:ro"'
 
-# The end-to-end test: the orchestrator in its own image, starting real containers through the host's podman socket.
-# crate, the host's install, is mounted where the image's PATH has it, so the orchestrator makes each dev image, and a
-# crate land target takes its hooks from it (CRATE_ROOT).
-e2e:
-    podman build -q -t localhost/assembly-orchestrator -f factory/Containerfile factory >/dev/null
+# The factory's image, the one the server runs (factory/Containerfile), built from this checkout.
+image:
+    podman build -q -t localhost/assembly:dev -f factory/Containerfile "{{root}}" >/dev/null
+
+# The end-to-end test: the factory's image, starting real containers through the host's podman socket, on this
+# checkout's code mounted over its own. crate, the host's install, is mounted where the image's PATH has it, so the
+# factory makes each dev image, and a crate land target takes its hooks from it (CRATE_ROOT).
+e2e: image
     @just _node true
-    podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e ASSEMBLY_E2E=1 -e ASSEMBLY_E2E_KEEP -e CRATE_ROOT=/usr/local/share/crate -v "$HOME/.local/share/crate:/usr/local/share/crate:ro" {{as_matt}} -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly-orchestrator npx vitest run e2e.test
+    podman run --rm --entrypoint= --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e ASSEMBLY_E2E=1 -e ASSEMBLY_E2E_KEEP -e CRATE_ROOT=/usr/local/share/crate -v "$HOME/.local/share/crate:/usr/local/share/crate:ro" {{as_matt}} -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly:dev npx vitest run e2e.test
 
 # One real call per model the bins name, through que-pasa: the key, the model ids and structured output, for a fraction
 # of a cent. The key comes from the vault (secrets.toml, through rbw-run) into the orchestrator's environment only.
-smoke-model:
-    podman build -q -t localhost/assembly-orchestrator -f factory/Containerfile factory >/dev/null
+smoke-model: image
     @just _node true
-    rbw-run -f "{{root}}/secrets.toml" -- podman run --rm --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly-orchestrator node scripts/smoke-model.ts
+    rbw-run -f "{{root}}/secrets.toml" -- podman run --rm --entrypoint= --userns=keep-id:uid=1000,gid=1000 --security-opt label=disable -u node -e FIREWORKS_API_KEY -v "{{root}}:{{root}}" -w "{{root}}" localhost/assembly:dev node scripts/smoke-model.ts
 
-# The factory's command line (cli/), in the orchestrator's image: `just factory status`. Its body is scripts/factory.sh,
-# so scripts/check.sh runs the same code where there is no `just`: ASSEMBLY_SERVER, ASSEMBLY_REPOS and ASSEMBLY_HOME
-# are read there. Here, and on the server, the packages the command line imports are put in place first.
-#
+# The factory, on the server, through its door: `just factory status`, `just factory top`. A live screen asks for a
+# terminal.
 factory +args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [ -n "${ASSEMBLY_SERVER:-}" ] || just _node true
-    cd "{{invocation_directory()}}"
-    # run here takes its keys from the vault, into its environment: the laptop's way. The server's service fills it.
-    if [ "$1" = run ] && [ -z "${ASSEMBLY_SERVER:-}" ]; then
-      exec rbw-run -f "{{root}}/secrets.toml" -- "{{root}}/scripts/factory.sh" "$@"
-    fi
-    exec "{{root}}/scripts/factory.sh" "$@"
+    ssh {{ if args =~ "^top" { "-t" } else { "" } }} assembly@monkeybusiness factory "$@"
 
 # `factory top` on this laptop, on a copy of the server's ledger and traces, redrawn on each save of its code: to change
 # top and see it at once, before it ships. The copy is taken once, read-only to the server; `fresh` takes a new one.
