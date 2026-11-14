@@ -220,7 +220,7 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- an agent: its instructions in its role note beside it, and the bin it names (plan, implement, review), never a model
 	- the workspace: what the agents are made of (`workspace/`), apart from the machine that runs them. Not the bench ([[workspace]])
 		- `agents/`: each agent's role note, and its code beside it
-		- `tools/`: `test`, the cl's test command, for nail and hammer: the factory's one tool of its own
+		- `tools/`: the factory's own tools, for nail and hammer: `test`, the cl's test command; `remove`, a file out of the cl's worktree, so a builder can make any change the worktree holds (add, edit, remove), under its step's check
 			- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
 			- for every agent: `ls`, `read_file`, `glob`, `grep`
 			- for nail and hammer: `write_file`, `edit_file`, in the cl's worktree
@@ -275,7 +275,7 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 - across a stop
 	- a stopped orchestrator: ends nothing. Each attempt stays open, and its container stays up
 	- the next one: takes each open attempt up. Its sandbox again (kept, started again, or run again on the same worktree), and its run goes on from where it stopped, with no model call redone
-	- a cut-off tool call: runs again only if twice is the same as once (`ls`, `read_file`, `write_file`, `glob`, `grep`). For `edit_file`, `execute` and `test`, the model gets `interrupted`
+	- a cut-off tool call: runs again only if twice is the same as once (`ls`, `read_file`, `write_file`, `glob`, `grep`, `remove`). For `edit_file`, `execute` and `test`, the model gets `interrupted`
 	- the time limit: per process
 
 ## The dock

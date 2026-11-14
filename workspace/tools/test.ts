@@ -1,7 +1,7 @@
 /**
- * `test`: the factory's one tool of its own, for nail and hammer. Every other tool is que-pasa's (Deep Agents' ls,
- * read_file, write_file, edit_file, glob, grep, execute), working in the `Sandbox` the runner provides each run: the
- * attempt's box, with its worktree at /work (effects/runner.ts).
+ * `test`: one of the factory's two tools of its own, for nail and hammer, with `remove` (remove.ts). Every other tool
+ * is que-pasa's (Deep Agents' ls, read_file, write_file, edit_file, glob, grep, execute), working in the `Sandbox` the
+ * runner provides each run: the attempt's box, with its worktree at /work (effects/runner.ts).
  *
  * `test` runs its cl's tests as its step's check does, through runTests, on /work, the cl's worktree with the change
  * the agent made in it.
