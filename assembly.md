@@ -234,7 +234,7 @@ The machine: what moves jobs from station to station. Its code is in two folders
 			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
 			- a work type: its type note, the definition itself, so an agent and a person who writes a note read the same text
 - engine: what moves it (`factory/line/`)
-	- the ledger: `ledger.ts`, SQLite, the orchestrator's only state: where each item stands, and every message
+	- the ledger: `ledger.ts`, SQLite in WAL mode, the orchestrator's only state: where each item stands, and every message. The loop writes it while a lever or top reads it: a read never waits, and a write waits up to `busyMs` for another
 	- the tick: `loop.ts`. Sweeps, then starts attempts, up to `concurrent` at once, the open ones first; readies each (its worktree, its notes' commit, its settings, its setup), answers each check's worktree, and records its test run
 	- the lands: `loop.ts` too. One per approved item, as an attempt, and the lands onto one main one at a time, each after the one before it
 	- the sweep: at open and on each tick, in the notes repo and every repo the ledger names (`factory/repos/git.ts`). A live item, one not ended or with an attempt open, keeps its worktree and its branch; every other worktree under the runs folder and every other `assembly/` branch goes. One rule covers an item's end, a crash between moves, and an older scheme's leftovers. A worktree outside the runs folder is never touched

@@ -30,6 +30,24 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("ledger", () => {
+  it("is read while another process writes it, and a reader blocks no write", () => {
+    const top = open(file);
+    top.addIssue(issue, "open");
+    const loop = new DatabaseSync(file);
+    loop.exec("BEGIN IMMEDIATE");
+    loop.exec("UPDATE items SET state = 'planned'");
+    // the write is not committed: a reader sees the ledger as it was, and does not wait
+    expect(open(file).item("is").state).toBe("open");
+    expect(top.items()).toHaveLength(1);
+    loop.exec("COMMIT");
+    expect(top.item("is").state).toBe("planned");
+    const mode = loop.prepare("PRAGMA journal_mode").get() as {
+      journal_mode: string;
+    };
+    expect(mode.journal_mode).toBe("wal");
+    loop.close();
+  });
+
   it("adds an issue at open, and its cls in their plan's order, each with one event", () => {
     const l = open(file);
     l.addIssue(issue);

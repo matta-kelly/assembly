@@ -450,10 +450,17 @@ export async function top(f: Built, everyS: number) {
   }
   const out = process.stdout;
   out.write("\x1b[?25l");
-  const paint = () =>
-    out.write(
-      `\x1b[2J\x1b[H${[...draw(), `\x1b[2mq quits · refreshes every ${everyS}s\x1b[0m`].join("\n")}`,
-    );
+  // a frame that fails to draw keeps the last one on the screen, with why, and the next refresh tries again
+  let last: string[] = [];
+  const paint = () => {
+    let foot = `\x1b[2mq quits · refreshes every ${everyS}s\x1b[0m`;
+    try {
+      last = draw();
+    } catch (e) {
+      foot = `\x1b[31mnot redrawn: ${(e as Error).message}\x1b[0m · ${foot}`;
+    }
+    out.write(`\x1b[2J\x1b[H${[...last, foot].join("\n")}`);
+  };
   paint();
   const timer = setInterval(paint, everyS * 1000);
   await new Promise<void>((done) => {

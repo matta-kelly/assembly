@@ -165,8 +165,16 @@ function migrate(db: DatabaseSync) {
     if (has("items", c)) db.exec(`ALTER TABLE items DROP COLUMN ${c}`);
 }
 
+/** How long a write waits for another process's write to the ledger to end, in ms: the loop's and a lever's, or top's read. */
+export const busyMs = 5_000;
+
+/**
+ * Opens the ledger. Several processes share it: the loop writes, and a lever or top runs beside it. In WAL mode a read
+ * never waits for a write, nor a write for a read, and a write waits up to busyMs for another write.
+ */
 export function open(file: string) {
-  const db = new DatabaseSync(file);
+  const db = new DatabaseSync(file, { timeout: busyMs });
+  db.exec("PRAGMA journal_mode = WAL");
   db.exec(tables);
   migrate(db);
 
