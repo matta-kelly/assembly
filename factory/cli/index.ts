@@ -7,6 +7,7 @@
  *   factory stop <item>
  *   factory resume <item> [<state>]
  *   factory drop <item>
+ *   factory rebase <cl>
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
@@ -28,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../repos/repo.ts";
-import { type Done, drop, resume, stop, submit } from "./levers.ts";
+import { type Done, drop, rebase, resume, stop, submit } from "./levers.ts";
 import { blocked, explain, status } from "./report.ts";
 import { door } from "./door.ts";
 import { run } from "./run.ts";
@@ -53,6 +54,7 @@ export const usage = `factory submit <issue> [--repo <path>]...
 factory stop <item>
 factory resume <item> [<state>]
 factory drop <item>
+factory rebase <cl>
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -116,6 +118,9 @@ export async function main(
     case "drop":
       if (!arg) break;
       return print(drop(factory, arg));
+    case "rebase":
+      if (!arg) break;
+      return print(await rebase(factory, arg));
     case "resume":
       if (!arg) break;
       return print(await resume(factory, arg, positionals[2], { notes }));

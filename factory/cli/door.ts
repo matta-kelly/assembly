@@ -11,6 +11,7 @@ export const remote = [
   "stop",
   "resume",
   "drop",
+  "rebase",
   "status",
   "blocked",
   "explain",

@@ -238,7 +238,7 @@ export function screen(
   const why = (name: string) => {
     const last = ledger
       .events(name)
-      .filter((e) => e.reason && e.word)
+      .filter((e) => e.reason && e.word && e.from_state !== e.to_state)
       .at(-1);
     if (!last) return undefined;
     const who =

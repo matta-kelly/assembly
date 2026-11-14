@@ -119,6 +119,21 @@ describe("next", () => {
   });
 });
 
+describe("rebase", () => {
+  const c = { attempts: 0, rounds: 0 };
+  it("keeps a held cl where it is", () => {
+    expect(next("escalated", "cl", "rebase", [], c)).toBe("escalated");
+    expect(next("raised", "cl", "rebase", [], c)).toBe("raised");
+  });
+  it("has no row for a cl that moves or has ended, nor for an issue", () => {
+    for (const state of ["ready", "red", "landed"] as const)
+      expect(() => next(state, "cl", "rebase", [], c)).toThrow(
+        `no transition from ${state} on rebase`,
+      );
+    expect(() => next("escalated", "issue", "rebase", [], c)).toThrow();
+  });
+});
+
 describe("resume", () => {
   const c = { attempts: 0, rounds: 0 };
 

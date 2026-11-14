@@ -6,6 +6,7 @@
  * - resume <item> [<state>]: an item he holds, escalated or raised, to a station of its kind, by default where it was
  *   before, with a fresh budget. He edits the notes in between; the next attempt reads them
  * - drop <item>: he lets it go. It ends undone, an issue with its cls not ended, and its record stays in the ledger
+ * - rebase <cl>: a cl he holds, its branch on main as it is now, with its uncommitted change, or nothing on a conflict
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
@@ -26,6 +27,9 @@ import {
 import { ends, held, type State, stations } from "../line/table.ts";
 import type { Message } from "../line/step.ts";
 import { type Reader, reposOn } from "../repos/repo.ts";
+import { type Rebased, rebaseOnMain } from "../repos/git.ts";
+import { runOf } from "../runs/runs.ts";
+import { forgetSetup } from "../runs/setup.ts";
 
 /** What a command gives back: an exit code, and the lines it prints (to stderr when it refuses). */
 export type Done = { code: number; lines: string[] };
@@ -190,6 +194,58 @@ export function drop(f: () => Built, name: string): Done {
     lines: [
       `dropped ${name}`,
       ...going.slice(0, -1).map((c) => `  ${c.name}  dropped`),
+    ],
+  };
+}
+
+/**
+ * rebase <cl>: a cl Matt holds, its branch put on main as the land target has it now, with its worktree's uncommitted
+ * change, as one move or none (rebaseOnMain). It runs at once, so the outcome is in its answer. It takes a held cl only,
+ * on which the loop starts nothing, so nothing else works in the worktree meanwhile. A rebase that moved is a message,
+ * and the next attempt runs the setup again. A conflict changes nothing, and is his to judge: resume the cl, or plan its
+ * issue again.
+ */
+export async function rebase(f: () => Built, name: string): Promise<Done> {
+  const { ledger, runs } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (i.kind !== "cl")
+    return refused(
+      `${name} is an issue: its worktree moves to main at each attempt. rebase takes a cl`,
+    );
+  if (!held.includes(i.state))
+    return refused(
+      `${name} is ${i.state}: rebase takes a cl that is escalated or raised. Stop it first`,
+    );
+  if (ledger.open().some((a) => a.name === name))
+    return refused(`${name} has an attempt open: it ends first`);
+  const t = runOf(i, 0, runs);
+  let r: Rebased;
+  try {
+    r = await rebaseOnMain(t);
+  } catch (e) {
+    return refused(`${name} was not rebased: ${(e as Error).message}`);
+  }
+  if (r.moved === "conflicts")
+    return refused(
+      `${name} does not rebase onto ${r.main}: it conflicts in ${r.conflicts.join(", ")}. Its branch and worktree are as they were`,
+    );
+  if (r.moved === "no")
+    return { code: 0, lines: [`${name} holds ${r.main} already`] };
+  forgetSetup(t);
+  const on = `${r.behind} ${r.behind === 1 ? "commit" : "commits"} on`;
+  ledger.apply(
+    name,
+    said(
+      "rebase",
+      `Matt rebased it onto ${r.main}, ${on}, at ${r.to.slice(0, 7)}`,
+    ),
+    "matt",
+  );
+  return {
+    code: 0,
+    lines: [
+      `rebased ${name} onto ${r.main}, ${on}: ${r.from.slice(0, 7)} is now ${r.to.slice(0, 7)}`,
     ],
   };
 }

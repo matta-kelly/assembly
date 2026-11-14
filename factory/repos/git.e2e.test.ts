@@ -1,8 +1,9 @@
 /**
  * The worktrees on real git, in the orchestrator's image (`just e2e`), since that git is the one that runs: a cl's one
  * worktree on its branch, made from main as the land target has it, the whole repo in it; a pass commits there, and a
- * failed attempt leaves its change as a diff and a clean worktree; an issue's worktree moves to main; and the sweep
- * keeps a live item's worktree and branch and nothing else.
+ * failed attempt leaves its change as a diff and a clean worktree; an issue's worktree moves to main; a cl's rebase puts
+ * its branch and its change on main as one move or none; and the sweep keeps a live item's worktree and branch and
+ * nothing else.
  */
 
 import { execFileSync } from "node:child_process";
@@ -24,6 +25,7 @@ import {
   commit,
   fresh,
   landedTags,
+  rebaseOnMain,
   sweep,
   touched,
   worktree,
@@ -159,6 +161,100 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an item's worktree", () => {
       "landed elsewhere\n",
     );
     expect(git(repo, "branch", "--list", branchOf("is"))).toBe("");
+  });
+});
+
+describe.skipIf(!process.env["ASSEMBLY_E2E"])("a cl's rebase", () => {
+  const dirs: string[] = [];
+  /** A cl with a commit of its own on src/a.ts, and its worktree. */
+  const cl = async () => {
+    const { dir, repo, bare } = repoIn("rebase-");
+    dirs.push(dir);
+    const under = join(dir, "runs", "rb", "cl", "x");
+    const t: Tree = {
+      name: "rb-x",
+      kind: "cl",
+      issue: "rb",
+      n: 1,
+      repo,
+      dir: join(under, "1"),
+      work: join(under, "work"),
+    };
+    await worktree(t);
+    writeFileSync(join(t.work, "src/a.ts"), "the cl's\n");
+    await commit(t, "feat(rb-x): a");
+    return { dir, bare, t, head: () => git(t.work, "rev-parse", "HEAD") };
+  };
+  const stashes = (t: Tree) => git(t.work, "stash", "list");
+  afterAll(() => {
+    if (!process.env["ASSEMBLY_E2E_KEEP"])
+      for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("puts the branch on main as the target has it now, with the worktree's change, and says how far main moved", async () => {
+    const { dir, bare, t, head } = await cl();
+    const from = head();
+    landElsewhere(dir, bare, "UPSTREAM");
+    landElsewhere(dir, bare, "LATER");
+    writeFileSync(join(t.work, "test/a.test.ts"), "an attempt's\n");
+    writeFileSync(join(t.work, "src/new.ts"), "new\n");
+    const r = await rebaseOnMain(t);
+    expect(r).toMatchObject({
+      moved: "yes",
+      main: "local/main",
+      from,
+      behind: 2,
+    });
+    expect(r.moved === "yes" && r.to).toBe(head());
+    expect(git(t.work, "rev-parse", "HEAD~1")).toBe(
+      git(bare, "rev-parse", "main"),
+    );
+    expect(readFileSync(join(t.work, "src/a.ts"), "utf8")).toBe("the cl's\n");
+    expect(readFileSync(join(t.work, "test/a.test.ts"), "utf8")).toBe(
+      "an attempt's\n",
+    );
+    expect(readFileSync(join(t.work, "src/new.ts"), "utf8")).toBe("new\n");
+    expect(existsSync(join(t.work, "LATER"))).toBe(true);
+    expect(stashes(t)).toBe("");
+    // on main now: nothing moves
+    expect(await rebaseOnMain(t)).toEqual({ moved: "no", main: "local/main" });
+  });
+
+  it("leaves the branch, the worktree and the stash as they were when a commit of the cl conflicts on main", async () => {
+    const { dir, bare, t, head } = await cl();
+    const from = head();
+    landElsewhere(dir, bare, "src/a.ts");
+    writeFileSync(join(t.work, "test/a.test.ts"), "an attempt's\n");
+    expect(await rebaseOnMain(t)).toEqual({
+      moved: "conflicts",
+      main: "local/main",
+      conflicts: ["src/a.ts"],
+    });
+    expect(head()).toBe(from);
+    expect(git(t.work, "symbolic-ref", "--short", "HEAD")).toBe(
+      branchOf("rb-x"),
+    );
+    expect(readFileSync(join(t.work, "test/a.test.ts"), "utf8")).toBe(
+      "an attempt's\n",
+    );
+    expect(stashes(t)).toBe("");
+  });
+
+  it("leaves them as they were when the worktree's change conflicts on main", async () => {
+    const { dir, bare, t, head } = await cl();
+    const from = head();
+    landElsewhere(dir, bare, "README");
+    writeFileSync(join(t.work, "README"), "an attempt's\n");
+    writeFileSync(join(t.work, "src/new.ts"), "new\n");
+    expect(await rebaseOnMain(t)).toEqual({
+      moved: "conflicts",
+      main: "local/main",
+      conflicts: ["README"],
+    });
+    expect(head()).toBe(from);
+    expect(readFileSync(join(t.work, "README"), "utf8")).toBe("an attempt's\n");
+    expect(readFileSync(join(t.work, "src/new.ts"), "utf8")).toBe("new\n");
+    expect(stashes(t)).toBe("");
   });
 });
 

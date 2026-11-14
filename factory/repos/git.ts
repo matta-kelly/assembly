@@ -137,6 +137,67 @@ export async function fresh(r: Tree): Promise<boolean> {
   return moved;
 }
 
+/** What a cl's rebase did: nothing, since its branch holds main; moved it; or nothing, since it conflicts there. */
+export type Rebased =
+  | { moved: "no"; main: string }
+  | { moved: "yes"; main: string; from: string; to: string; behind: number }
+  | { moved: "conflicts"; main: string; conflicts: string[] };
+
+/**
+ * Puts a cl's branch on main as the land target has it now, with what its worktree holds past the branch, as one move or
+ * none. The worktree is made or kept as an attempt's is. Its uncommitted change, an attempt's that the next one goes on
+ * from, is stashed and put back after. A conflict, in a commit or in that change, leaves the branch, the worktree and
+ * the stash as they were, and gives back the files.
+ */
+export async function rebaseOnMain(t: Tree): Promise<Rebased> {
+  await worktree(t);
+  const main = await mainOf(t.repo);
+  const git = (...args: string[]) => must("git", ["-C", t.work, ...args]);
+  const unmerged = async () =>
+    (await git("diff", "--name-only", "--diff-filter=U"))
+      .split("\n")
+      .filter(Boolean);
+  const holds = await sh("git", [
+    "-C",
+    t.work,
+    "merge-base",
+    "--is-ancestor",
+    main,
+    "HEAD",
+  ]);
+  if (holds.code === 0) return { moved: "no", main };
+  const from = (await git("rev-parse", "HEAD")).trim();
+  const behind = Number(
+    (await git("rev-list", "--count", `HEAD..${main}`)).trim(),
+  );
+  const dirty = (await touched(t)).length > 0;
+  if (dirty) await git("stash", "push", "-q", "-u", "-m", "assembly rebase");
+  const rebased = await sh("git", ["-C", t.work, "rebase", "-q", main]);
+  if (rebased.code !== 0) {
+    const conflicts = await unmerged();
+    await git("rebase", "--abort");
+    if (dirty) await git("stash", "pop", "-q", "--index");
+    return { moved: "conflicts", main, conflicts };
+  }
+  if (dirty) {
+    const popped = await sh("git", ["-C", t.work, "stash", "pop", "-q"]);
+    if (popped.code !== 0) {
+      // the change does not apply on main: back to where the branch was, and the change with it, as it was
+      const conflicts = await unmerged();
+      await git("reset", "-q", "--hard", from);
+      await git("clean", "-q", "-f", "-d");
+      await git("stash", "pop", "-q", "--index");
+      return {
+        moved: "conflicts",
+        main,
+        conflicts: conflicts.length ? conflicts : ["its uncommitted change"],
+      };
+    }
+  }
+  const to = (await git("rev-parse", "HEAD")).trim();
+  return { moved: "yes", main, from, to, behind };
+}
+
 /** Commits what the agent left in the worktree, on its branch, so the next step starts from it. Nothing to commit is not an error. */
 export async function commit(r: Tree, message: string) {
   await must("git", ["-C", r.work, "add", "-A"]);

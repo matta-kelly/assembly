@@ -8,7 +8,7 @@
  * - either: dropped, when Matt lets it go: it ends undone, and its record stays
  * A retry stays in its state: the third failed attempt at one state is escalated to Matt, and so is the third
  * send-back for another round. A waiting cl's retry is no attempt: it records why the cl waits, however often. Matt
- * stops an item (escalate) and resumes it at a station, with a fresh budget.
+ * stops an item (escalate) and resumes it at a station, with a fresh budget; while he holds a cl, he may rebase it.
  */
 
 /** Where an item stands: its label in the ledger. Only the orchestrator moves it. */
@@ -35,9 +35,11 @@ export type State =
  * A message's word. pass moves the item on, and retry runs its step again. back sends it up the V, to the owner of the
  * artifact its findings are about: a review's send-back and an agent's raise are both one. The rest are the
  * orchestrator's and Matt's: drop ends an item undone (a cl out of its plan, or an issue Matt lets go, with its cls),
- * escalate gives an item to Matt (his stop too), and resume sends an item he holds back to a station.
+ * escalate gives an item to Matt (his stop too), resume sends an item he holds back to a station, and rebase records that
+ * he put a held cl's branch on main as it is now: it moves nothing.
  */
-export type Word = "pass" | "retry" | "back" | "drop" | "escalate" | "resume";
+export type Word =
+  "pass" | "retry" | "back" | "drop" | "escalate" | "resume" | "rebase";
 
 /** What a finding is about: a spec (the issue, the plan, a cl) or a product (a cl's tests, its code). */
 export type Artifact = "issue" | "plan" | "cl" | "tests" | "code";
@@ -144,6 +146,11 @@ export function next(
     )
       throw new Error(`no transition from ${state} on resume`);
     return c.prior;
+  }
+  if (word === "rebase") {
+    if (kind !== "cl" || !held.includes(state))
+      throw new Error(`no transition from ${state} on rebase`);
+    return state;
   }
   if (word === "back") {
     const to = owner[kind][top(about)];

@@ -42,7 +42,10 @@ export function blocked(ledger: Ledger): string[] {
   if (!stuck.length) return ["nothing is blocked"];
   const now = Date.now();
   return stuck.map((i) => {
-    const last = ledger.events(i.name).at(-1) as
+    const last = ledger
+      .events(i.name)
+      .filter((e) => e.from_state !== e.to_state)
+      .at(-1) as
       { reason: string | null; cause: string | null; at: string } | undefined;
     const cause = last?.cause ? ` [${last.cause}]` : "";
     const since = last ? ` ${age(last.at, now)}` : "";

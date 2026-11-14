@@ -28,6 +28,7 @@ describe("door", () => {
       "stop",
       "resume",
       "drop",
+      "rebase",
       "status",
       "blocked",
       "explain",

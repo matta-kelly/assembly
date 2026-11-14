@@ -17,12 +17,15 @@ import { notesAt } from "../repos/notes.ts";
 import { clOf } from "../stations/plan.ts";
 import type { Reader } from "../repos/repo.ts";
 import { npmRegistryUrl } from "../repos/registry.ts";
-import { drop, resume, stop, submit } from "./levers.ts";
+import { rebaseOnMain } from "../repos/git.ts";
+import { drop, rebase, resume, stop, submit } from "./levers.ts";
 
 // The notes' main is the kinetic repo's own main: it has no remote to fetch.
 vi.mock("../repos/git.ts", async (original) => ({
   ...(await original<typeof import("../repos/git.ts")>()),
   mainOf: vi.fn(async () => "main"),
+  // the rebase on real git is git.e2e.test.ts's: here, its outcome
+  rebaseOnMain: vi.fn(),
 }));
 
 let home: string;
@@ -513,6 +516,90 @@ describe("stop and resume", () => {
     ledger.begin("fx-a");
     stop(factory, "fx-a");
     expect((await go("fx-a")).lines[0]).toMatch(/attempt open: it ends first/);
+  });
+
+  it("rebase puts a held cl on main, as Matt, in a message that moves nothing, and the next attempt sets up again", async () => {
+    const ledger = await building();
+    stop(factory, "fx-a");
+    const setup = join(home, "factory", "runs", "fx", "cl", "a", "setup.done");
+    mkdirSync(join(setup, ".."), { recursive: true });
+    writeFileSync(setup, "");
+    vi.mocked(rebaseOnMain).mockResolvedValueOnce({
+      moved: "yes",
+      main: "server/main",
+      from: "a".repeat(40),
+      to: "b".repeat(40),
+      behind: 3,
+    });
+    expect(await rebase(factory, "fx-a")).toEqual({
+      code: 0,
+      lines: [
+        "rebased fx-a onto server/main, 3 commits on: aaaaaaa is now bbbbbbb",
+      ],
+    });
+    expect(vi.mocked(rebaseOnMain).mock.lastCall?.[0]).toMatchObject({
+      name: "fx-a",
+      work: join(home, "factory", "runs", "fx", "cl", "a", "work"),
+    });
+    expect(ledger.item("fx-a").state).toBe("escalated");
+    expect(ledger.events("fx-a").at(-1)).toMatchObject({
+      by: "matt",
+      word: "rebase",
+      from_state: "escalated",
+      to_state: "escalated",
+      reason: "Matt rebased it onto server/main, 3 commits on, at bbbbbbb",
+    });
+    expect(existsSync(setup)).toBe(false);
+    // a rebase is no move: resume still takes the cl back to where it was stopped
+    expect((await go("fx-a")).lines).toEqual(["resumed fx-a, at ready"]);
+  });
+
+  it("rebase of a cl on main already, or one that conflicts there, writes nothing", async () => {
+    const ledger = await building();
+    stop(factory, "fx-a");
+    const before = ledger.events("fx-a").length;
+    vi.mocked(rebaseOnMain).mockResolvedValueOnce({
+      moved: "no",
+      main: "server/main",
+    });
+    expect(await rebase(factory, "fx-a")).toEqual({
+      code: 0,
+      lines: ["fx-a holds server/main already"],
+    });
+    vi.mocked(rebaseOnMain).mockResolvedValueOnce({
+      moved: "conflicts",
+      main: "server/main",
+      conflicts: ["src/a.ts"],
+    });
+    expect(await rebase(factory, "fx-a")).toEqual({
+      code: 1,
+      lines: [
+        "fx-a does not rebase onto server/main: it conflicts in src/a.ts. Its branch and worktree are as they were",
+      ],
+    });
+    expect(ledger.events("fx-a")).toHaveLength(before);
+  });
+
+  it("rebase refuses an issue, a cl that moves or has ended, one with an attempt open, and one not in the ledger", async () => {
+    const ledger = await building();
+    vi.mocked(rebaseOnMain).mockClear();
+    expect((await rebase(factory, "fx")).lines[0]).toMatch(
+      /fx is an issue: .* rebase takes a cl/,
+    );
+    expect((await rebase(factory, "fx-a")).lines[0]).toMatch(
+      /fx-a is ready: rebase takes a cl that is escalated or raised. Stop it first/,
+    );
+    ledger.apply("fx-c", { word: "drop", reason: "r", findings: [] }, "matt");
+    expect((await rebase(factory, "fx-c")).lines[0]).toMatch(/fx-c is dropped/);
+    ledger.begin("fx-a");
+    stop(factory, "fx-a");
+    expect((await rebase(factory, "fx-a")).lines[0]).toMatch(
+      /attempt open: it ends first/,
+    );
+    expect((await rebase(factory, "nope")).lines).toEqual([
+      "no item nope in the ledger",
+    ]);
+    expect(rebaseOnMain).not.toHaveBeenCalled();
   });
 
   it("resume of an issue to building makes its cls match its notes at main: a new cl added, a gone one dropped, its held cls back", async () => {
