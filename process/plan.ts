@@ -1,8 +1,8 @@
 /**
  * The plan step: an issue from open to planned. The planner reads the issue and the code, read-only, and hands back the
  * spec as data, in the shape of kinetic's plan and cl types: its plan (the approach, each phase's reason, and what does
- * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, checkout, test, promises,
- * seam and the description of its checkout). The check is spec lint, in code: what can be decided without judgment.
+ * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, test, promises, seam and
+ * core context). The check is spec lint, in code: what can be decided without judgment.
  * Whether the cut is good is the plan review's. Nothing is written yet: once the plan review approves, the issue's land
  * commits the plan and its cl notes to the notes repo and lands them (orchestrator/advance.ts, writePlan). From then on
  * the notes are the spec: every attempt reads them at its own commit (readSpec, clOf), whoever made them.
@@ -12,7 +12,6 @@ import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import type { Ledger } from "../orchestrator/ledger.ts";
-import { within } from "../effects/git.ts";
 import { itemsIn, type Notes, notesOf, sectionIn } from "../effects/notes.ts";
 import type { Message, Run, Step } from "./step.ts";
 
@@ -21,15 +20,6 @@ type Lint = Omit<Message, "findings">;
 
 /** A name the factory can use in its branches and its containers: kebab-case. */
 export const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-
-/**
- * A path of a cl, from its repo's root: a file, or a folder for all under it. A plain path, no glob or negation:
- * assembly matches it as git does, by the path or a folder over it.
- */
-const path = z
-  .string()
-  .min(1)
-  .refine((p) => !/[*?[\]!#\\]/.test(p), "a path, not a pattern");
 
 /** One cl, as kinetic's cl type holds it: its frontmatter fields and the prose of its body. */
 export const clSpec = z.object({
@@ -64,17 +54,11 @@ export const clSpec = z.object({
       .enum(["repo", "system"])
       .describe("where its check runs: in the repo, or on the running system"),
   }),
-  checkout: z
-    .array(path)
-    .min(1)
-    .describe(
-      "every path conceivably relevant to the cut, from the repo's root: where its change lives, and where its builders start. Err wide: they read past it only when the work needs it",
-    ),
   test: z
     .string()
     .min(1)
     .describe(
-      "the command its checks run, from the repo's root: its new test files and the existing ones that test what it changes, each in its checkout",
+      "the command its checks run, from the repo's root: its new test files and the existing ones that test what it changes",
     ),
   promises: z
     .array(z.string().min(1))
@@ -88,11 +72,11 @@ export const clSpec = z.object({
     .describe(
       "the decision it hides from the other cls, what it must not change, and what crosses to them",
     ),
-  checkoutNotes: z
+  context: z
     .string()
     .min(1)
     .describe(
-      "its Checkout section: each path of its checkout, with what it is and why it is there, and one exemplar: the file its builders should write like",
+      "its Core context section: every path conceivably relevant to the cut, from the repo's root, each with what it is and why it is there, and one exemplar: the file its builders should write like. Err wide: its builders start here, and read wider only when the work needs it",
     ),
 });
 export type ClSpec = z.infer<typeof clSpec>;
@@ -176,13 +160,12 @@ export function specText(s: Spec): string {
     ...s.cls.flatMap((c) => [
       `### ${c.name}${c.phase ? `, phase ${c.phase}` : ""}: ${c.intent}`,
       `- shape: ${c.shape.change}, checked in the ${c.shape.checked}`,
-      `- checkout: ${c.checkout.join(", ")}`,
       `- test: \`${c.test}\``,
       "- promises:",
       ...c.promises.map((b) => `  - ${b}`),
       `- seam: ${c.seam}`,
-      "- checkout notes:",
-      c.checkoutNotes,
+      "- core context:",
+      c.context,
     ]),
   ].join("\n");
 }
@@ -218,7 +201,7 @@ const no = (reason: string): Lint => ({
  * Spec lint: what can be decided about a spec without judgment, the same rules kinetic's lint holds and what only the
  * repo can say. A plan's cls each have a phase, the phases run from 1 with no gap, and each has a reason; a lone cl has
  * no plan and no phase. The cls' names are their own and new. A cl names a repo of the issue's, and must when the issue
- * has more than one. A cl's checkout stays in its repo, and its test command runs only files in its checkout. Whether
+ * has more than one. The files its test command runs are in its repo. Whether
  * the cls of one phase stay apart is a judgment: the plan review's.
  */
 export function specLint(
@@ -262,15 +245,10 @@ export function specLint(
       return no(
         `cl ${c.name}: its repo ${c.repo} is not the issue's: ${o.repos.join(", ")}`,
       );
-    const outside = c.checkout.filter((f) => !inside(f));
+    const outside = pathsIn(c.test).filter((f) => !inside(f));
     if (outside.length)
       return no(
-        `cl ${c.name}: files outside the repo, or its root: ${outside.join(", ")}`,
-      );
-    const unnamed = pathsIn(c.test).filter((f) => !within(c.checkout, f));
-    if (unnamed.length)
-      return no(
-        `cl ${c.name}: its test command runs files not in its checkout: ${unnamed.join(", ")}`,
+        `cl ${c.name}: its test command runs files outside the repo, or its root: ${outside.join(", ")}`,
       );
   }
   return { word: "pass", reason: "the spec lints" };
@@ -352,7 +330,7 @@ export function planNote(issue: string, s: Spec & { plan: PlanSpec }): string {
   ].join("\n");
 }
 
-/** A cl note's body, in kinetic's cl type: its intent, Promises, Seam and Checkout. */
+/** A cl note's body, in kinetic's cl type: its intent, Promises, Seam and Core context. */
 export function clNote(c: ClSpec): string {
   return [
     c.intent,
@@ -366,9 +344,9 @@ export function clNote(c: ClSpec): string {
     "",
     c.seam,
     "",
-    "## Checkout",
+    "## Core context",
     "",
-    c.checkoutNotes,
+    c.context,
   ].join("\n");
 }
 
@@ -381,7 +359,6 @@ export const clFields = (issue: string, c: ClSpec, plan: boolean) => ({
   ...(c.phase === undefined ? {} : { phase: c.phase }),
   ...(c.repo === undefined ? {} : { repo: c.repo }),
   shape: c.shape,
-  checkout: c.checkout,
   test: c.test,
 });
 
@@ -428,11 +405,10 @@ function clIn(
     ...(fields["phase"] === undefined ? {} : { phase: fields["phase"] }),
     ...(fields["repo"] === undefined ? {} : { repo: fields["repo"] }),
     shape: fields["shape"],
-    checkout: fields["checkout"],
     test: fields["test"],
     promises: itemsIn(body, "Promises").map((x) => x.slice(2)),
     seam: sectionIn(body, "Seam").trim(),
-    checkoutNotes: sectionIn(body, "Checkout").trim(),
+    context: sectionIn(body, "Core context").trim(),
   });
   return c.success
     ? { success: true, data: c.data }

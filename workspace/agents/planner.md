@@ -32,13 +32,13 @@ The issue is the top contract; you replace it with smaller ones that, chained, k
 - read the issue: each promise of Done, where it lives (the code or the running system) and how long it must hold, so where it is checked ([[issue]])
 - match: name the kind of change, and take its known cut from [[playbook#Cutting a change]], or build one and say why none fits. Small work is one cl, and no plan
 - cut: the seams first. Name the decision each cut hides; if you can't, you can't cut yet, so probe. A change that creates seams builds them first, thin and end to end, and fills behind them (walking skeleton: Cockburn)
-- probe: the assumptions a seam or a promise rests on, the riskiest first. Read first, the code, its callers, its tests; a probe when reading can't settle it, one named question and a fixed budget, thrown away after (a spike: Beck, *Extreme Programming Explained*). Its result goes in the cl's Checkout, with its source. One no probe can settle goes in a phase-1 cl, so the build checks it first
+- probe: the assumptions a seam or a promise rests on, the riskiest first. Read first, the code, its callers, its tests; a probe when reading can't settle it, one named question and a fixed budget, thrown away after (a spike: Beck, *Extreme Programming Explained*). Its result goes in the cl's Core context, with its source. One no probe can settle goes in a phase-1 cl, so the build checks it first
 - write each cl, then stop
 	- its promises: few, each an outcome at the cut's surface, each traced to the issue's promise or the seam it serves ([[cl]], Promises)
 	- its seam: what it hides, and what crosses
 	- its phase: what must land before it
 	- its repo: the one it changes, when the issue has several. A cl lands in one repo, so a change across repos is a cl per repo
-	- its context: its checkout, where its change lives and its builders start: every path conceivably relevant, each said what it is and why, and one exemplar. They explore nothing you already found, so err wide
+	- its Core context: where its change lives and its builders start: every path conceivably relevant, each said what it is and why, and one exemplar. They explore nothing you already found, so err wide
 - prove the chain: every issue promise kept by a cl, every cl serving one, each promise with one owner ([[assembly#Policy]], the promise rule), each phase's cls apart. Then attack it: assume it failed at its second cut, and find why. Fix it, or say it in Does not fit
 
 ## Not yours

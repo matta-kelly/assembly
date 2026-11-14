@@ -79,9 +79,6 @@ repo: repo
 shape:
   change: behavior
   checked: repo
-checkout:
-  - src/a.ts
-  - test/a.test.ts
 test: npx vitest run test/a.test.ts
 ---
 src/a.ts exports a, which is 2.
@@ -95,7 +92,7 @@ src/a.ts exports a, which is 2.
 
 a's name and type.
 
-## Checkout
+## Core context
 
 - test/a.test.ts: the test
 `;

@@ -60,7 +60,6 @@ type: cl
 belongsTo: "[[i]]"
 status: new
 shape: { change: behavior, checked: repo }
-checkout: [src/a.ts]
 test: t
 ---
 It works.
@@ -74,7 +73,7 @@ It works.
 
 s
 
-## Checkout
+## Core context
 
 - src/a.ts: the code
 `;
@@ -639,11 +638,10 @@ describe("the notes", () => {
               name: "seam",
               intent: "the seam holds",
               shape: { change: "behavior", checked: "repo" },
-              checkout: ["src/a.ts"],
               test: "t",
               promises: ["given a, then b"],
               seam: "s",
-              checkoutNotes: "- src/a.ts: it",
+              context: "- src/a.ts: it",
             },
           ],
         },

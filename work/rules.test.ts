@@ -29,7 +29,7 @@ const plan = note({
   belongsTo: '"[[is]]"',
   status: "active",
 });
-const cl = (phase: number | undefined, checkout: string[], plan = "is-plan") =>
+const cl = (phase: number | undefined, plan = "is-plan") =>
   note({
     type: "cl",
     description: '"A cl."',
@@ -37,7 +37,6 @@ const cl = (phase: number | undefined, checkout: string[], plan = "is-plan") =>
     status: "new",
     ...(phase === undefined ? {} : { phase: String(phase) }),
     shape: "{change: behavior, checked: repo}",
-    checkout: JSON.stringify(checkout),
     test: "npm test",
   });
 
@@ -70,9 +69,9 @@ async function problems(
 test("a plan and cls that fit pass: phases 1, 1, 2", async () => {
   assert.deepEqual(
     await problems({
-      "is-a.md": cl(1, ["src/a.ts"]),
-      "is-b.md": cl(1, ["src/b/"]),
-      "is-c.md": cl(2, ["src/a.ts"]),
+      "is-a.md": cl(1),
+      "is-b.md": cl(1),
+      "is-c.md": cl(2),
     }),
     [],
   );
@@ -80,8 +79,8 @@ test("a plan and cls that fit pass: phases 1, 1, 2", async () => {
 
 test("a plan whose phases have a gap fails work/phases", async () => {
   const found = await problems({
-    "is-a.md": cl(1, ["a.ts"]),
-    "is-c.md": cl(3, ["c.ts"]),
+    "is-a.md": cl(1),
+    "is-c.md": cl(3),
   });
   assert.equal(found.length, 1);
   assert.match(found[0]!, /^work\/phases .*no cl in phase 2/);
@@ -89,18 +88,15 @@ test("a plan whose phases have a gap fails work/phases", async () => {
 
 test("a cl of a plan with no phase fails work/phases", async () => {
   const found = await problems({
-    "is-a.md": cl(1, ["a.ts"]),
-    "is-b.md": cl(undefined, ["b.ts"]),
+    "is-a.md": cl(1),
+    "is-b.md": cl(undefined),
   });
   assert.equal(found.length, 1);
   assert.match(found[0]!, /^work\/phases .*no phase: is-b/);
 });
 
 test("a plan not named for its issue fails work/plan-name", async () => {
-  const found = await problems(
-    { "x-a.md": cl(1, ["a.ts"], "x-plan") },
-    "x-plan.md",
-  );
+  const found = await problems({ "x-a.md": cl(1, "x-plan") }, "x-plan.md");
   assert.deepEqual(found.map((f) => f.split(" ")[0]).sort(), [
     "work/cl-name",
     "work/plan-name",
@@ -108,7 +104,7 @@ test("a plan not named for its issue fails work/plan-name", async () => {
 });
 
 test("a cl not named for its issue fails work/cl-name", async () => {
-  const found = await problems({ "other-a.md": cl(1, ["a.ts"]) });
+  const found = await problems({ "other-a.md": cl(1) });
   assert.equal(found.length, 1);
   assert.match(found[0]!, /^work\/cl-name .*named is-<cut>/);
 });

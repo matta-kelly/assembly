@@ -58,10 +58,6 @@ ${phase === undefined ? "" : `phase: ${phase}\n`}repo: repo
 shape:
   change: behavior
   checked: repo
-checkout:
-  - src/${name}.ts
-  - test/${name}.test.ts
-  - src/b.ts
 test: npx vitest run test/${name}.test.ts
 ---
 src/${name}.ts exports ${name}, which is 2.
@@ -75,7 +71,7 @@ src/${name}.ts exports ${name}, which is 2.
 
 ${name}'s name and type.
 
-## Checkout
+## Core context
 
 - src/b.ts: the exemplar
 `;
@@ -204,11 +200,7 @@ describe("submit", () => {
       ["fx-a", 1, "ready"],
       ["fx-c", 2, "waiting"],
     ]);
-    expect(clAt("fx-a").checkout).toEqual([
-      "src/a.ts",
-      "test/a.test.ts",
-      "src/b.ts",
-    ]);
+    expect(clAt("fx-a").context).toBe("- src/b.ts: the exemplar");
     // no step wrote a note: kinetic's tree is as committed
     expect(git("status", "--porcelain")).toBe("");
   });
@@ -222,7 +214,7 @@ describe("submit", () => {
     const { ledger } = factory();
     await advance(ledger, world());
     expect(ledger.cls("fx").map((c) => c.name)).toEqual(["fx-a", "fx-c"]);
-    expect(clAt("fx-a").checkout[0]).toBe("src/a.ts");
+    expect(clAt("fx-a").intent).toBe("src/a.ts exports a, which is 2.");
   });
 
   it("puts an issue with no cl notes at open, for the factory's planner, in each repo it is given", async () => {
@@ -334,11 +326,11 @@ describe("submit", () => {
         /list puts fx-c in phase 2, and the cl says phase 1/,
       ),
     ]);
-    note("fx-c", cl("c", 2).replace("src/b.ts", "../b.ts"));
+    note("fx-c", cl("c", 2).replace("run test/c.test.ts", "run ../c.test.ts"));
     publish("a path outside the repo");
     expect((await submit(factory, "fx", runK())).lines).toEqual([
       expect.stringMatching(
-        /cl c: files outside the repo, or its root: ..\/b.ts/,
+        /cl c: its test command runs files outside the repo, or its root: ..\/c.test.ts/,
       ),
     ]);
     expect(factory().ledger.items()).toEqual([]);
@@ -556,7 +548,7 @@ describe("stop and resume", () => {
   it("resume of an issue to building refuses notes that do not read as a spec, and changes nothing", async () => {
     const ledger = await building();
     stop(factory, "fx");
-    note("fx-c", cl("c", 2).replace("src/b.ts", "../b.ts"));
+    note("fx-c", cl("c", 2).replace("run test/c.test.ts", "run ../c.test.ts"));
     publish("a path outside the repo");
     expect((await go("fx")).lines).toEqual([
       expect.stringMatching(/files outside the repo/),

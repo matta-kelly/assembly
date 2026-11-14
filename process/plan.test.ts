@@ -21,11 +21,10 @@ const cl = (name: string, phase?: number, o: Partial<ClSpec> = {}): ClSpec => ({
   intent: `${name} works`,
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
-  checkout: [`src/${name}.ts`, `src/${name}.test.ts`, "src/a.ts"],
   test: `node --test src/${name}.test.ts`,
   promises: ["given x, when y, then z"],
   seam: `the export of src/${name}.ts`,
-  checkoutNotes: `- src/${name}.ts: the code\n- src/a.ts: the exemplar`,
+  context: `- src/${name}.ts: the code\n- src/a.ts: the exemplar`,
   ...o,
 });
 const plan = (...cls: ClSpec[]): Spec => ({
@@ -68,19 +67,13 @@ describe("spec lint", () => {
     ).toMatch(/already has the name: one/);
   });
 
-  it("retries a path outside the repo", () => {
-    expect(
-      specLint(
-        {
-          cls: [
-            cl("one", undefined, {
-              checkout: ["../etc/passwd", "src/one.ts", "src/one.test.ts"],
-            }),
-          ],
-        },
-        o,
-      ).reason,
-    ).toMatch(/outside the repo/);
+  it("retries a test command that runs a file outside the repo", () => {
+    const c = cl("one", undefined, {
+      test: "node --test src/one.test.ts ../etc/passwd",
+    });
+    expect(specLint({ cls: [c] }, o).reason).toMatch(
+      /runs files outside the repo, or its root: \.\.\/etc\/passwd/,
+    );
   });
 
   it("takes a cl that names one of the issue's repos, and one that names none when the issue has one", () => {
@@ -105,15 +98,6 @@ describe("spec lint", () => {
     expect(
       specLint(plan({ ...cl("one", 1), repo: "a" }, cl("two", 1)), two).reason,
     ).toMatch(/cl two: names no repo, and the issue has 2: a, b/);
-  });
-
-  it("retries a test command that runs a file not in its checkout", () => {
-    const c = cl("one", undefined, {
-      test: "node --test src/one.test.ts test/other.test.ts",
-    });
-    expect(specLint({ cls: [c] }, o).reason).toMatch(
-      /not in its checkout: test\/other.test.ts/,
-    );
   });
 });
 
@@ -176,7 +160,7 @@ describe("a cl's spec", () => {
   beforeEach(() => (at = issueRepo()));
   afterEach(() => at.rm());
 
-  it("is read from its note at the notes' commit, with its checkout and test", () => {
+  it("is read from its note at the notes' commit, with its core context and test", () => {
     at.write(plan(cl("one", 1), cl("two", 2)));
     const notes = at.notes();
     const two = { name: "is-two", issue: "is", note: "_well/is-two.md" };
@@ -187,7 +171,9 @@ describe("a cl's spec", () => {
       name: "is-one",
       note: "_well/is-one.md",
     });
-    expect(one.checkout).toEqual(["src/one.ts", "src/one.test.ts", "src/a.ts"]);
+    expect(one.context).toBe(
+      "- src/one.ts: the code\n- src/a.ts: the exemplar",
+    );
   });
 
   it("is an error for a note that is not there at the commit, or not a cl", () => {
@@ -204,7 +190,7 @@ describe("a cl's spec", () => {
     const text = specText(plan(cl("one", 1), cl("two", 2)));
     expect(text).toContain("- Phase 2: phase 2");
     expect(text).toContain("### two, phase 2: two works");
-    expect(text).toContain("- checkout: src/two.ts, src/two.test.ts, src/a.ts");
+    expect(text).toContain("- core context:\n- src/two.ts: the code");
   });
 });
 

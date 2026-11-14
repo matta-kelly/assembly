@@ -31,11 +31,10 @@ const cl = (name: string, phase?: number): ClSpec => ({
   intent: `${name} is right`,
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
-  checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`],
   test: `node --test test/${name}.test.mjs`,
   promises: [`given ${name}, when read, then right`],
   seam: "src/value.mjs's exports",
-  checkoutNotes: `- src/${name}.mjs: the code`,
+  context: `- src/${name}.mjs: the code`,
 });
 const plan: Planned = {
   word: "done",
@@ -118,8 +117,9 @@ describe("the issue's land", () => {
       "- Phase 2: its double\n\t- [[is-double]]",
     );
     expect(onMain("is-value")).toContain('belongsTo: "[[is-plan]]"');
-    expect(onMain("is-value")).toContain(
-      'checkout: ["src/value.mjs","test/value.test.mjs"]',
+    expect(onMain("is-value")).not.toContain("checkout");
+    expect(sectionIn(onMain("is-value"), "Core context").trim()).toBe(
+      "- src/value.mjs: the code",
     );
     expect(sectionIn(onMain("is-value"), "Promises").trim()).toBe(
       "- given value, when read, then right",

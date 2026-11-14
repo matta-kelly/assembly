@@ -51,7 +51,7 @@ import {
 import { standInRegistry } from "../effects/registry.fixture.ts";
 import { gitReader } from "../effects/repo.ts";
 import { npmRegistryUrl } from "../effects/registry.ts";
-import { writeNote } from "../effects/notes.ts";
+import { sectionIn, writeNote } from "../effects/notes.ts";
 import { blocked, explain } from "../cli/report.ts";
 import { compose } from "../main.ts";
 import { advance } from "./advance.ts";
@@ -147,11 +147,13 @@ const cl = (
   intent,
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
-  checkout: [`src/${name}.mjs`, `test/${name}.test.mjs`, "README", ...read],
   test: `node --test test/${name}.test.mjs`,
   promises: [promise],
   seam: `src/${name}.mjs's export, which the next cl imports`,
-  checkoutNotes: "- README: the repo has no code yet",
+  context: [
+    "- README: the repo has no code yet",
+    ...read.map((p) => `- ${p}: what it builds on`),
+  ].join("\n"),
 });
 
 const plannerScript = (input: string, done: number) => {
@@ -309,7 +311,7 @@ const plain = (last: string) => {
 };
 
 /**
- * What value's da-hammer saw when it read past its cl's checkout, before it coded: a file outside it, and the root.
+ * What value's da-hammer saw when it read past its cl's core context, before it coded: a file outside it, and the root.
  */
 const probed: string[] = [];
 const probes = [
@@ -317,7 +319,7 @@ const probes = [
   fauxToolCall("ls", { path: "." }),
 ];
 
-/** da-hammer makes its cut's test pass. value's first reads past its cut's checkout. */
+/** da-hammer makes its cut's test pass. value's first reads past its cut's core context. */
 const hammerScript = (input: string, at: number, last: string) => {
   const lone = /The cut (alpha|beta) of/.exec(input)?.[1];
   if (lone)
@@ -392,10 +394,9 @@ const versionPlanner = (_input: string, done: number) => {
           1,
         ),
         repo: "ra",
-        checkout: ["one/index.js", "two/index.js", "test/a.test.mjs"],
         test: "node --test test/a.test.mjs",
         seam: "the two packages' exports, which b's versions carry",
-        checkoutNotes:
+        context:
           "- one/index.js, two/index.js: the two packages' exports\n- test/a.test.mjs: the test",
       },
       {
@@ -406,10 +407,9 @@ const versionPlanner = (_input: string, done: number) => {
           2,
         ),
         repo: "rb",
-        checkout: ["src/b.mjs", "test/b.test.mjs", "package.json"],
         test: "node --test test/b.test.mjs",
         seam: "src/b.mjs's export",
-        checkoutNotes:
+        context:
           "- src/b.mjs: the code\n- test/b.test.mjs: the test\n- package.json: the dependency the move changes",
       },
     ],
@@ -593,7 +593,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       mkdirSync(repo);
       git(repo, "init", "-q", "-b", "main");
       writeFileSync(join(repo, "README"), "a repo\n");
-      // in no cut's checkout: a builder reads it only when it reads wider
+      // in no cut's core context: a builder reads it only when it reads wider
       writeFileSync(join(repo, "NOTES"), "not in any cut\n");
       onCrate(repo, "repo");
       git(repo, "add", "-A");
@@ -734,7 +734,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           expect(logs.match(/^set up in \d+ s$/gm)).toHaveLength(1);
         }
 
-        // value's da-hammer had the whole repo: NOTES, in no cut's checkout, is there to read, and so is the root.
+        // value's da-hammer had the whole repo: NOTES, in no cut's core context, is there to read, and so is the root.
         expect(probed[0]).toMatch(/not in any cut/);
         expect(probed[1]).toMatch(/NOTES/);
 
@@ -783,8 +783,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(onMain("is-plan")).toContain(
           "- Phase 2: double, once value has landed\n\t- [[is-double]]",
         );
-        expect(onMain("is-double")).toContain(
-          'checkout: ["src/double.mjs","test/double.test.mjs","README","src/value.mjs"]',
+        expect(sectionIn(onMain("is-double"), "Core context").trim()).toBe(
+          "- README: the repo has no code yet\n- src/value.mjs: what it builds on",
         );
         expect(git(notesBare, "log", "-1", "--format=%s", "main")).toBe(
           "docs(is): its plan",
@@ -1079,7 +1079,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
               findings: [
                 {
                   about: "cl",
-                  what: "the promise names a file the checkout lacks",
+                  what: "the promise names a file the core context lacks",
                   where: "Promises 1",
                 },
                 {
@@ -1139,7 +1139,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(line).toMatch(/^rz {2}escalated/);
         expect(line).toContain("rz-one is raised");
         expect(explain(ledger, join(at, "runs"), "rz")).toContain(
-          "     cl: the promise names a file the checkout lacks (Promises 1)",
+          "     cl: the promise names a file the core context lacks (Promises 1)",
         );
 
         // Nothing is built after it: the phase 2 cl is never ready, and no attempt starts.

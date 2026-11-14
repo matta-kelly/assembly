@@ -20,12 +20,12 @@ The cl's promises ([[terms#promise]]): what is true once it lands, each an outco
 
 What it keeps: the decision the cut hides from the other cls, what it must not change, and what crosses to them: the names, types and shapes the other side reads.
 
-## Checkout
+## Core context
 
-The cl's context: its `checkout` is where its change lives, the paths its builders start from, so they spend no turns finding what the planner already found. A starting point, not a wall: they read wider when the work needs it.
+Where its builders start: the paths the planner found, so they spend no turns finding them again. A starting point, not a wall: they read wider when the work needs it.
 
-- the paths: every file or folder conceivably relevant to the cut. Err wide: an extra path costs tokens, a missing one costs turns
+- the paths: every file or folder conceivably relevant to the cut, from the repo's root. Err wide: an extra path costs tokens, a missing one costs turns
 - each path: one line, what it is and why it is here: "`orchestrator/ledger.ts`: the ledger, where an attempt's record is kept"
-- the exemplar: one file in the checkout its builders should write like, since a model of good code in the repo carries further than any rule
+- the exemplar: one file of these its builders should write like, since a model of good code in the repo carries further than any rule
 - a fact from outside the code: a probe's output or a doc, written here with its source
-- a gap: a path the work needs and the checkout lacks. Its builders read it where it is, and say so in their notes
+- a gap: a path the work needs and the core context lacks. Its builders read it where it is, and say so in their notes

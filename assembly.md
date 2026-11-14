@@ -116,7 +116,7 @@ The issue goes down the left side, each level a state, made by one role and chec
 
 ## The build
 
-The point of the V and the right side up to main: each cl built in its own [[workspace]], one worktree of the whole repo on the cl's branch, its checkout where its builders start. The method follows the cl's shape ([[playbook#Building a cut]]).
+The point of the V and the right side up to main: each cl built in its own [[workspace]], one worktree of the whole repo on the cl's branch, its Core context where its builders start. The method follows the cl's shape ([[playbook#Building a cut]]).
 - the tests: made by [[daworks/assembly/workspace/agents/da-nail|da-nail]], from the cl's promises, before any code
 - the code: made by [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], until the tests pass, never changing one
 - the verdict: [[daworks/assembly/workspace/agents/cl-review|cl-review]]'s, then the dock lands it ([[#The dock]])
@@ -211,8 +211,8 @@ The machine: what moves jobs from station to station, in four layers put togethe
 	- a step: one per state, with its agent, its result's shape and its check (`process/*.ts`, listed in `process/index.ts`)
 		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (the tests run to an assertion: red to hammer, green to review), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
-		- the builders: nail and hammer, in the cl's one worktree, the whole repo. The cl's checkout is where its change lives: they start there, and read wider only when the work needs it. The instruction holds their tokens, and `factory top` shows them
-			- a path of the checkout: a file or a folder, a plain path from the repo's root
+		- the builders: nail and hammer, in the cl's one worktree, the whole repo. The cl's Core context is where its change lives: they start there, and read wider only when the work needs it. The instruction holds their tokens, and `factory top` shows them
+			- a path of the Core context: a file or a folder, a plain path from the repo's root
 			- the commit: every change the attempt made
 			- hammer: changes no test file, none da-nail wrote and none its test command runs
 			- a test run: one op (`effects/tests.ts`'s `runTests`), for the agent's `test` tool and the step's check alike, on the cl's worktree with the attempt's change, so the tree a test sees is the tree a pass commits

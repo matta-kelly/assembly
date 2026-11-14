@@ -31,15 +31,6 @@ async function has(repo: string, branch: string) {
   return r.code === 0;
 }
 
-/** Whether a path is one of `entries`, or under a folder of them: a plain path, matched as git matches one. */
-export const within = (entries: string[], path: string) => {
-  const p = normalize(path).replace(/\/+$/, "");
-  return entries.some((e) => {
-    const x = normalize(e).replace(/\/+$/, "");
-    return p === x || p.startsWith(`${x}/`);
-  });
-};
-
 /**
  * The remote a cl lands on: `server`, main's bare repo guarded by crate's hooks, when the repo has it; else `local`, a
  * bare repo on this machine, as `git land` picks it; else `origin`.
