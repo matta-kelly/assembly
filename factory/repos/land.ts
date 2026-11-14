@@ -2,11 +2,11 @@
  * The land: an approved cl onto main, the one way a cl's work reaches it. It runs in the cl's worktree, on its branch
  * (git.ts), so a rebase there moves the branch, and gives back the message its attempt ends with.
  *
- * Through crate, when the land target is `server`: `git land`, which puts the cl's branch in crate's merge queue and
- * waits for its verdict. crate checks it on top of the changes ahead of it and picks it onto main, so the land neither
+ * Through crate, when the land target is `server`: `crate land`, the merge queue's own client, which puts the cl's
+ * branch in the queue and waits for its verdict. crate checks it on top of the changes ahead of it and picks it onto main, so the land neither
  * rebases nor tests, and main may take the cl's change as a commit of its own:
- * - a cl whose change main holds already passes as it is (git cherry, which compares changes, not commits)
- * - landed: the cl's branch is main, and main's commit is the one the land gives back
+ * - a cl whose change main holds already passes as it is: crate records each land at refs/landed/<the change's sha>
+ * - landed: the cl's branch is main, and the commit main took, its refs/landed, is the one the land gives back
  * - not landed, in crate's verdict line: a change that does not apply on main and the changes ahead is a back about the plan; a change that
  *   left the queue is a retry; any other is its check's red, a back about the code, with its output
  *
@@ -115,32 +115,39 @@ async function throughCrate(
   files: string[],
   signal?: AbortSignal,
 ): Promise<Land> {
-  const git = (...args: string[]) => must("git", ["-C", at, ...args]);
   const main = await mainOf(r.repo);
-  const pass = async (reason: string): Promise<Land> => {
-    const commit = (await git("rev-parse", main)).trim();
-    return {
-      files,
-      commit,
-      message: {
-        word: "pass",
-        reason: `${reason} at ${commit.slice(0, 7)}`,
-        findings: [],
-      },
-    };
-  };
+  const sha = (await must("git", ["-C", at, "rev-parse", "HEAD"])).trim();
+  // crate records each change it lands at refs/landed/<its sha>, pointing at the main commit it landed as: the exact
+  // verdict, where main may hold the change as a commit of its own
+  const landedAs = async () =>
+    (
+      await sh("git", ["-C", at, "ls-remote", "server", `refs/landed/${sha}`])
+    ).out
+      .split(/\s/)[0]
+      ?.trim() || undefined;
+  const pass = (reason: string, commit: string): Land => ({
+    files,
+    commit,
+    message: {
+      word: "pass",
+      reason: `${reason} at ${commit.slice(0, 7)}`,
+      findings: [],
+    },
+  });
   // A land a stop cut off after the queue took it is not landed twice.
-  if (!/^\+/m.test(await git("cherry", main, "HEAD")))
-    return pass(`landed: ${main} holds its change`);
+  const before = await landedAs();
+  if (before) return pass(`landed: ${main} holds its change`, before);
   const landed = await sh(
-    "git",
+    "crate",
     ["-C", at, "land"],
     undefined,
-    pushEnv(),
+    process.env,
     signal,
   );
-  // git land fetched main, and moved the branch to it
-  if (landed.code === 0) return pass(`landed on ${main}`);
+  if (landed.code === 0) {
+    const commit = await landedAs();
+    if (commit) return pass(`landed on ${main}`, commit);
+  }
   const why = verdictOf(landed.out);
   const tail = landed.out.slice(-600);
   if (!why || /left the queue/.test(why))
@@ -148,7 +155,7 @@ async function throughCrate(
       files,
       message: {
         word: "retry",
-        reason: `git land did not land it: ${tail}`,
+        reason: `crate land did not land it: ${tail}`,
         findings: [],
       },
     };

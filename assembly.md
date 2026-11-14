@@ -284,9 +284,9 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 
 - the gate: the check passes on the exact commit, then main moves by fast-forward
 - the land target: the remote a cl lands on: `server`, main's bare repo guarded by crate ([[repo#Platform]]), when the repo has it; else `local`, a bare repo on this machine; else `origin`. Main is its main, fetched as each attempt starts
-- the land: each approved cl onto main, as Matt, with `git land`, in the cl's worktree (`factory/repos/land.ts`)
-	- landed already: a cl whose change main holds passes as it is (`git cherry`, which compares changes, not commits), so a land a stop cut off is safe to run again
-	- through crate's merge queue (`server`): `git land` puts the branch in the queue and waits for crate's verdict. crate checks it on top of the changes ahead of it and picks it onto main, so the land neither rebases nor tests, and main may hold the change as a commit of its own
+- the land: each approved cl onto main, as Matt, in the cl's worktree (`factory/repos/land.ts`)
+	- landed already: a cl whose change main holds passes as it is, so a land a stop cut off is safe to run again. On crate, the server's `refs/landed/<its sha>` says so exactly; elsewhere, `git land` finds nothing to land
+	- through crate's merge queue (`server`): `crate land`, the queue's own client, puts the branch in the queue and waits for crate's verdict. The commit main took is its `refs/landed/<sha>`. crate checks it on top of the changes ahead of it and picks it onto main, so the land neither rebases nor tests, and main may hold the change as a commit of its own
 		- does not apply on main and the changes ahead: a back about the plan (`restack_conflict`), with the files, since keeping the cls of one phase apart is the plan's work
 		- refused by the check: a back about the code (`check_failed`), with the check's output
 		- left the queue, or no verdict: a retry
