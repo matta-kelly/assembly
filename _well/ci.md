@@ -50,7 +50,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 *The same check, on the change's branch, so the commit main takes is the commit that was checked*
 
-- on crate: presubmit and the merge queue are one run, crate's pre-receive hook on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack and deeotee
+- on crate: presubmit and the merge queue are one run, the queue's check of the change on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack and deeotee
 - not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check, and landl runs it on every push. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
 
 ### checks.yml
@@ -77,27 +77,31 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 ## Merge queue
 
-*Main moves only to a commit whose check passed on the exact tree it becomes, and a change reaches main by no other way*
+*Main moves only to a tree that passed its check, only the queue moves it, and a change reaches main by no other way*
 
-- crate: each repo on crate keeps main in a bare repo on monkeybusiness (`~/git/<repo>.git`), and crate's pre-receive hook checks every push to it. crate is one Go binary; its hooks are one-line scripts that run `crate hook` from the install beside them ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))
-	- the queue: one push per repo at a time, under the repo's lock
-	- the tree: git takes only a fast-forward of main, so the tree checked is the tree main becomes. A push that waited while main moved is sent back to rebase
-	- the check: one run of a system of its own, made by crate from the pushed tree's `crate.toml` as a workspace is ([[workspace#Postures]]): its own network, its services reached by name, its tools member on the image `crate.toml` names, and its built app, run as production runs it and reached as `app`. Before the app, crate proves the built image refuses to start without its `needs`. Then `scripts/check.sh` runs in the tools member, with `CHECK_BASE` the old main, so only the sets a change touched run. Up and the check together stop at its time limit (`timeout` in `crate.toml`, 900 s by default)
-	- warm: the check's checkout, its tools volumes and its dev image stay between pushes; its network, services and app are removed after each
+- crate: each repo on crate keeps main in a bare repo on monkeybusiness (`~/git/<repo>.git`), and crate's merge queue owns it: the design of GitHub's merge queue, GitLab's merge trains and Zuul. crate is one Go binary; its hooks are one-line scripts that run `crate hook` from the install beside them ([github.com/matta-kelly/crate](https://github.com/matta-kelly/crate))
+	- the door: a change enters the queue as its own ref, `refs/queue/<its sha>`, and leaves it when that ref is deleted. A push to main is refused, and so is a pushed version tag: only crate's release makes those
+	- the worker: one per repo, while changes wait. It checks as many changes side by side as the machine's `[count] check`, each run in its own slot, whose checkout and tools volumes stay warm
+	- speculation: each run's tree is the tip of the run ahead of it plus its own changes, so each run checks what main will be. A change on that tip moves to it; any other has its commits picked onto it, its author kept and crate the committer. A change that does not apply leaves, with the files it conflicts on
+	- batch: a run checks up to `batch` waiting changes (`crate.toml`, 4 by default), only as many as wait, so a lone change is checked alone
+	- the check: one run of a system of its own, made by crate from the run's tree's `crate.toml` as a workspace is ([[workspace#Postures]]): its own network, its services reached by name, its tools member on the image `crate.toml` names, and its built app, run as production runs it and reached as `app`. Before the app, crate proves the built image refuses to start without its `needs`. Then `scripts/check.sh` runs in the tools member, with `CHECK_BASE` the run's base, so only the sets its changes touched run. Up and the check together stop at its time limit (`timeout` in `crate.toml`, 900 s by default)
 	- its reach: the check's system reaches the outside, to install and pull. An attempt's has no route out
-	- red: git refuses the push, and the pusher gets the check's output. Main has not moved
-	- refused before any check: a push that waited while main moved (rebase, and push again), a tree the check's checkout cannot take (push again), a repo whose `crate.toml` does not declare itself ([[repo#Environment]]), and a pushed version tag: only crate's release makes those
-	- after: crate's post-receive copies main to GitHub, with the repo's own deploy key
-	- the record: each check, postsubmit, copy and release is a run in `~/git/<repo>.git/crate/log.jsonl`, one JSON line per step with its seconds, so a slow check says where its time went. The push shows the check's summary line. Queried with `jq` or `duckdb` (crate's README, The record)
-	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`
+	- green: the head run's pass moves main to its tip by compare-and-swap, and its changes land
+	- red: the runs behind it start again without it. Its failure counts once every run ahead has passed; then a change checked alone leaves the queue with its output, and a batch is checked again in halves until the culprit is alone
+	- the verdict: the push waits and prints its change's output, ending in `crate: landed <sha> as <main>` or `crate: not landed: <why>`. `git push -o crate.wait=no` returns once queued
+	- jump: `crate queue <bare> jump <sha>`, on the server, puts a change first, checked alone; every run starts again behind it. `crate queue <bare>` shows the queue
+	- after main moves: crate copies it to GitHub, with the repo's own deploy key, then runs postsubmit or the release
+	- the record: each check, land, postsubmit, copy and release is a run in `~/git/<repo>.git/crate/log.jsonl`, one JSON line per step with its seconds, so a slow check says where its time went, and a land says how long it waited in the queue. Queried with `jq` or `duckdb` (crate's README, The record)
+	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`, which also starts a worker that stopped
 - a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
 
 ### Land a change
 
 *Commit, then `git land`. It is `~/.local/bin/git-land`, from deeotee, so it works in every repo*
 
-- a repo with a remote named `server`, every repo on crate: `git land` fetches `server/main`, rebases onto it, and pushes there, where crate checks it. A refusal prints the check's output; fix it, commit, and `git land` again. Main moved during the push: it rebases and goes again, three times at most. After a land it fast-forwards the repo's main checkout to `server/main`
-	- by hand: `git push server HEAD:main`
+- a repo with a remote named `server`, every repo on crate: `git land` puts HEAD in the queue and waits, printing the check's output. It lands when main holds each of HEAD's commits (`git cherry`); HEAD's branch then moves to `server/main`, and the repo's main checkout fast-forwards. Not landed: it prints why and exits 1; fix it, commit, and `git land` again. No rebase first: the queue picks the change onto main
+	- `git land --no-wait`: returns once HEAD is queued, for an agent that reads the verdict later
+	- by hand: `git push server HEAD:refs/queue/$(git rev-parse HEAD)`
 - a repo with a remote named `local`, a bare repo on this machine: `git land` takes the repo's lock, rebases onto `local/main` and pushes there, with no check and no call to GitHub. No repo has one today. A rebase conflict stops it: resolve it and `git land` again
 	- no check runs, so run `just check` yourself before a land that matters, and on main before a release tag
 	- GitHub's main is behind until a sync pushes `local/main` to it. It is a script, not a built step yet
@@ -187,11 +191,11 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 
 *The checks too slow for the queue, run on each new commit of main. A red one is reverted first*
 
-- the run: crate's post-receive starts it in the background after the copy to GitHub, so a land never waits for it ([[repo#Platform]])
+- the run: the queue's worker starts it in the background after the copy to GitHub, so a land never waits for it ([[repo#Platform]])
 	- the sets: `crate.toml`'s `postsubmit`, run as `scripts/check.sh <sets>` in the check's image, with `postsubmit_timeout` as its limit (3600 seconds by default)
 	- one run at a time, on main as it stands, so a run that waited covers every land since the last green main
 - green: main is the last green, and only then released ([[#Release]]), so no version is made from a main postsubmit failed
-- red: one commit on main undoes every commit since the last green main, landed through the check like any push
+- red: one commit on main undoes every commit since the last green main, and jumps the queue, so it is checked like any change before main takes it
 	- the failure, kept: its last lines in the revert's message, all of it in the server's `<repo>.git/crate/postsubmit/<sha>.log`
 	- the revert passes postsubmit with no run, since its tree is the last green's
 	- a revert that does not apply leaves main as it is, and the record's total line says it needs a hand
