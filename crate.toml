@@ -1,6 +1,6 @@
-# crate (github.com/matta-kelly/crate) checks every push to main on the server, in this image, and tags each move of
-# main whose commits ask one, per package: `v<version>` is the factory's release, checked out on a server, and
-# `work-v<version>` is @mku1tra/work's, in work/, which .github/workflows/publish.yml puts on npm.
+# crate (github.com/matta-kelly/crate) checks each change to main in its merge queue on the server, in this image,
+# and tags each move of main whose commits ask one, per package: `v<version>` is the factory's release, checked out on
+# a server, and `work-v<version>` is @mku1tra/work's, in work/, which .github/workflows/publish.yml puts on npm.
 crate = "1"
 name = "assembly"
 image = "dev"
