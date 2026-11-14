@@ -1,7 +1,7 @@
 /**
  * A worktree's setup: the repo's dependencies installed into the item's new worktree, from the dev image's cache, with
  * no network, before any agent works in it. The command is the repo's, such as que-pasa's
- * `npm ci --offline --no-audit --no-fund`, the command its dev image's smoke proves (scripts/dev-image-smoke.sh). An
+ * `npm ci --offline --no-audit --no-fund`, the command crate's smoke proves ([tools] setup with no network). An
  * issue with several repos sets up each one's worktree with its own.
  *
  * It runs in a container of its own, as a check's test run does (tests.ts), with the worktree mounted read-write: not

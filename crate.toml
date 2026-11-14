@@ -7,5 +7,8 @@ image = "dev"
 ship = "source"
 packages = ". work"
 
+[tools]   # setup: the install crate's smoke runs in a new dev image, with no network, before it keeps the image
+setup = "npm ci"
+
 [dev]   # the dev image: the files its hash covers
 inputs = [".crate/Containerfile", "package-lock.json"]

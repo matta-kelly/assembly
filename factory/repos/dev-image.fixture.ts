@@ -1,7 +1,8 @@
 /**
  * What an e2e repo needs for its dev image ([[repo#Dev image]]): the Containerfile whose bake stage fills the cache with
- * the lockfile's packages, and the smoke crate runs on it. The e2e writes them into a repo so crate makes a real image
- * of a real lockfile, and an offline install from its cache is a real one.
+ * the lockfile's packages, and the crate.toml whose [tools] setup is the smoke crate runs in it, with no network. The e2e
+ * writes them into a repo so crate makes a real image of a real lockfile, and an offline install from its cache is a
+ * real one.
  */
 
 /** The Containerfile, built from the repo's root: the base the toolchain, the bake the cache, the last stage neither. */
@@ -22,16 +23,9 @@ LABEL org.opencontainers.image.source=https://github.com/assembly-e2e/${repo}
 `;
 }
 
-/** crate's smoke, after it builds the image: an offline install from the cache, with no network. */
-export function smoke(): string {
-  return `#!/bin/sh
-# The dev image's smoke: an offline install from its cache, with no network.
-set -e
-cd "$(dirname "$0")/.."
-npm ci --offline --no-audit --no-fund
-`;
-}
-
-/** The crate.toml of an e2e repo checked in its dev image: crate takes the image's name and its inputs from it. */
+/**
+ * The crate.toml of an e2e repo checked in its dev image: crate takes the image's name and its inputs from it, and
+ * runs its [tools] setup in a new image with no network, its smoke.
+ */
 export const devToml = (repo: string): string =>
-  `crate = "1"\nname = "${repo}"\nimage = "dev"\n\n[dev]\ninputs = [".crate/Containerfile", "package-lock.json"]\n`;
+  `crate = "1"\nname = "${repo}"\nimage = "dev"\n\n[dev]\ninputs = [".crate/Containerfile", "package-lock.json"]\n\n[tools]\nsetup = "npm ci"\n`;

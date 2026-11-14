@@ -44,7 +44,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 - a repo declares itself: a `crate.toml` with no `name` or no `[dev] inputs` is refused by `crate dev-image` and by the gate, with the key it lacks. crate guesses neither
 - the check: `scripts/check.sh`, one command, the same everywhere ([[ci#The check set]]). A browser test opens the app at `CRATE_APP_URL`
 - the ship kind: what a land to main releases, a package, an image, a source, or nothing ([[ci#Release]])
-- the template: `templates/repo/` in kinetic: `crate.toml` (with the keys a repo adds shown as comments), `scripts/check.sh`, `scripts/dev-image-smoke.sh`, `scripts/workflows.test.sh` and the workflows. A new repo copies them, and its `.crate/Containerfile` from basis, with `<repo>` filled in
+- the template: `templates/repo/` in kinetic: `crate.toml` (with the keys a repo adds shown as comments), `scripts/check.sh`, `scripts/workflows.test.sh` and the workflows. A new repo copies them, and its `.crate/Containerfile` from basis, with `<repo>` filled in
 - lot, kinetic and dazoo have no dev image: their lint runs in a pinned Node image
 
 ### Dev image
@@ -69,7 +69,7 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 	- what more than Node it needs goes in the `base` stage: system libraries, and a browser at a fixed path (`PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`), since a volume over `~/.cache` would hide it
 	- the last stage sets no `USER`: a GitHub job container needs root to write its checkout
 - its tag is the hash of its declared inputs (`[dev] inputs`), git's tree entries of each (`crate dev-image hash`), so one commit gives one tag on every machine
-- `dev-image.yml`, on a push to main that changes `crate.toml` or an input, and by hand: it gets crate from its release, then `crate dev-image ensure` builds, smokes (`scripts/dev-image-smoke.sh`: an offline install from the cache, with no network) and pushes `:<hash>` only when ghcr lacks it, and `crate dev-image promote` points `:main` at it. The same inputs are never built twice
+- `dev-image.yml`, on a push to main that changes `crate.toml` or an input, and by hand: it gets crate from its release, then `crate dev-image ensure` builds, smokes (crate.toml's `[tools] setup`, run in the new image with no network) and pushes `:<hash>` only when ghcr lacks it, and `crate dev-image promote` points `:main` at it. The same inputs are never built twice
 	- the build is tagged `<hash>-candidate` until its smoke passes, so a failed smoke leaves no image
 	- a path filter is allowed: it is not a required check
 - `crate dev-image local` puts a commit's image on a machine: its copy, else a pull, else a build and a smoke with no push. `crate up` and the gate call it; the factory calls it for an attempt

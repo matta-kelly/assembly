@@ -42,7 +42,7 @@ import { issueReviewer } from "../../workspace/agents/issue-review.ts";
 import { planReviewer } from "../../workspace/agents/plan-review.ts";
 import { planner } from "../../workspace/agents/planner.ts";
 import { crateTarget, landTarget } from "../repos/land-target.fixture.ts";
-import { containerfile, devToml, smoke } from "../repos/dev-image.fixture.ts";
+import { containerfile, devToml } from "../repos/dev-image.fixture.ts";
 import { standInRegistry } from "../repos/registry.fixture.ts";
 import { gitReader } from "../repos/repo.ts";
 import { npmRegistryUrl } from "../repos/registry.ts";
@@ -1341,9 +1341,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
               "#!/bin/sh\nnpm ci --no-audit --no-fund\nnode --test test/*.test.mjs\n",
             );
             chmodSync(join(r, "scripts", "check.sh"), 0o755);
-            // crate builds the image and then runs this: an offline install from its cache.
-            writeFileSync(join(r, "scripts", "dev-image-smoke.sh"), smoke());
-            chmodSync(join(r, "scripts", "dev-image-smoke.sh"), 0o755);
             writeFileSync(join(r, ".gitignore"), "node_modules/\n");
             writeFileSync(
               join(r, ".crate", "Containerfile"),

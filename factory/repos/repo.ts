@@ -18,7 +18,7 @@ import { sh } from "../sh.ts";
 export const readerImage =
   "docker.io/library/node@sha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384";
 
-/** The setup of a repo with a lockfile: what the dev images' smoke proves (scripts/dev-image-smoke.sh). */
+/** The setup of a repo with a lockfile: what crate's smoke proves: [tools] setup with no network. */
 export const npmSetup = "npm ci --offline --no-audit --no-fund";
 
 /** The full suite of a repo on crate. */
