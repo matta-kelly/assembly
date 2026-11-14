@@ -284,14 +284,15 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 
 - the gate: the check passes on the exact commit, then main moves by fast-forward
 - the land target: the remote a cl lands on: `server`, main's bare repo guarded by crate ([[repo#Platform]]), when the repo has it; else `local`, a bare repo on this machine; else `origin`. Main is its main, fetched as each attempt starts
-- the land: each approved cl onto main, as Matt, in the cl's worktree, whose branch the rebase moves (`effects/land.ts`)
-	- rebase: the cl's branch onto main. A conflict is a back about the plan (`restack_conflict`), since keeping the cls of one phase apart is the plan's work
-	- landed already: a cl whose change main holds passes as it is, so a land a stop cut off is safe to run again
-	- through crate (`server`): a plain push to main. crate's hook runs the repo's check on the exact tree main becomes, so the land runs no test of its own
-		- refused by the check: a back about the code (`check_failed`), with the check's output, and the cl's branch stays on the rebased tree, so da-hammer works on the code main will hold
-		- main moved while the push waited: fetch, rebase and push again, three times at most, then a retry
-	- through `git land`, for a repo not on crate
-		- retest: the cl's test command on the rebased tree, when main moved under it. A red is a back about the code (`check_failed`), and the branch stays as above
+- the land: each approved cl onto main, as Matt, with `git land`, in the cl's worktree (`effects/land.ts`)
+	- landed already: a cl whose change main holds passes as it is (`git cherry`, which compares changes, not commits), so a land a stop cut off is safe to run again
+	- through crate's merge queue (`server`): `git land` puts the branch in the queue and waits for crate's verdict. crate checks it on top of the changes ahead of it and picks it onto main, so the land neither rebases nor tests, and main may hold the change as a commit of its own
+		- does not apply on main and the changes ahead: a back about the plan (`restack_conflict`), with the files, since keeping the cls of one phase apart is the plan's work
+		- refused by the check: a back about the code (`check_failed`), with the check's output
+		- left the queue, or no verdict: a retry
+	- through `git land` to a repo's gate, for a repo not on crate
+		- rebase: the cl's branch onto main. A conflict is a back about the plan (`restack_conflict`)
+		- retest: the cl's test command on the rebased tree, when main moved under it. A red is a back about the code (`check_failed`), and the branch stays on the rebased tree, so da-hammer works on the code main will hold
 		- push: `git land`, through the repo's gate. A land it refuses is a retry
 	- landed: the cl's branch is the commit main took, and the ledger keeps that commit, which its version tags are read from, and the files it changed
 	- an issue's plan: its land writes the plan and cl notes its planner made on the issue's branch of the notes repo, from main as it is now, replacing the notes of its cls not landed, commits them as `docs(<issue>): its plan`, and lands them as a cl lands, so the notes' own check lints them. A refusal is a back about the plan, to the planner
@@ -336,7 +337,7 @@ What it keeps.
 
 ## Built
 
-- the machine: an issue from open to accepted, proven end to end on scripted models, its plan landed on a real notes repo, with an attempt taken up after a stop, its cls landed through crate's own hooks, and nothing of the issue left behind once accepted (`just e2e`)
+- the machine: an issue from open to accepted, proven end to end on scripted models, its plan landed on a real notes repo, with an attempt taken up after a stop, its cls landed through crate's merge queue, and nothing of the issue left behind once accepted (`just e2e`)
 - the factory on the server: the service at the release dazoo names, moved by a commit to it; on real models, a cl built, reviewed and landed through crate; Matt's resume; and the sweep, which took away an older scheme's branches and worktrees
 - the command line: `scripts/factory.sh`, which `just factory` calls and the gate tests without `just`: its home `$ASSEMBLY_HOME`, else `$XDG_STATE_HOME/assembly`, its repos from `$ASSEMBLY_REPOS`, else lot, and its notes repo `$ASSEMBLY_NOTES`, else kinetic among the repos
 	- on the laptop: `ASSEMBLY_SERVER` set runs the verb on the server over ssh, with its exit code and output

@@ -1,7 +1,8 @@
 /**
- * The land through crate, on real git, crate's real hooks and the real engine, in the orchestrator's image (`just e2e`):
- * a cl lands on main with a plain push that crate checks, two cls built from one main both land, and a cl red on main
- * is refused by crate's check and sent back about the code, with main where it was.
+ * The land through crate's merge queue, on real git, crate's real hooks, `git land` and the real engine, in the
+ * orchestrator's image (`just e2e`): a cl lands on main, two cls built from one main both land, a cl red on main is
+ * sent back about the code with main where it was, a cl that does not apply on main is sent back about the plan, and
+ * a cl main holds already passes as it is.
  */
 
 import { execFileSync } from "node:child_process";
@@ -108,7 +109,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land through crate", () => {
   });
 
   it(
-    "lands a cl with a plain push that crate checks, and moves its branch to the commit main took",
+    "lands a cl through the queue, and moves its branch to the commit main took",
     { timeout: 120_000 },
     async () => {
       built("a", {
@@ -127,7 +128,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land through crate", () => {
   );
 
   it(
-    "lands two cls built from one main: the second is rebased onto the first, and crate checks it",
+    "lands two cls built from one main: crate picks the second onto the first, and checks it",
     { timeout: 120_000 },
     async () => {
       built("b", { "src/b.mjs": "export const b = 1;\n" });
@@ -160,9 +161,40 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land through crate", () => {
       });
       expect(out.message.findings[0]?.what).toMatch(/check failed at: test/);
       expect(main()).toBe(before);
-      expect(
-        git(repo, "merge-base", "--is-ancestor", before, branchOf("is-f")),
-      ).toBe("");
+    },
+  );
+
+  it(
+    "sends a cl that does not apply on main back about the plan, with the files, and main does not move",
+    { timeout: 120_000 },
+    async () => {
+      built("h", { "src/h.mjs": "export const h = 1;\n" });
+      built("i", { "src/h.mjs": "export const h = 2;\n" });
+      expect((await land(run("h"))).message.word).toBe("pass");
+      const before = main();
+      const out = await land(run("i"));
+      expect(out.message).toMatchObject({
+        word: "back",
+        cause: "restack_conflict",
+        findings: [{ about: "plan", where: "is-i" }],
+      });
+      expect(out.message.findings[0]?.what).toMatch(/src\/h\.mjs/);
+      expect(main()).toBe(before);
+    },
+  );
+
+  it(
+    "passes a cl whose change main holds already, as a land cut off after the queue took it",
+    { timeout: 120_000 },
+    async () => {
+      built("j", { "src/j.mjs": "export const j = 1;\n" });
+      expect((await land(run("j"))).message.word).toBe("pass");
+      git(workOf("j"), "reset", "-q", "--hard", `${branchOf("is-j")}@{1}`);
+      const before = main();
+      const out = await land(run("j"));
+      expect(out.message).toMatchObject({ word: "pass" });
+      expect(out.message.reason).toMatch(/holds its change/);
+      expect(main()).toBe(before);
     },
   );
 });

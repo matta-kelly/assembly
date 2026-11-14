@@ -32,7 +32,7 @@ export function landTarget(repo: string, dir: string): string {
 /**
  * A crate land target for an e2e repo: main's bare repo with crate's hooks on it (`crate init`, from CRATE_ROOT, crate's
  * install, its bin/ and hooks/), as the repo's `server` remote. The repo's crate.toml and check must be on its main
- * before this: its first push to the target is checked like any other.
+ * before this. Main is seeded as `crate apply` seeds it from GitHub: fetched into the bare repo, since no push makes it.
  */
 export function crateTarget(repo: string, dir: string): string {
   const crate = process.env["CRATE_ROOT"];
@@ -41,7 +41,16 @@ export function crateTarget(repo: string, dir: string): string {
   execFileSync(join(crate, "bin", "crate"), ["init", bare], {
     timeout: 180_000,
   });
+  // git land wants a GitHub origin, as every repo on the server has; it is never contacted
+  git(
+    repo,
+    "remote",
+    "add",
+    "origin",
+    "https://github.com/assembly-e2e/never-contacted.git",
+  );
   git(repo, "remote", "add", "server", bare);
-  git(repo, "push", "-q", "server", "main");
+  execFileSync("git", ["-C", bare, "fetch", "-q", repo, "main:main"]);
+  git(repo, "fetch", "-q", "server", "main");
   return bare;
 }
