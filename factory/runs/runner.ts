@@ -92,7 +92,7 @@ export async function quePasa(
     };
     keep(context, attempt);
     try {
-      const value = await runtime.run(agent, input, {
+      const out = await runtime.run(agent, input, {
         conversation: `${attempt.name}/${name}`,
         runId: String(attempt.n),
         caller: { id: "assembly" },
@@ -101,8 +101,16 @@ export async function quePasa(
         signal,
         onUsage: (u) => (usage = total(u)),
       });
+      // No tool of the factory's asks a question, so a run that stops on one has failed, with what it asked.
+      if (out.status === "interrupted")
+        throw new RunFailed(
+          `it stopped on a question no one answers: ${JSON.stringify(out.interrupts)}`,
+          usage,
+        );
+      const value = out.result;
       return usage ? { value, usage } : { value };
     } catch (e) {
+      if (e instanceof RunFailed) throw e;
       // An abort is the loop's (its time limit, or its close), and it knows why; any other failure is the run's.
       if (signal.aborted) throw e;
       throw new RunFailed(e instanceof Error ? e.message : String(e), usage);

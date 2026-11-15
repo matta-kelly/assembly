@@ -50,10 +50,11 @@ for (const [label, slot] of slots) {
       signal: AbortSignal.timeout(120_000),
       onUsage: (u) => (usage = total(u)),
     });
-    const ok = out.sum === 5;
+    const sum = out.status === "done" ? out.result.sum : undefined;
+    const ok = sum === 5;
     if (!ok) failed++;
     console.log(
-      `${ok ? "ok  " : "FAIL"} ${label}: ${slot.model}: sum ${out.sum}, ${usage.tokens} tokens, $${usage.cost?.toFixed(5)}`,
+      `${ok ? "ok  " : "FAIL"} ${label}: ${slot.model}: sum ${sum}, ${usage.tokens} tokens, $${usage.cost?.toFixed(5)}`,
     );
   } catch (e) {
     failed++;
