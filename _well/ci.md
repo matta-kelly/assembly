@@ -90,7 +90,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 	- red: the runs behind it start again without it. Its failure counts once every run ahead has passed; then a change checked alone leaves the queue with its output, and a batch is checked again in halves until the culprit is alone
 	- the verdict: the push waits and prints its change's output, ending in `crate: landed <sha> as <main>` or `crate: not landed: <why>`. `git push -o crate.wait=no` returns once queued
 	- jump: `crate queue <bare> jump <sha>`, on the server, puts a change first, checked alone; every run starts again behind it. `crate queue <bare>` shows the queue
-	- after main moves: crate copies it to GitHub, with the repo's own deploy key, then runs postsubmit or the release
+	- after main moves: postsubmit, when the repo names one. Once main is green, crate copies it to GitHub, with the repo's own deploy key, and releases it ([[#Postsubmit]]). A repo with no postsubmit is green as it lands
 	- the record: each check, land, postsubmit, copy and release is a run in `~/git/<repo>.git/crate/log.jsonl`, one JSON line per step with its seconds, so a slow check says where its time went, and a land says how long it waited in the queue. Queried with `jq` or `duckdb` (crate's README, The record)
 	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`, which also starts a worker that stopped
 - a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
@@ -191,26 +191,27 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 
 *The checks too slow for the queue, run on each new commit of main. A red one is reverted first*
 
-- the run: the queue's worker starts it in the background after the copy to GitHub, so a land never waits for it ([[repo#Platform]])
-	- the sets: `crate.toml`'s `postsubmit`, run as `scripts/check.sh <sets>` in the check's image, with `postsubmit_timeout` as its limit (3600 seconds by default)
+- the run: the queue's worker starts it in the background as main moves, so a land never waits for it ([[repo#Platform]])
+	- the sets: `crate.toml`'s `postsubmit`, run as `scripts/check.sh <sets>` in the check's image, with `postsubmit_timeout` as its limit (3600 seconds by default). `scripts/check.sh` keeps them in `later`, which the gate never runs: stateball's `pipeline` (dbt), publicpersona's `e2e`
 	- one run at a time, on main as it stands, so a run that waited covers every land since the last green main
-- green: main is the last green, and only then released ([[#Release]]), so no version is made from a main postsubmit failed
+- green: main is the last green, and only then copied to GitHub and released ([[#Release]]), so nothing that builds or deploys from GitHub's main runs a main postsubmit failed, and no version is made from it
 - red: one commit on main undoes every commit since the last green main, and jumps the queue, so it is checked like any change before main takes it
 	- the failure, kept: its last lines in the revert's message, all of it in the server's `<repo>.git/crate/postsubmit/<sha>.log`
-	- the revert passes postsubmit with no run, since its tree is the last green's
+	- the revert passes postsubmit with no run, since its tree is the last green's. GitHub then gets its main, which carries the red commit and its revert, so GitHub's main is always green
 	- a revert that does not apply leaves main as it is, and the record's total line says it needs a hand
-- Not built: no repo names a postsubmit set yet. assembly's `just e2e`, the first, needs the engine's socket in the check's container. The dock is not told when its landed cl is reverted ([[assembly-on-server]])
+- Not built: assembly's `just e2e` needs the engine's socket in the check's container. The dock is not told when its landed cl is reverted ([[assembly-on-server]])
 
 ## Release
 
-*A land to main makes a new version, and the repo's ship kind releases it, with no hand step*
+*A green main makes a new version, and the repo's ship kind releases it, with no hand step*
 
-- the version: crate's post-receive, after the copy to GitHub ([[repo#Platform]])
+- the version: crate, once main is green, after the copy to GitHub ([[repo#Platform]])
 	- the bump: semver (SemVer 2.0), read from the types of the commits since the package's last version tag (Conventional Commits 1.0). The strongest wins
 		- a breaking change (`feat!:`, or a `BREAKING CHANGE:` footer): major
 		- `feat`: minor
 		- `fix`, `perf`: patch
 		- any other type: no version
+		- a package whose files are as its last version left them: no version, whatever its commits ask (a red change and its revert)
 	- before 1.0.0: each bump one place down, as npm's caret reads a 0.x version (`^0.30.0` takes 0.30.x only): a breaking change bumps minor, and `feat` bumps patch (release-please's `bump-minor-pre-major` and `bump-patch-for-minor-pre-major`). A package leaves 0.x only by a `v1.0.0` tag made by hand
 	- the tag: the truth, never committed back. `v<version>` for the package at the root, `<folder>-v<version>` for one in a folder (`crate.toml`'s `packages`), each counting only the commits that touch its folder
 	- the copy: every version tag to GitHub, by the repo's deploy key, which the version-tag ruleset lets through
