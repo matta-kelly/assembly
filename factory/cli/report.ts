@@ -54,8 +54,8 @@ export function blocked(ledger: Ledger): string[] {
 }
 
 /**
- * An item's whole record: its note, its messages, each with its findings, and each attempt with what it did, what it
- * cost, the notes' commit it read, and where its trace is.
+ * An item's whole record: its note, its messages, each with its findings, each attempt with what it did, what it cost,
+ * the notes' commit it read, and where its trace is, and the operator's notes to its agents, each delivered or pending.
  */
 export function explain(ledger: Ledger, runs: string, name: string): string[] {
   const item = ledger.item(name);
@@ -79,5 +79,18 @@ export function explain(ledger: Ledger, runs: string, name: string): string[] {
         ...(a.notes ? [`     notes: ${a.notes}`] : []),
         `     trace: ${traceFile(runOf(item, a.n, runs))}`,
       ]),
+    ...(() => {
+      const told = ledger.notesOf(name);
+      return told.length
+        ? [
+            "",
+            "the operator's notes to its agents:",
+            ...told.map(
+              (n) =>
+                `  ${n.at}  ${n.agent}  ${n.delivered ?? "pending"}: ${n.text.split("\n")[0]}`,
+            ),
+          ]
+        : [];
+    })(),
   ];
 }

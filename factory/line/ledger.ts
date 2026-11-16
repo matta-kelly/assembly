@@ -69,6 +69,20 @@ export interface Used {
   cost: number | null;
 }
 
+/**
+ * A note: the operator's message to an agent's conversation on an item, which the loop delivers through the runtime, so
+ * the agent's next run reads it. Delivered says how: placed, queued, or none when no run made the conversation; null
+ * while it waits for the loop.
+ */
+export interface Note {
+  id: number;
+  name: string;
+  agent: string;
+  text: string;
+  at: string;
+  delivered: string | null;
+}
+
 /** Who sends a message: an agent's attempt as it ends, the orchestrator, or the operator through the command line. */
 export type By =
   | {
@@ -124,6 +138,10 @@ const tables = `
   CREATE TABLE IF NOT EXISTS paths (
     name TEXT NOT NULL REFERENCES items(name), path TEXT NOT NULL,
     PRIMARY KEY (name, path)
+  );
+  CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL REFERENCES items(name), agent TEXT NOT NULL, text TEXT NOT NULL,
+    at TEXT NOT NULL, delivered TEXT
   );
 `;
 
@@ -658,6 +676,35 @@ export function open(file: string) {
           "SELECT n, step, started, ended, resumed, word, reason, cause, cost, notes FROM attempts WHERE name = ? ORDER BY n",
         )
         .all(name) as unknown as Attempt[];
+    },
+
+    /** Writes a note for the loop to deliver to the agent's conversation on the item. Gives back its id. */
+    addNote(name: string, agent: string, text: string): number {
+      const r = db
+        .prepare(
+          "INSERT INTO notes (name, agent, text, at) VALUES (?, ?, ?, ?)",
+        )
+        .run(name, agent, text, now());
+      return Number(r.lastInsertRowid);
+    },
+
+    /** The notes the loop has not delivered yet, in the order they were written. */
+    pendingNotes(): Note[] {
+      return db
+        .prepare("SELECT * FROM notes WHERE delivered IS NULL ORDER BY id")
+        .all() as unknown as Note[];
+    },
+
+    /** Records how a note was delivered: placed, queued, or none. */
+    delivered(id: number, how: string) {
+      db.prepare("UPDATE notes SET delivered = ? WHERE id = ?").run(how, id);
+    },
+
+    /** An item's notes, in the order they were written. */
+    notesOf(name: string): Note[] {
+      return db
+        .prepare("SELECT * FROM notes WHERE name = ? ORDER BY id")
+        .all(name) as unknown as Note[];
     },
 
     attempt(name: string, n: number) {

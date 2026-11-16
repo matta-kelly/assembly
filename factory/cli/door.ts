@@ -12,6 +12,7 @@ export const remote = [
   "resume",
   "drop",
   "rebase",
+  "note",
   "status",
   "blocked",
   "explain",

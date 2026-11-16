@@ -30,6 +30,20 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("ledger", () => {
+  it("keeps a note pending until the loop delivers it, then how it went", () => {
+    const l = open(file);
+    l.addIssue(issue, "open");
+    const a = l.addNote("is", "planner", "first");
+    const b = l.addNote("is", "planner", "second");
+    expect(l.pendingNotes().map((n) => n.id)).toEqual([a, b]);
+    l.delivered(a, "placed");
+    expect(l.pendingNotes().map((n) => n.id)).toEqual([b]);
+    expect(l.notesOf("is")).toMatchObject([
+      { id: a, agent: "planner", text: "first", delivered: "placed" },
+      { id: b, delivered: null },
+    ]);
+  });
+
   it("is read while another process writes it, and a reader blocks no write", () => {
     const top = open(file);
     top.addIssue(issue, "open");

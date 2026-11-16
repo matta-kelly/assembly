@@ -8,6 +8,7 @@
  *   factory resume <item> [<state>]
  *   factory drop <item>
  *   factory rebase <cl>
+ *   factory note <item> <agent>     the note's text on stdin
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
@@ -29,7 +30,15 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../repos/repo.ts";
-import { type Done, drop, rebase, resume, stop, submit } from "./levers.ts";
+import {
+  type Done,
+  drop,
+  note,
+  rebase,
+  resume,
+  stop,
+  submit,
+} from "./levers.ts";
 import { blocked, explain, status } from "./report.ts";
 import { door } from "./door.ts";
 import { run } from "./run.ts";
@@ -55,6 +64,7 @@ factory stop <item>
 factory resume <item> [<state>]
 factory drop <item>
 factory rebase <cl>
+factory note <item> <agent>   (the note's text on stdin)
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -66,11 +76,20 @@ const print = ({ code, lines }: Done) => {
   return code;
 };
 
+/** All of stdin, as text: a note's body. A terminal with nothing piped gives nothing, not a wait. */
+async function stdin(): Promise<string> {
+  if (process.stdin.isTTY) return "";
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(c as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 /** The command line: one verb, and its arguments. Gives back the exit code. */
 export async function main(
   argv: string[],
   env = process.env,
   read: Reader = gitReader,
+  input: () => Promise<string> = stdin,
 ): Promise<number> {
   let parsed;
   try {
@@ -118,6 +137,11 @@ export async function main(
     case "drop":
       if (!arg) break;
       return print(drop(factory, arg));
+    case "note": {
+      const agent = positionals[2];
+      if (!arg || !agent) break;
+      return print(note(factory, arg, agent, await input()));
+    }
     case "rebase":
       if (!arg) break;
       return print(await rebase(factory, arg));
@@ -151,7 +175,7 @@ export async function main(
     case "blocked":
       return print({ code: 0, lines: blocked(factory().ledger) });
     case "door":
-      return door(env, (args) => main(args, env, read));
+      return door(env, (args) => main(args, env, read, input));
     case "explain": {
       if (!arg) break;
       const f = factory();

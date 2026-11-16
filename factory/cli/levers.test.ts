@@ -18,7 +18,14 @@ import { clOf } from "../stations/plan.ts";
 import type { Reader } from "../repos/repo.ts";
 import { npmRegistryUrl } from "../repos/registry.ts";
 import { rebaseOnMain } from "../repos/git.ts";
-import { drop, rebase, resume, stop, submit } from "./levers.ts";
+import {
+  drop,
+  note as noteOn,
+  rebase,
+  resume,
+  stop,
+  submit,
+} from "./levers.ts";
 
 // The notes' main is the kinetic repo's own main: it has no remote to fetch.
 vi.mock("../repos/git.ts", async (original) => ({
@@ -613,6 +620,47 @@ describe("stop and resume", () => {
       "no item nope in the ledger",
     ]);
     expect(rebaseOnMain).not.toHaveBeenCalled();
+  });
+
+  it("note writes the operator's note for an agent that has a conversation on the item, for the loop to deliver", async () => {
+    const ledger = await building();
+    ledger.apply(
+      "fx-a",
+      { word: "pass", reason: "red", findings: [] },
+      { attempt: ledger.begin("fx-a") },
+    );
+    expect(
+      noteOn(factory, "fx-a", "da-nail", "  you have a remove tool now\n"),
+    ).toEqual({
+      code: 0,
+      lines: ["noted fx-a/da-nail: the loop places it at its next tick"],
+    });
+    expect(ledger.pendingNotes()).toMatchObject([
+      { name: "fx-a", agent: "da-nail", text: "you have a remove tool now" },
+    ]);
+  });
+
+  it("note refuses an item not in the ledger or ended, an agent with no conversation on it, and no text, and writes nothing", async () => {
+    const ledger = await building();
+    ledger.begin("fx-a");
+    expect(noteOn(factory, "nope", "da-nail", "x").lines).toEqual([
+      "no item nope in the ledger",
+    ]);
+    ledger.apply(
+      "fx-c",
+      { word: "drop", reason: "r", findings: [] },
+      "operator",
+    );
+    expect(noteOn(factory, "fx-c", "da-nail", "x").lines[0]).toMatch(
+      /fx-c is dropped: a note takes an item not ended/,
+    );
+    expect(noteOn(factory, "fx-a", "da-hammer", "x").lines).toEqual([
+      "da-hammer has no conversation on fx-a: the agents that have one are da-nail",
+    ]);
+    expect(noteOn(factory, "fx-a", "da-nail", "  \n").lines).toEqual([
+      "a note needs its text, on stdin",
+    ]);
+    expect(ledger.pendingNotes()).toEqual([]);
   });
 
   it("resume of an issue to building makes its cls match its notes at main: a new cl added, a gone one dropped, its held cls back", async () => {

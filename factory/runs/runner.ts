@@ -117,5 +117,8 @@ export async function quePasa(
     }
   };
 
-  return { run, close: () => runtime.close() };
+  const note: Runner["note"] = async (key, n) =>
+    (await runtime.note(key, n))?.status;
+
+  return { run, note, close: () => runtime.close() };
 }

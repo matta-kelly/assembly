@@ -9,6 +9,8 @@
  *   before, with a fresh budget. The operator edits the notes in between; the next attempt reads them
  * - drop <item>: the operator lets it go. It ends undone, an issue with its cls not ended, and its record stays
  * - rebase <cl>: a held cl, its branch on main as it is now, with its uncommitted change, or nothing on a conflict
+ * - note <item> <agent>: the operator's note, from stdin, to the agent's conversation on the item, which its next run
+ *   reads, starting none. The loop delivers it
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
@@ -32,6 +34,7 @@ import { type Reader, reposOn } from "../repos/repo.ts";
 import { type Rebased, rebaseOnMain } from "../repos/git.ts";
 import { runOf } from "../runs/runs.ts";
 import { forgetSetup } from "../runs/setup.ts";
+import { steps } from "../stations/index.ts";
 
 /** What a command gives back: an exit code, and the lines it prints (to stderr when it refuses). */
 export type Done = { code: number; lines: string[] };
@@ -249,6 +252,41 @@ export async function rebase(f: () => Built, name: string): Promise<Done> {
     lines: [
       `rebased ${name} onto ${r.main}, ${on}: ${r.from.slice(0, 7)} is now ${r.to.slice(0, 7)}`,
     ],
+  };
+}
+
+/**
+ * note <item> <agent>: the operator's message to the agent's conversation on the item, read by its next run as a user
+ * message before its input, and starting no run (que-pasa's note). Only the loop's process opens the conversations, so
+ * this writes the note to the ledger, and the loop's next tick delivers it. It takes an item not ended, and an agent
+ * with a conversation on it: one whose step has had an attempt on the item.
+ */
+export function note(
+  f: () => Built,
+  name: string,
+  agent: string,
+  text: string,
+): Done {
+  const { ledger } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (ends.includes(i.state))
+    return refused(`${name} is ${i.state}: a note takes an item not ended`);
+  const ran = new Set(
+    ledger
+      .attemptsOf(name)
+      .map((a) => steps.find((s) => s.from === a.step)?.agent)
+      .filter((a): a is string => a !== undefined),
+  );
+  if (!ran.has(agent))
+    return refused(
+      `${agent} has no conversation on ${name}: ${ran.size ? `the agents that have one are ${[...ran].join(", ")}` : "no agent has run on it yet"}`,
+    );
+  if (!text.trim()) return refused("a note needs its text, on stdin");
+  ledger.addNote(name, agent, text.trim());
+  return {
+    code: 0,
+    lines: [`noted ${name}/${agent}: the loop places it at its next tick`],
   };
 }
 

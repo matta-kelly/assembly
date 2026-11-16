@@ -90,6 +90,7 @@ const lander = { agent: "git-land" };
  *   is not the state's first, so a bin's fallback model takes it. It stops when `signal` aborts. A run that failed on
  *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called.
  *   `readOnly`: its worktree is mounted read-only.
+ * - note: puts the operator's note in an agent's conversation, starting no run (que-pasa's note).
  * - close: stops it, and keeps the runs still going, for the next runner on the same storage.
  */
 export interface Runner {
@@ -103,6 +104,14 @@ export interface Runner {
       readOnly: boolean;
     },
   ): Promise<{ value: unknown; usage?: Usage }>;
+  /**
+   * Puts the operator's note in a conversation, `<item>/<agent>`, for its runs to read, starting none: placed on an idle
+   * one, queued for the next step of a run going on, or undefined when no run made it. The same noteId is placed once.
+   */
+  note(
+    key: string,
+    note: { noteId: string; text: string },
+  ): Promise<"placed" | "queued" | undefined>;
   close(): Promise<void>;
 }
 
@@ -564,6 +573,28 @@ export async function loop({
       }
   }
 
+  /**
+   * Delivers each note the operator wrote (`factory note`) to its agent's conversation, through the runner, which owns
+   * the conversations: no other process opens them. The note's id is its noteId, so a crash before it is marked
+   * delivered places it once, all the same. A note that fails to deliver stays pending for the next tick.
+   */
+  async function deliver() {
+    for (const n of ledger.pendingNotes()) {
+      try {
+        const how = await runner.note(`${n.name}/${n.agent}`, {
+          noteId: String(n.id),
+          text: n.text,
+        });
+        ledger.delivered(n.id, how ?? "none: no run made the conversation");
+      } catch (e) {
+        console.error(
+          `the note ${n.id} on ${n.name}/${n.agent} was not delivered:`,
+          e,
+        );
+      }
+    }
+  }
+
   // One tick at a time: a second one would start an attempt a first one is still opening.
   let ticking = false;
   async function tick() {
@@ -572,6 +603,7 @@ export async function loop({
     try {
       await swept();
       await advance(ledger, world);
+      await deliver();
       await start();
     } finally {
       ticking = false;

@@ -265,4 +265,24 @@ describe("the factory's reports", () => {
       `     notes: ${a}`,
     ]);
   });
+
+  it("explain: the operator's notes to its agents, each delivered or pending", () => {
+    const f = compose({ home });
+    f.ledger.addIssue(issue);
+    const placed = f.ledger.addNote(
+      "is",
+      "planner",
+      "main moved\nre-read the plan type",
+    );
+    f.ledger.delivered(placed, "placed");
+    f.ledger.addNote("is", "planner", "one more");
+    const lines = explain(f.ledger, f.runs, "is");
+    expect(lines).toContainEqual("the operator's notes to its agents:");
+    expect(lines).toContainEqual(
+      expect.stringMatching(/ {2}planner {2}placed: main moved$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/ {2}planner {2}pending: one more$/),
+    );
+  });
 });

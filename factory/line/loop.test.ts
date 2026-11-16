@@ -116,11 +116,14 @@ const kept =
     return run(agent, input, o);
   };
 
-/** The runner a loop opens: `run`, and a close that keeps its runs. */
-const runnerOf = (run: Run1) => async (): Promise<Runner> => ({
-  run,
-  close: async () => undefined,
-});
+/** The runner a loop opens: `run`, a `note` that places each note, and a close that keeps its runs. */
+const runnerOf =
+  (run: Run1, note: Runner["note"] = async () => "placed") =>
+  async (): Promise<Runner> => ({
+    run,
+    note,
+    close: async () => undefined,
+  });
 
 /** A world with nothing to wait for: no repo has a file, no landed cl has a tag. */
 const idle: Omit<World, "runs" | "notes"> = {
@@ -136,12 +139,13 @@ const make = (
     concurrent?: number;
     timeoutMs?: number;
     world?: Omit<World, "runs" | "notes">;
+    note?: Runner["note"];
   } = {},
 ) =>
   loop({
     ledger,
     steps: o.steps ?? [step],
-    runner: runnerOf(run),
+    runner: runnerOf(run, o.note),
     ...o,
     world: { ...(o.world ?? idle), runs: join(dir, "runs"), notes: notes.repo },
   });
@@ -691,6 +695,50 @@ describe("a retry", () => {
     await once(l);
     await once(l);
     expect(runner.mock.calls.map((c) => c[2].retry)).toEqual([false, true]);
+  });
+});
+
+describe("the operator's notes", () => {
+  it("are each delivered once, to the agent's conversation on the item, with the note's id, before attempts start", async () => {
+    const id = ledger.addNote("c", "fake", "you have a remove tool now");
+    const order: string[] = [];
+    const note = vi.fn<Runner["note"]>(async () => {
+      order.push("note");
+      return "placed";
+    });
+    const run = vi.fn<Run1>(async () => {
+      order.push("run");
+      return { value: done("- b1: a.test.ts") };
+    });
+    const l = await make(run, { note });
+    await l.tick();
+    await l.settled();
+    expect(note).toHaveBeenCalledExactlyOnceWith("c/fake", {
+      noteId: String(id),
+      text: "you have a remove tool now",
+    });
+    expect(order).toEqual(["note", "run"]);
+    expect(ledger.notesOf("c")).toMatchObject([{ id, delivered: "placed" }]);
+    await l.tick();
+    await l.settled();
+    expect(note).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a note that failed to deliver for the next tick, and records one with no conversation", async () => {
+    const failing = ledger.addNote("c", "fake", "first");
+    const orphan = ledger.addNote("c", "gone", "second");
+    const note = vi.fn<Runner["note"]>(async (key) => {
+      if (key === "c/fake") throw new Error("the runtime is closing");
+      return undefined;
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const l = await make(gives(done("x")), { note });
+    await l.tick();
+    await l.settled();
+    expect(ledger.pendingNotes().map((n) => n.id)).toEqual([failing]);
+    expect(ledger.notesOf("c").find((n) => n.id === orphan)?.delivered).toMatch(
+      /^none/,
+    );
   });
 });
 
