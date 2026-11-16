@@ -1,17 +1,30 @@
 /**
- * The nail step: ready to red. da-nail writes a test for each promise in the cl's Promises, each failing at its assertion.
- * The check confirms each promise has a test in a file that exists, then runs the cl's test command on the worktree as
- * it is, and the run decides where the cl goes: tests that do not load go back to da-nail; tests that fail at an
- * assertion go to da-hammer, there is code to write (red.sh in loke's v1 gates); tests that pass go to the review, the
- * code meets them. One rule on every pass: a cl comes back here (from da-hammer, a review, or the operator) with its code in
- * the worktree, and its fixed tests may pass at once. A test that passes because it checks nothing is the review's to
- * find.
+ * The nail step: ready to red. da-nail writes a test for each promise in the cl's Promises. The check confirms each
+ * promise has a test in a file that exists, then runs the cl's test command on the worktree as it is, and the run and
+ * the cl's kind (its note's `shape.change`) decide where the cl goes. Tests that do not load go back to da-nail.
+ * - a behavior cl: its tests fail at an assertion, so there is code to write: to da-hammer (red.sh in loke's v1 gates).
+ *   Tests that pass go to the review, the code meets them (met). One rule on every pass: a cl comes back here (from
+ *   da-hammer, a review, or the operator) with its code in the worktree, and its fixed tests may pass at once
+ * - a structure cl: its tests pin what the code does now (characterization tests, Feathers), so they pass, and the cl
+ *   goes to da-hammer for the refactor. A test that fails at an assertion pins nothing true: back to da-nail
+ * A test that passes because it checks nothing is the review's to find.
  */
 
 import { z } from "zod";
 import { itemsIn, notesOf } from "../repos/notes.ts";
 import type { Ledger } from "../line/ledger.ts";
 import { type Message, say, type Step } from "../line/step.ts";
+import { noteOf } from "./plan.ts";
+
+/** What a cl changes, by its note's shape: what it does, or only how the code is shaped (Beck, *Tidy First?*). */
+export type Change = "behavior" | "structure";
+
+/** A cl's kind, from its note: structure only when its shape says so, else behavior, the strict rule. */
+export function changeOf(note: string): Change {
+  const shape = noteOf(note).fields["shape"] as
+    { change?: unknown } | undefined;
+  return shape?.change === "structure" ? "structure" : "behavior";
+}
 
 const done = z.object({
   word: z.literal("done"),
@@ -68,14 +81,26 @@ const notLoaded =
 // a test that throws before it asserts fails too.
 const assertion = /AssertionError|ERR_ASSERTION|expect\(received\)/;
 
-/** Where a test run sends the cl: green to its review (met), red at an assertion to its code, else back to da-nail. */
-export function judge(code: number, out: string): Message {
+/**
+ * Where a test run sends the cl. A behavior cl: green to its review (met), red at an assertion to its code. A structure
+ * cl: green to its code, for the refactor, and red at an assertion back to da-nail. Anything else back to da-nail.
+ */
+export function judge(code: number, out: string, change: Change): Message {
   const tail = out.slice(-400);
   if (code === 0)
-    return { ...say("pass", "green: the code meets the tests"), met: true };
+    return change === "structure"
+      ? say("pass", "green: the behavior is pinned, for the refactor")
+      : { ...say("pass", "green: the code meets the tests"), met: true };
   if (notLoaded.test(out))
     return say("retry", `red before any assertion: ${tail}`, "check_failed");
-  if (assertion.test(out)) return say("pass", "red at an assertion");
+  if (assertion.test(out))
+    return change === "structure"
+      ? say(
+          "retry",
+          `red at an assertion: a structure cl's tests pin the code as it is, so each passes now: ${tail}`,
+          "check_failed",
+        )
+      : say("pass", "red at an assertion");
   return say(
     "retry",
     `red, but no assertion failure is shown: ${tail}`,
@@ -89,7 +114,8 @@ export const nail: Step<Done> = {
   done,
   about: ["cl", "plan", "issue"],
   async check(r, d, at) {
-    const want = promises(notesOf(r).text(r.note)).length;
+    const note = notesOf(r).text(r.note);
+    const want = promises(note).length;
     const have = new Set(d.tests.map((t) => t.promise));
     for (let b = 1; b <= want; b++) {
       if (!have.has(b))
@@ -112,7 +138,7 @@ export const nail: Step<Done> = {
         "invalid_output",
       );
     const { code, out } = await at.test();
-    const m = judge(code, out);
+    const m = judge(code, out, changeOf(note));
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;
   },
 };

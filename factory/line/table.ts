@@ -68,7 +68,8 @@ export const table: Record<
   },
   cl: {
     waiting: { pass: "ready", retry: "waiting" },
-    // met: da-nail's tests already pass, so the code meets them and the cl goes to its review (factory/stations/nail.ts)
+    // met: a behavior cl's tests already pass, so the code meets them and the cl goes to its review. A structure cl's
+    // pass, its tests green as they must be, is a plain pass: to da-hammer for the refactor (factory/stations/nail.ts)
     ready: { pass: "red", met: "green", retry: "ready" },
     red: { pass: "green", retry: "red" },
     green: { pass: "approved", retry: "green" },

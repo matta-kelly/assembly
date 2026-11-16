@@ -209,7 +209,7 @@ The machine: what moves jobs from station to station. Its code is in two folders
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code, or da-nail's tests that pass at once: the code there already meets them) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 		- the operator's levers: stop, the operator's escalate of any item that moves; resume, a held item back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from the operator's move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item the operator lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a held cl put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is the operator's to judge
 	- a step: one per state, with its agent, its result's shape and its check (`factory/stations/*.ts`, listed in `factory/stations/index.ts`)
-		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (the tests run to an assertion: red to hammer, green to review), hammer (no test changed, then green), review (still green), accept (the full suite green)
+		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (by the cl's shape: a behavior cl's tests red at an assertion go to hammer, and green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test changed, then green), review (still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
 		- the builders: nail and hammer, in the cl's one worktree, the whole repo. The cl's Core context is where its change lives: they start there, and read wider only when the work needs it. The instruction holds their tokens, and `factory top` shows them
 			- a path of the Core context: a file or a folder, a plain path from the repo's root
@@ -358,7 +358,6 @@ What it keeps.
 
 ## Not built
 
-- the cl's shape in nail: every new test must be red at an assertion, so a structure cl, whose tests pass now, cannot pass
 - an issue whole on the server: from submit to accepted, with no step from the operator. A cl has landed there, never a whole issue
 - an agent's conversation across attempts in que-pasa's runtime: proven in the unit tests only, on a stand-in runner
 - the command line's `ask`
