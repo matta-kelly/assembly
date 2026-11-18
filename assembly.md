@@ -97,7 +97,7 @@ Each level splits the work on the way down, and designs the check it will face o
     │        ╲                    ╱
     │          build: nail → hammer
     │
-    ├── the split: down the left side (issue → plan → cls): the planner, checked by plan-review
+    ├── the split: down the left side (issue → plan → cls): most often written outside the factory, by the operator's agent; else the planner, checked by plan-review
     ├── the build: the point, and up to main (each cl: da-nail, da-hammer, cl-review, then the dock)
     └── acceptance: the top of the right side (deploy, prove, validate, keep)
 ```
@@ -111,7 +111,7 @@ Each level splits the work on the way down, and designs the check it will face o
 
 The issue goes down the left side, each level a state, made by one role and checked by another before the next starts. A state is the bar, its type note what good looks like; a role is the method that meets it ([[terms]]).
 - [[issue]]: a need and the promises that meet it, born from a signal (a bug, an idea, a breakage). Made by the operator
-- [[plan]]: the issue cut into cls, only when it takes more than one. Made by the [[daworks/assembly/workspace/agents/planner|planner]], from a known way to cut its kind of change ([[playbook#Cutting a change]]); checked by [[daworks/assembly/workspace/agents/plan-review|plan-review]] before any cl starts
+- [[plan]]: the issue cut into cls, only when it takes more than one. Made most often outside the factory, by the operator's agent; else by the [[daworks/assembly/workspace/agents/planner|planner]], from a known way to cut its kind of change ([[playbook#Cutting a change]]); checked by [[daworks/assembly/workspace/agents/plan-review|plan-review]] before any cl starts
 - [[cl]]: one cut at its surface, its promises, seam and context, the spec its builders work from alone. Made and checked with its plan
 
 ## The build
@@ -205,7 +205,7 @@ The machine: what moves jobs from station to station. Its code is in two folders
 		- an issue's repos: the ones its cls may change. By default every repo on crate under `ASSEMBLY_REPOS` (lot when it is not set; a git repo with a `server` remote) but the notes repo, and the planner picks among them; `factory submit --repo` narrows them. Each repo's image, full suite and setup are read from the item's worktree at each attempt (`factory/repos/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, which crate makes from the worktree (`crate dev-image local`) in the orchestrator, from the host's install mounted read-only there, so a repo with no copy of the script is taken; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile. A repo not on crate breaks the item's contract (`contract_invalid`); crate's failure is a dependency (`missing_dependency`)
 			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
 			- the issue's own steps: each repo at `/work/<repo>`, in a plain Node image, since they only read; acceptance runs each repo's full suite
-		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review can send it back to the planner, and so can a plan land the notes' check refuses. An issue the operator submits with its cl notes enters at building
+		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review can send it back to the planner, and so can a plan land the notes' check refuses. The main path: an issue the operator submits with its cl notes enters at building, past the planner and plan-review
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code, or da-nail's tests that pass at once: the code there already meets them) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 		- the operator's levers: stop, the operator's escalate of any item that moves; resume, a held item back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from the operator's move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item the operator lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a held cl put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is the operator's to judge; and note, the operator's message to an agent's conversation on an item, which its next run reads, starting none: the loop delivers it through que-pasa's note, since only its process opens the conversations
 	- a step: one per state, with its agent, its result's shape and its check (`factory/stations/*.ts`, listed in `factory/stations/index.ts`)
@@ -344,7 +344,7 @@ What it keeps.
 	- on the laptop: `just factory <verb>` runs the verb on the server through its door, with its exit code and output
 	- each command: a message through the one door, as the operator
 	- `submit <issue> [--repo <path>]...`: the issue's note, `_well/<issue>.md`, as the notes' main holds it now, read with git, never from a working tree
-		- with cl notes that belong to it: the operator's spec, whole, each cl new, its fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is. It enters at building
+		- with cl notes that belong to it: the operator's spec, whole, each cl new, its fields from its frontmatter and the plan's Phases naming exactly its cls in their phases, and checked by spec lint, as the planner's spec is. It enters at building: the main path
 		- with none: it enters at open, for the planner
 	- `stop <item>`: the operator's escalate of an item that moves. Its open attempt finishes, and nothing new starts on it, or on an issue's cls
 	- `resume <item> [<state>]`: a held item, escalated or raised, to a station of its kind, by default where it was ([[#The plant]], the operator's levers)

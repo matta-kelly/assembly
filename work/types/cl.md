@@ -22,7 +22,7 @@ What it keeps: the decision the cut hides from the other cls, what it must not c
 
 ## Core context
 
-Where its builders start: the paths the planner found, so they spend no turns finding them again. A starting point, not a wall: they read wider when the work needs it.
+Where its builders start: the paths its writer found, so they spend no turns finding them again. A starting point, not a wall: they read wider when the work needs it.
 
 - the paths: every file or folder conceivably relevant to the cut, from the repo's root. Err wide: an extra path costs tokens, a missing one costs turns
 - each path: one line, what it is and why it is here: "`factory/line/ledger.ts`: the ledger, where an attempt's record is kept"
