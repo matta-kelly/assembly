@@ -5,7 +5,7 @@
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { accept } from "../../factory/stations/accept.ts";
-import { resultOf } from "../../factory/line/step.ts";
+import { submitOf } from "./submit.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 import { types } from "./types.ts";
@@ -18,5 +18,5 @@ export const issueReviewer = (model: string) =>
     tools: [...readTools, execute],
     // what an issue note holds, its Done above all, which it judges the work against: always in its context
     middleware: [types("terms", "issue", "plan", "cl")],
-    output: z.object({ result: resultOf(accept) }),
+    output: z.object({ result: submitOf(accept) }),
   });

@@ -192,6 +192,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 		- raise: a cl's escalates its issue to the operator, with its findings, whoever made the spec (`advance.ts`). The operator fixes the notes, and resumes it
 		- escalation: none of an escalated issue's cls starts an attempt, and a raised cl blocks the phases after it, until the operator answers
 	- routing: `factory/line/table.ts`, as data: each move, `owner`, the state of each artifact's owner, and the highest artifact a back's findings name
+	- an agent's output: its submit tool, its one way out. Its form is its step's result, done or back, each exit described by where it takes the item and what it is for, written from the routing (`workspace/agents/submit.ts`). A role note says only that its output goes through submit, so an exit used wrong is fixed in the form, not in a role note
 	- the one door: `ledger.apply`, which every message goes through, whoever sends it
 	- the record: the ledger's events, one per message, appended and never edited. An item's state is their projection, moved in the same transaction
 	- an agent's input: its spec, then its messages, the one that brought the item to its state and each since (`ledger.inbox`). Its product it reads in the worktree

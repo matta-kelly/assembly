@@ -6,7 +6,7 @@
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { nail } from "../../factory/stations/nail.ts";
-import { resultOf } from "../../factory/line/step.ts";
+import { submitOf } from "./submit.ts";
 import { fileTools } from "@mku1tra/que-pasa/sandbox";
 import { remove } from "../tools/remove.ts";
 import { test } from "../tools/test.ts";
@@ -22,5 +22,5 @@ export const daNail = (model: string) =>
     tools: [...fileTools, remove, test],
     // what a test is, and what a good one is: always in its context
     middleware: [types("terms", "cl", "tests")],
-    output: z.object({ result: resultOf(nail) }),
+    output: z.object({ result: submitOf(nail) }),
   });

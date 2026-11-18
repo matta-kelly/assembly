@@ -97,14 +97,16 @@ export interface Message {
   met?: boolean; // a pass whose tests already pass: the code meets them, so the table takes it past the code (table.ts)
 }
 
-/** The back shape: what an agent hands back in place of its done result, findings about the artifacts it may name. */
-export function back(about: Artifact[]) {
+/**
+ * The back shape: what an agent hands back in place of its done result, findings about the artifacts it may name. An
+ * agent's submit form describes each `about` by its route (workspace/agents/submit.ts).
+ */
+export function back(about: Artifact[], routes?: string) {
+  const which = z.enum(about as [Artifact, ...Artifact[]]);
   return z.object({
     word: z.literal("back"),
     findings: z
-      .array(
-        finding.extend({ about: z.enum(about as [Artifact, ...Artifact[]]) }),
-      )
+      .array(finding.extend({ about: routes ? which.describe(routes) : which }))
       .min(1),
   });
 }

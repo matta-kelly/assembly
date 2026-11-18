@@ -5,7 +5,7 @@
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { planReview } from "../../factory/stations/plan-review.ts";
-import { resultOf } from "../../factory/line/step.ts";
+import { submitOf } from "./submit.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 import { types } from "./types.ts";
@@ -20,5 +20,5 @@ export const planReviewer = (model: string) =>
     middleware: [
       types("terms", "issue", "plan", "cl", "changelist", "playbook"),
     ],
-    output: z.object({ result: resultOf(planReview) }),
+    output: z.object({ result: submitOf(planReview) }),
   });
