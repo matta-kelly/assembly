@@ -21,7 +21,7 @@ describe("an agent's types", () => {
   // memory leaves out a source that is not there, and says nothing: so each one an agent names must be a note
   it.each([
     ["da-nail", daNail, ["terms", "cl", "tests"]],
-    ["da-hammer", daHammer, ["terms", "cl", "code"]],
+    ["da-hammer", daHammer, ["terms", "cl", "code", "tests"]],
     ["cl-review", clReview, ["terms", "code", "tests", "changelist", "cl"]],
     [
       "planner",
