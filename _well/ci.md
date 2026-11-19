@@ -50,8 +50,8 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 *The same check, on the change's branch, so the commit main takes is the commit that was checked*
 
-- on crate: presubmit and the merge queue are one run, the queue's check of the change on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack, deeotee, landl-que, landl-db, landl-dash, monkeydo and loke (dazoo's `crate.env`, `REPOS`)
-- not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
+- on crate: presubmit and the merge queue are one run, the queue's check of the change on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack, deeotee, landl-que, landl-db, landl-dash, monkeydo, loke and dazoo (dazoo's `crate.env`, `REPOS`)
+- not on crate: `checks.yml` in GitHub Actions, below. monkeyimage keeps it as a required check. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
 
 ### checks.yml
 
@@ -93,6 +93,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 	- after main moves: postsubmit, when the repo names one. Once main is green, crate copies it to GitHub, with the repo's own deploy key, and releases it ([[#Postsubmit]]). A repo with no postsubmit is green as it lands
 	- the record: each check, land, postsubmit, copy and release is a run in `~/git/<repo>.git/crate/log.jsonl`, one JSON line per step with its seconds, so a slow check says where its time went, and a land says how long it waited in the queue. Queried with `jq` or `duckdb` (crate's README, The record)
 	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/etc/crate/crate.env`), and applied by `crate-apply.timer` every five minutes through `crate apply`, which also starts a worker that stopped and a publish not yet done
+	- the break-glass: the way a fix reaches main when the queue is down. Turn off the ruleset on GitHub's main, push the fix there, and turn the ruleset on again; then, as core, move the bare repo's main to GitHub's (`git fetch github main`, then `git update-ref refs/heads/main FETCH_HEAD`). crate's copy to GitHub is a plain push, so until the two agree every copy fails. dazoo needs it most, since it declares the server: [[dazoo#Delivery]]
 - a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
 
 ### Land a change
@@ -105,9 +106,9 @@ CI: the line of stations a change passes, from its workspace to a released versi
 - a repo with a remote named `local`, a bare repo on this machine: `git land` takes the repo's lock, rebases onto `local/main` and pushes there, with no check and no call to GitHub. No repo has one today. A rebase conflict stops it: resolve it and `git land` again
 	- no check runs, so run `just check` yourself before a land that matters, and on main before a release tag
 	- GitHub's main is behind until a sync pushes `local/main` to it. It is a script, not a built step yet
-- any other repo: the rest of this section. A repo in `checked` in `git-land` (dazoo, landl-db, lotus-dash) keeps its check. Any other lands with a plain push and no check
+- any other repo: the rest of this section. A repo in `checked` in `git-land` (landl-db, lotus-dash) keeps its check. Any other lands with a plain push and no check
 
-The rest of this section is the path through the gate, as dazoo runs it.
+The rest of this section is the path through the gate, as monkeyimage runs it.
 
 - main: the commit on GitHub, `origin/main`. A checkout is a copy and can be behind it: a landing from another machine, or one `git land` could not fast-forward. Read main with `git fetch`, then `git show origin/main:<path>`, or from a workspace made from `origin/main`
 - where: code is made in its workspace ([[workspace]]). A note is edited in its vault checkout, checked there (`just check`, the repo's own lint), committed there, and landed from there. `git land` fast-forwards the repo's checkout after it lands, so the checkout never falls behind
