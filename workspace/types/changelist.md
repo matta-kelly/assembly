@@ -23,6 +23,7 @@ Like an issue, a CL is a piece of intent plus the check that says it is met: its
 
 - one thing: "a minimal change that addresses just one thing", usually one part of a feature, not the whole feature. One sentence of done
 - small: around 100 lines, easy to review. When unsure, too small beats too large
+	- the limit: a few hundred lines, past which review quality falls off (Cohen, *Best Kept Secrets of Peer Code Review*, 2006). A change past it is cut again
 - tested: it carries its own tests, one for each promise it adds or changes ([[terms#promise]], [[tests]])
 - understood alone: everything the reviewer needs is in the CL, its description, the codebase, or a CL they already reviewed
 - stands alone: "the system will continue to work well for its users and for the developers after the CL is checked in"

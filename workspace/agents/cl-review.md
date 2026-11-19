@@ -42,20 +42,19 @@ One pass, whole, in this order, and every finding goes back in it: a cl sent bac
 - the cases: for each promise, the list of its cases, made before you read a test and kept in your notes. The list is finite, so the pass is complete by its making and not by luck
 - forward: each case to its test
 	- no test: a finding about the tests, with the case
-	- a test that cannot fail, as one that asserts too little or the wrong thing: a finding about the tests. Where a reading leaves doubt, break the code in a copy and see the test fail (a mutant)
+	- a test that may not fail, where a reading leaves doubt: break the code in a copy and see the test fail (a mutant)
 	- a case missed for one member of a class is missed for each: one finding names every member
-	- a test at the wrong altitude, as a unit test for an issue's promise: a finding about the tests
 - backward: each line of the new code to a test, by the repo's coverage tool where it has one, else by reading
 	- a line no test reaches: the code is more than the promises need, so it goes (da-hammer); or its Promises miss one, a raise. Never a test for a promise the cl does not make
-	- a test no case needs, a duplicate, or a test added beside one it should have changed: a finding about the tests
-- the code, beside the trace
-	- the Seam: what other code builds against (exports, formats, paths, the direction of dependencies) still works for its users, found by grep. A seam that changed is a raise, even when the change is better
-	- right: the pattern of the cl's exemplar and the repo, types that rule out illegal states, checks where data crosses a boundary
-	- clean: names, duplication, complexity, and comments and docs that say what is true (the smells: Fowler, *Refactoring*, ch. 3)
-	- integrated: the change meets [[code#Design]], integrated. A layer on old code, where a reshape was the fit, is a finding about the code
+	- a test no case needs, or a duplicate: a finding about the tests
+- the bar: the change against the notes its builders worked to, section by section, never against a list of your own. A miss is a finding about the tests or the code, whichever its author wrote
+	- the tests: [[tests]], its Characteristics, Kinds, A good test and Cases
+	- the code: [[code]], its Design, Layout, Naming, Writing and Running, and the pattern of the cl's exemplar
+	- the change: [[changelist#Good CL]]
 	- a mechanical miss: in notes, the lint rule that would catch it, so it becomes a check and no later review looks for it again
+- the Seam: what other code builds against (exports, formats, paths, the direction of dependencies) still works for its users, found by grep. A seam that changed is a raise, even when the change is better
 - the diff: every file in it is part of the change. A scratch file (a draft, a probe, a copy) is a finding, about the tests or the code, whichever its author wrote
-- the cut: a diff past a few hundred lines (review quality falls off: Cohen, *Best Kept Secrets of Peer Code Review*, 2006), or two things in one, is a raise. Send back what you have
+- the cut: a change past the limit of [[changelist#Good CL]], or two things in one, is a raise. Send back what you have
 
 ## Not yours
 
