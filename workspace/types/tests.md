@@ -68,6 +68,7 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 
 - its expected result comes from the promise
 - it goes through the public surface, and checks the result, not the steps
+- as small as the change: each promise is tested at the smallest place that decides it. A small change whose test needs a large harness says the seam is wrong
 - it is named for the promise: "does X when Y"
 - straight-line: no loops, no conditions, expected values written out
 	- the exception: a property-based test, for a rule over a whole domain ("sorting never loses an element"). Only next to at least one plain example test, which says what the promise is
@@ -77,6 +78,7 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 		- a limit (a timeout, a retry count) keeps its real value: only the test of that limit shortens it, since a short limit fails at random under the load of a parallel suite
 - DAMP, not DRY: clear beats free of repetition
 - seen to fail: before the code exists, or by breaking the code once on purpose
+	- for the right reason: before the code, it fails only because the promised behaviour is missing. A test red for a wrong reason (a wrong path, a wrong expectation, its own mistake) fails correct code too
 	- each case at its own assertion: a failure ends a test, so a case after it was never seen. A case is a test, or a row of a table, never a second block in one test
 - the only test that fails for at least one fault put in the code
 - it changes only when its promise changes; it goes only when another test fails for every fault it catches
@@ -102,6 +104,18 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 
 *each repo uses the standard of its own language, and nothing of ours is laid over it*
 
+- TypeScript (Node)
+	- Vitest
+		- config: `vitest.config.ts`, at the repo root
+		- command: `npx vitest run`, from the repo's `scripts/check.sh`
+		- files: `*.test.ts`, beside the code they test
+		- an end-to-end test: `*.e2e.test.ts`, skipped unless its environment is set, and run by its own recipe
+- Go
+	- `go test ./...`
+	- files: `*_test.go`, beside the package they test
+- shell
+	- a test script: `test/<what>.test.sh`, run by the repo's check, with its helpers in `test/lib.sh`
+	- checked by shellcheck, like the scripts it tests
 - Next.js
 	- unit: Vitest
 		- config: `vitest.config.mts`, at the repo root

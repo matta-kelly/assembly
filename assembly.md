@@ -27,6 +27,7 @@ assembly: the software factory. The process every change moves through, from a s
 	- the work's: [[issue]], [[plan]] and [[cl]], the type notes of `@mku1tra/work`, in `work/types/`
 	- the factory's, in `workspace/types/`: [[tests]] and [[code]], what the change is judged by; [[changelist]], one change to main; [[playbook]], a proven way to cut or build one kind of change; [[lint]], the check that does not run code
 	- [[terms]]: the words they are written in, each with one meaning
+	- [[bench]]: the sandbox a builder works in, and what happens to what it leaves there
 - the roles: the method that meets a state, each an agent's instructions, in `workspace/agents/`: [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]], [[daworks/assembly/workspace/agents/da-nail|da-nail]], [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], [[daworks/assembly/workspace/agents/cl-review|cl-review]], [[daworks/assembly/workspace/agents/issue-review|issue-review]]
 - [[kinetic]]: the work that moves through it, as notes
 

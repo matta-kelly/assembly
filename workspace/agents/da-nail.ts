@@ -21,6 +21,6 @@ export const daNail = (model: string) =>
     // the cl's worktree, whole (add, edit, remove), and its tests: no shell, so a builder runs only its tests
     tools: [...fileTools, remove, test],
     // what a test is, and what a good one is: always in its context
-    middleware: [types("terms", "cl", "tests")],
+    middleware: [types("terms", "bench", "cl", "tests")],
     output: z.object({ result: submitOf(nail) }),
   });

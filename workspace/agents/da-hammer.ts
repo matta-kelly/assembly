@@ -21,6 +21,6 @@ export const daHammer = (model: string) =>
     // the cl's worktree, whole (add, edit, remove), and its tests: no shell, so a builder runs only its tests
     tools: [...fileTools, remove, test],
     // how code is written here, and what a good test is, so it can tell a wrong test: always in its context
-    middleware: [types("terms", "cl", "code", "tests")],
+    middleware: [types("terms", "bench", "cl", "code", "tests")],
     output: z.object({ result: submitOf(hammer) }),
   });
