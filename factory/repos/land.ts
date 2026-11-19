@@ -14,7 +14,8 @@
  * - rebase the cl's branch onto main as the land target has it now. A conflict is a back about the plan, since keeping
  *   the cls of one phase apart is the plan's work, and main does not move
  * - a cl whose change main holds already passes as it is: a land a stop cut off, after its push, is not landed twice
- * - when main moved under the cl, run its test command on the rebased tree. A red is a back about the code, and the
+ * - when main moved under the cl, run its full suite on the rebased tree, in a workspace of its own, crate's, up for
+ *   that run alone (factory/runs/workspace.ts). A red is a back about the code, and the
  *   cl's branch stays on the rebased tree, so da-hammer works on the code main will hold
  * - `git land`, which pushes to main through the repo's gate, as the operator. A land it refuses is a retry
  * On a pass, the cl's branch is the commit main took, which the land gives back. A push to GitHub is authenticated by
@@ -24,7 +25,7 @@
 import type { Message, Run, TestRun } from "../line/step.ts";
 import { mainOf, targetOf } from "./git.ts";
 import { must, sh } from "../sh.ts";
-import { runTests } from "../runs/tests.ts";
+import { down, runTests, up } from "../runs/workspace.ts";
 
 /**
  * A land's outcome: its message, the files the cl changed, the commit main took on a pass, and the test run it made,
@@ -206,7 +207,12 @@ export async function land(r: Run, signal?: AbortSignal): Promise<Land> {
   const { tip } = step;
   let ran: TestRun | undefined;
   if (base !== tip) {
-    ran = await runTests(r, signal);
+    await up(r, signal);
+    try {
+      ran = await runTests(r, signal);
+    } finally {
+      await down(r);
+    }
     if (ran.code !== 0)
       return {
         files,

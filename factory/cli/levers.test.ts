@@ -530,12 +530,9 @@ describe("stop and resume", () => {
     expect((await go("fx-a")).lines[0]).toMatch(/attempt open: it ends first/);
   });
 
-  it("rebase puts a held cl on main, as the operator, in a message that moves nothing, and the next attempt sets up again", async () => {
+  it("rebase puts a held cl on main, as the operator, in a message that moves nothing", async () => {
     const ledger = await building();
     stop(factory, "fx-a");
-    const setup = join(home, "factory", "runs", "fx", "cl", "a", "setup.done");
-    mkdirSync(join(setup, ".."), { recursive: true });
-    writeFileSync(setup, "");
     vi.mocked(rebaseOnMain).mockResolvedValueOnce({
       moved: "yes",
       main: "server/main",
@@ -551,7 +548,7 @@ describe("stop and resume", () => {
     });
     expect(vi.mocked(rebaseOnMain).mock.lastCall?.[0]).toMatchObject({
       name: "fx-a",
-      work: join(home, "factory", "runs", "fx", "cl", "a", "work"),
+      work: join(home, "factory", "runs", "fx", "cl", "a", "fx-a"),
     });
     expect(ledger.item("fx-a").state).toBe("escalated");
     expect(ledger.events("fx-a").at(-1)).toMatchObject({
@@ -562,7 +559,6 @@ describe("stop and resume", () => {
       reason:
         "the operator rebased it onto server/main, 3 commits on, at bbbbbbb",
     });
-    expect(existsSync(setup)).toBe(false);
     // a rebase is no move: resume still takes the cl back to where it was stopped
     expect((await go("fx-a")).lines).toEqual(["resumed fx-a, at ready"]);
   });

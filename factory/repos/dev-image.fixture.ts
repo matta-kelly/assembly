@@ -24,6 +24,16 @@ LABEL org.opencontainers.image.source=https://github.com/assembly-e2e/${repo}
 }
 
 /**
+ * The dev image of an e2e repo with no packages: node, and nothing of the checkout. Its crate.toml has no setup.
+ */
+export const plainContainerfile = (repo: string): string =>
+  `FROM docker.io/library/node:22.23.4-slim\nLABEL org.opencontainers.image.source=https://github.com/assembly-e2e/${repo}\n`;
+
+/** The crate.toml of an e2e repo with no packages, checked and worked in its plain dev image. */
+export const plainToml = (repo: string): string =>
+  `crate = "3"\nname = "${repo}"\nimage = "dev"\n\n[dev]\ninputs = [".crate/Containerfile"]\n`;
+
+/**
  * The crate.toml of an e2e repo checked in its dev image: crate takes the image's name and its inputs from it, and
  * runs its [tools] setup in a new image with no network, its smoke.
  */

@@ -12,11 +12,10 @@ import type { Run } from "../line/step.ts";
 import { branchOf } from "./git.ts";
 import { land } from "./land.ts";
 import { landTarget } from "./land-target.fixture.ts";
+import { plainContainerfile, plainToml } from "./dev-image.fixture.ts";
 
 const git = (repo: string, ...args: string[]) =>
   execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-
-const image = "docker.io/library/node:22.23.4-slim";
 
 describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
   let dir: string;
@@ -26,7 +25,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
   const onMain = (path: string) => git(bare, "show", `main:${path}`);
 
   /** The cl's one worktree, which every attempt of it, its land too, works in. */
-  const workOf = (cut: string) => join(dir, "runs", "is", "cl", cut, "work");
+  const workOf = (cut: string) =>
+    join(dir, "runs", "is", "cl", cut, `is-${cut}`);
 
   /** A cl's passed work: its branch and worktree, made from main as the target has it, with `files` in one commit. */
   const built = (cut: string, files: Record<string, string>) => {
@@ -62,9 +62,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
       note: `_well/is-${cut}.md`,
       notes: { repo: "", commit: "" },
       repo,
-      image,
       test: `node --test test/${cut}.test.mjs`,
-      setup: "",
       dir: at,
       work: workOf(cut),
     };
@@ -80,6 +78,12 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
     mkdirSync(repo);
     git(repo, "init", "-q", "-b", "main");
     writeFileSync(join(repo, "README"), "a repo\n");
+    writeFileSync(join(repo, "crate.toml"), plainToml("repo"));
+    mkdirSync(join(repo, ".crate"));
+    writeFileSync(
+      join(repo, ".crate", "Containerfile"),
+      plainContainerfile("repo"),
+    );
     mkdirSync(join(repo, "src"));
     writeFileSync(join(repo, "src", "value.mjs"), "export const value = 1;\n");
     git(repo, "add", "-A");

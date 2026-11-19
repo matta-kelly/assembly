@@ -9,7 +9,7 @@
  *   a chat span per model call and an execute_tool span per tool call, with the messages (content is on). It does so
  *   through the OpenTelemetry API, under the span that is active when the run starts.
  * - the attempt span is the root, and holds what only assembly knows: the issue, cl, attempt, step and word, cause
- *   and cost, the end commit and the sandbox's image, and links to the runs a review judged. Its ids are made when the
+ *   and cost, the end commit and the workspace's image, and links to the runs a review judged. Its ids are made when the
  *   attempt begins and kept in the ledger, so every process that works on the attempt runs under the same span, and
  *   the span itself is written once, when the attempt ends: a crash cannot lose it.
  * - the check span, a child of the attempt span: the test run the step's check made.
@@ -190,7 +190,7 @@ export interface Outcome {
   usage?: Usage;
   error?: string;
   commit?: string; // the worktree's HEAD when the attempt ended
-  imageId?: string; // the sandbox image's id: with the commit, the run's whole environment
+  image?: { name: string; id: string }; // the workspace's image: with the commit, the run's whole environment
   judged: SpanRef[];
   resumed?: number; // how many times the attempt was taken up by a new orchestrator
 }
@@ -207,14 +207,16 @@ export function endAttempt(s: SpanRef, o: Outcome) {
     "assembly.agent": o.agent,
     "assembly.word": o.message.word,
     "assembly.reason": o.message.reason,
-    // a span attribute, not the resource's: one process runs attempts of many repos, each on its own image
-    [ATTR_CONTAINER_IMAGE_NAME]: r.image,
   };
   if (r.kind === "cl") attributes["assembly.cl.id"] = r.name;
   if (o.message.cause) attributes["assembly.cause"] = o.message.cause;
   if (o.usage?.cost !== undefined) attributes["assembly.cost"] = o.usage.cost;
   if (o.commit) attributes["assembly.commit"] = o.commit;
-  if (o.imageId) attributes[ATTR_CONTAINER_IMAGE_ID] = o.imageId;
+  // span attributes, not the resource's: one process runs attempts of many repos, each on its own image
+  if (o.image) {
+    attributes[ATTR_CONTAINER_IMAGE_NAME] = o.image.name;
+    attributes[ATTR_CONTAINER_IMAGE_ID] = o.image.id;
+  }
   if (o.resumed) attributes["assembly.resumed"] = o.resumed;
   const links: Link[] = o.judged.map((j) => ({
     context: { ...j, traceFlags: 1 },

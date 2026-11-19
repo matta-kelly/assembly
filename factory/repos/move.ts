@@ -3,17 +3,32 @@
  * package at that version in the cl's worktree (git.ts, made from main when the cl has none yet), from `registry`, in a
  * container with the network, and commits the changed `package.json` and lockfile on the cl's branch as
  * `build(deps): <package> to <version>`: a build commit asks no version of its own (crate's bump reads the type). Its
- * attempts' setup stays offline: the move alone has the network. One package per call; advance calls it for every
+ * attempts' workspaces stay offline: the move alone has the network. One package per call; advance calls it for every
  * version the cl's repo needs.
  */
 
 import type { Tree } from "../line/step.ts";
 import { worktree } from "./git.ts";
-import { online } from "../runs/sandbox.ts";
 import { must, sh } from "../sh.ts";
 
 /** The image npm runs in: node, with the network. A repo's dev image is offline, for its attempts. */
 const image = "docker.io/library/node:22.23.4-slim";
+
+/**
+ * What bounds the move's container: the host's user as the image's node (uid 1000), so what it writes in the worktree
+ * is the host user's, and a share of the CPU.
+ */
+const online = [
+  "--user",
+  "1000:1000",
+  "--cpus=3",
+  "--userns=keep-id:uid=1000,gid=1000",
+  "-e",
+  "HOME=/home/node",
+  "--cpu-shares=256",
+  "--security-opt",
+  "label=disable",
+];
 
 /** The most a move may take, in seconds. */
 const limitS = 10 * 60;

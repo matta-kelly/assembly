@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { review } from "./review.ts";
 import { resultOf, type Run } from "../line/step.ts";
 import type { Ledger } from "../line/ledger.ts";
-import { fakeWorktree } from "./fake-worktree.ts";
+import { fakeWorktree, ran } from "./fake-worktree.ts";
 
 const r = { name: "c" } as Run;
 const ledger = {
   passed: () => ({
     word: "done",
-    tests: [{ file: "a.test.ts", name: "a", kind: "new" }],
+    tests: [{ file: "a.test.ts", name: "a" }],
   }),
 } as unknown as Ledger;
 const done = { word: "done" } as const;
@@ -29,8 +29,8 @@ describe("the review step's check", () => {
     ).toBe("n");
   });
 
-  it("retries when da-nail's tests are no longer green", async () => {
-    const at = fakeWorktree({ codes: { a: 1 } });
+  it("retries when the repo's check is no longer green", async () => {
+    const at = fakeWorktree({ test: ran(1, "a failed") });
     expect(await review.check(r, done, at, ledger)).toMatchObject({
       word: "retry",
       cause: "check_failed",

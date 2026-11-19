@@ -68,9 +68,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land through crate", () => {
       note: `_well/is-${cut}.md`,
       notes: { repo: "", commit: "" },
       repo,
-      image,
       test: `node --test test/${cut}.test.mjs`,
-      setup: "",
       dir: at,
       work: workOf(cut),
     };

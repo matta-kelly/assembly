@@ -7,7 +7,6 @@ import { fakeWorktree, ran } from "./fake-worktree.ts";
 vi.mock("./nail.ts", () => ({
   testFilesOf: vi.fn(() => files),
   testsOf: vi.fn(() => ""),
-  nailed: vi.fn(() => files.map((file) => ({ file, name: file, kind: "new" }))),
 }));
 
 let files: string[];
@@ -37,7 +36,7 @@ describe("the hammer step's check", () => {
     expect(at.runs).toBe(0);
   });
 
-  it("retries when a kept test file da-nail listed was changed", async () => {
+  it("retries when any test file da-nail listed was changed", async () => {
     files = ["a.test.ts", "old.test.ts"];
     const at = fakeWorktree({ changed: ["old.test.ts"] });
     expect(await hammer.check(r, d, at, ledger)).toMatchObject({
@@ -47,24 +46,16 @@ describe("the hammer step's check", () => {
     });
   });
 
-  it("retries when one of da-nail's tests is still red, and does not run the full suite", async () => {
-    const at = fakeWorktree({ codes: { "a.test.ts": 1 } });
-    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
-      word: "retry",
-      reason: /red: a.test.ts/,
-    });
-    expect(at.runs).toBe(0);
-  });
-
-  it("retries when da-nail's tests pass and the full suite is red: format, lint and every other test are hammer's", async () => {
+  it("retries when the repo's check is red, with its output's tail: da-nail's tests, format, lint and every other test are hammer's", async () => {
     const at = fakeWorktree({ test: ran(1, "gofmt: not formatted") });
     expect(await hammer.check(r, d, at, ledger)).toMatchObject({
       word: "retry",
-      reason: /the full suite is red: exit 1/,
+      cause: "check_failed",
+      reason: "red: the check fails: exit 1: gofmt: not formatted",
     });
   });
 
-  it("passes when no test changed and the tests are green", async () => {
+  it("passes when no test changed and the repo's check is green, run once", async () => {
     const at = fakeWorktree();
     expect(await hammer.check(r, d, at, ledger)).toEqual({
       word: "pass",
@@ -72,9 +63,6 @@ describe("the hammer step's check", () => {
       findings: [],
     });
     expect(at.asked).toEqual([["a.test.ts"]]);
-    expect(at.listedAsked).toEqual([
-      [{ file: "a.test.ts", name: "a.test.ts", kind: "new" }],
-    ]);
     expect(at.runs).toBe(1);
   });
 });

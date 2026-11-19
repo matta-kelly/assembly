@@ -1,26 +1,21 @@
 /**
- * The nail step: ready to red. da-nail writes the tests of the cl's Promises, each listed as `new` (the change makes it
- * pass) or `kept` (it passes before the change and after). The check runs each listed test alone and reads its exit
- * code only (factory/runs/listed.ts); its output is never parsed. A test that does not build, or is not found, goes
- * back to da-nail. Then the cl's kind (its note's `shape.change`) decides where it goes:
- * - a behavior cl: each kept test passes; a new test that fails means there is code to write: to da-hammer. Every new
- *   test passing goes to the review, the code meets them (met). One rule on every pass: a cl comes back here (from
- *   da-hammer, a review, or the operator) with its code in the worktree, and its tests may pass at once
- * - a structure cl: its tests pin what the code does now (characterization tests, Feathers), so each passes, and the cl
- *   goes to da-hammer for the refactor. A test that fails pins nothing true: back to da-nail
- * A red from a stub counts: the stub fixes the interface. A test that checks nothing is the review's to find.
+ * The nail step: ready to red. da-nail writes the tests of the cl's Promises, and lists them. The check runs the repo's
+ * own check, its full suite, in the attempt's workspace (factory/runs/workspace.ts), and reads its exit code alone; its
+ * output is never parsed. Each listed test file must be in the worktree. Then the cl's kind (its note's
+ * `shape.change`) decides where it goes:
+ * - a behavior cl: a red check means there is code to write: to da-hammer. A green one goes to the review, the code
+ *   meets the tests (met). One rule on every pass: a cl comes back here (from da-hammer, a review, or the operator)
+ *   with its code in the worktree, and its tests may pass at once
+ * - a structure cl: its tests pin what the code does now (characterization tests, Feathers), so the check is green,
+ *   and the cl goes to da-hammer for the refactor. A red one pins nothing true: back to da-nail
+ * Main is green, and da-nail changes only tests, so a red is its tests. Whether it is red for the reason each test's
+ * name says, and whether a test checks anything, is the review's to find.
  */
 
 import { z } from "zod";
 import { notesOf } from "../repos/notes.ts";
 import type { Ledger } from "../line/ledger.ts";
 import { type Message, say, type Step } from "../line/step.ts";
-import {
-  type Listed,
-  type Result,
-  runnable,
-  unrunnable,
-} from "../runs/listed.ts";
 import { noteOf } from "./plan.ts";
 
 /** What a cl changes, by its note's shape: what it does, or only how the code is shaped (Beck, *Tidy First?*). */
@@ -38,22 +33,12 @@ const done = z.object({
   tests: z
     .array(
       z.object({
-        file: z
-          .string()
-          .describe(`the test file, from the repo's root: ${runnable}`),
-        name: z
-          .string()
-          .describe(
-            "the test's own name: a Go test's top-level name, a vitest test's name; a shell test is its file",
-          ),
-        kind: z
-          .enum(["new", "kept"])
-          .describe(
-            "new: the cl's change makes it pass, so it fails now. kept: it passes now and must still pass after",
-          ),
+        file: z.string().describe("the test file, from the repo's root"),
+        name: z.string().describe("the test's own name"),
       }),
     )
-    .min(1),
+    .min(1)
+    .describe("each test of the cl's Promises, new or changed"),
   notes: z
     .string()
     .optional()
@@ -62,6 +47,9 @@ const done = z.object({
     ),
 });
 type Done = z.infer<typeof done>;
+
+/** A test da-nail lists: its file, from the repo's root, and its name. */
+export type Listed = Done["tests"][number];
 
 /** da-nail's tests for the cl: its last passed result's, none before it passed. */
 export const nailed = (ledger: Ledger, cl: string): Listed[] =>
@@ -76,46 +64,25 @@ export const testFilesOf = (ledger: Ledger, cl: string): string[] => [
 export const testsOf = (ledger: Ledger, cl: string): string =>
   [
     "# da-nail's tests",
-    ...nailed(ledger, cl).map((t) => `- \`${t.file}\`, ${t.name} (${t.kind})`),
+    ...nailed(ledger, cl).map((t) => `- \`${t.file}\`, ${t.name}`),
   ].join("\n");
 
-/** The tests of `results`, each with its file, for a reason. */
-const named = (results: Result[]) =>
-  results.map((x) => `${x.test.name} (${x.test.file})`).join(", ");
-
-/** The output of the first of `results`, its tail, for a reason. */
-const tailOf = (results: Result[]) => results[0]?.out.slice(-400) ?? "";
-
 /**
- * Where the runs of listed tests send the cl, by their exit codes alone. A test that did not build or was not found
- * goes back to da-nail. A behavior cl: a kept test that fails back to da-nail; a new test that fails to its code; all
- * passing to its review (met). A structure cl: all passing to its code, for the refactor; any failing back to da-nail.
+ * Where the repo's check sends the cl, by its exit code alone, with the tail of its output for a reason. A behavior
+ * cl: red to its code; green to its review (met). A structure cl: green to its code, for the refactor; red back to
+ * da-nail.
  */
-export function judge(results: Result[], change: Change): Message {
-  const unbuilt = results.filter((x) => !x.listed);
-  if (unbuilt.length)
-    return say(
-      "retry",
-      `tests that do not build or are not found: ${named(unbuilt)}: ${tailOf(unbuilt)}`,
-      "check_failed",
-    );
-  const red = results.filter((x) => x.code !== 0);
+export function judge(code: number, out: string, change: Change): Message {
+  const tail = out.slice(-400);
   if (change === "structure")
-    return red.length
-      ? say(
+    return code === 0
+      ? say("pass", "green: the behavior is pinned, for the refactor")
+      : say(
           "retry",
-          `red: a structure cl's tests pin the code as it is, so each passes now: ${named(red)}: ${tailOf(red)}`,
+          `red: a structure cl's tests pin the code as it is, so the check passes now: exit ${code}: ${tail}`,
           "check_failed",
-        )
-      : say("pass", "green: the behavior is pinned, for the refactor");
-  const keptRed = red.filter((x) => x.test.kind === "kept");
-  if (keptRed.length)
-    return say(
-      "retry",
-      `kept tests fail before the change: ${named(keptRed)}: ${tailOf(keptRed)}`,
-      "check_failed",
-    );
-  if (red.length) return say("pass", `red: ${named(red)}`);
+        );
+  if (code !== 0) return say("pass", `red: the check fails: exit ${code}`);
   return { ...say("pass", "green: the code meets the tests"), met: true };
 }
 
@@ -135,9 +102,8 @@ export const nail: Step<Done> = {
         `test files not in the worktree: ${missing.join(", ")}`,
         "invalid_output",
       );
-    const none = unrunnable(r, d.tests);
-    if (none.length) return say("retry", none.join("; "), "invalid_output");
-    const m = judge(await at.listed(d.tests), changeOf(note));
+    const ran = await at.test();
+    const m = judge(ran.code, ran.out, changeOf(note));
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;
   },
 };

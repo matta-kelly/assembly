@@ -45,9 +45,7 @@ beforeEach(() => {
     note: "",
     notes: { repo: "", commit: "" },
     repo: "",
-    image: "node:22",
     test: "",
-    setup: "",
     dir: join(dir, "runs", "is", "cl", "value", "2"),
     work: "",
   };
@@ -92,7 +90,7 @@ describe("the attempt's trace", () => {
       run,
       usage: { cost: 0.002 },
       commit: "abc123",
-      imageId: "sha256:1d2e",
+      image: { name: "node:22", id: "sha256:1d2e" },
       resumed: 1,
     });
     const [root] = written();

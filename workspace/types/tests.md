@@ -145,4 +145,4 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 - integration tests run under the unit runner, in no folder of their own
 - a language gets an entry when a repo in it first needs tests
 - a test file that no runner finds is not a test
-- the factory's runners: TypeScript, Go and shell, each one test alone, judged by its exit code ([[assembly#The plant]]). A test in another language is refused at da-nail's check
+- in the factory: an agent runs one test alone, as its language does, in its shell; the factory's verdict is the repo's whole check, by its exit code ([[assembly#The plant]]). So the factory runs a repo in any language

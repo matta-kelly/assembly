@@ -34,7 +34,6 @@ import type { Reader } from "../repos/repo.ts";
 import type { Registry } from "../repos/registry.ts";
 import { move } from "../repos/move.ts";
 import { runOf } from "../runs/runs.ts";
-import { forgetSetup } from "../runs/setup.ts";
 import { ends } from "./table.ts";
 
 const link = (name: string) => `[[${name}]]`;
@@ -287,7 +286,6 @@ async function released(
   try {
     const tree = runOf(cl, 0, world.runs);
     await move(tree, m.package, m.version, world.registry.url);
-    forgetSetup(tree);
     return true;
   } catch (e) {
     ledger.apply(

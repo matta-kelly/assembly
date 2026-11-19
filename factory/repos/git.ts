@@ -251,6 +251,12 @@ export async function touched(r: Tree): Promise<string[]> {
     .map((line) => line.slice(3));
 }
 
+/** Puts the worktree back at its HEAD: what is changed is reverted, what is new and not ignored goes. */
+export async function restore(r: Tree) {
+  await must("git", ["-C", r.work, "reset", "-q", "--hard", "HEAD"]);
+  await must("git", ["-C", r.work, "clean", "-q", "-fd"]);
+}
+
 /** Which of `files` differ in the worktree from the item's branch, its HEAD, committed or not. */
 export async function changed(r: Tree, files: string[]): Promise<string[]> {
   const out = await must("git", [

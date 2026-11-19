@@ -33,7 +33,6 @@ import type { Message } from "../line/step.ts";
 import { type Reader, reposOn } from "../repos/repo.ts";
 import { type Rebased, rebaseOnMain } from "../repos/git.ts";
 import { runOf } from "../runs/runs.ts";
-import { forgetSetup } from "../runs/setup.ts";
 import { steps } from "../stations/index.ts";
 
 /** What a command gives back: an exit code, and the lines it prints (to stderr when it refuses). */
@@ -237,7 +236,6 @@ export async function rebase(f: () => Built, name: string): Promise<Done> {
     );
   if (r.moved === "no")
     return { code: 0, lines: [`${name} holds ${r.main} already`] };
-  forgetSetup(t);
   const on = `${r.behind} ${r.behind === 1 ? "commit" : "commits"} on`;
   ledger.apply(
     name,

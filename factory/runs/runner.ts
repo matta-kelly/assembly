@@ -9,11 +9,11 @@
  * model it started with. `modelFor` picks the run's model: on the bins, their default, and their fallback on a retry.
  *
  * The conversation's context is what lives as long as it (`Context`): the item, the agent, the item's folder and
- * whether the worktree is read-only. What changes from one attempt to the next (its number, its notes' commit, its
- * image) is the attempt's run, written to the item's folder before each run (`<agent>.run.json`), so a run taken up in a
- * new process reads it back. From it the runner provides the run's Sandbox, the attempt's box (sandbox.ts), and the
- * test tool its run. Its usage is summed for the ledger. que-pasa traces the run itself, with its messages and each
- * tool call, under the attempt's span (trace.ts).
+ * whether the worktree is read-only. What changes from one attempt to the next (its number, its notes' commit) is the
+ * attempt's run, written to the item's folder before each run (`<agent>.run.json`), so a run taken up in a new process
+ * reads it back. From it the runner provides the run's Sandbox, the attempt's workspace (workspace.ts). Its usage is
+ * summed for the ledger. que-pasa traces the run itself, with its messages and each tool call, under the attempt's
+ * span (trace.ts).
  */
 
 import { dirname } from "node:path";
@@ -24,7 +24,7 @@ import { openRuntime, provide, type RunUsage } from "@mku1tra/que-pasa/loop";
 import { Sandbox } from "@mku1tra/que-pasa/sandbox";
 import type { z } from "zod";
 import { type Context, current, keep } from "./runs.ts";
-import { boxOf } from "./sandbox.ts";
+import { boxOf } from "./workspace.ts";
 import type { Usage } from "../line/ledger.ts";
 import { RunFailed, type Runner } from "../line/loop.ts";
 
@@ -48,15 +48,12 @@ export interface Agents {
   modelFor: (agent: string, retry: boolean) => string;
 }
 
-/** The attempt's box, from its conversation's context. */
-const boxFor = (context: unknown) => {
-  const c = context as Context;
-  return boxOf(current(c), { readOnly: c.readOnly });
-};
+/** The attempt's sandbox, from its conversation's context. */
+const boxFor = (context: unknown) => boxOf(current(context as Context));
 
 /**
  * Opens the runtime: each agent made once, and pi's storage at `store`. Runs a stopped orchestrator left go on at once,
- * so the loop makes their worktrees before it opens the runner; their boxes come up on their first tool call.
+ * so the loop makes their worktrees, and brings their workspaces up, before it opens the runner.
  */
 export async function quePasa(
   { make, modelFor }: Agents,

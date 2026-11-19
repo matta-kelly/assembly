@@ -9,7 +9,6 @@
 import { z } from "zod";
 import type { Ledger } from "./ledger.ts";
 import type { Artifact, State, Word } from "./table.ts";
-import type { Listed, Result } from "../runs/listed.ts";
 
 /**
  * Why an attempt failed, from a fixed list, so failures can be counted by cause: the master plan's reason list. A
@@ -19,8 +18,8 @@ import type { Listed, Result } from "../runs/listed.ts";
  * - check_failed: the result is valid, and the check run on the worktree fails it (not red, not green)
  * - scope_exceeds_change: the agent changed what its step may not (a test, in the hammer step)
  * - budget_exceeded: the run went past its time limit
- * - missing_dependency: the attempt's setup could not install the repo's dependencies (an image older than the
- *   lockfile), so no agent ran
+ * - missing_dependency: the attempt's workspace did not come up (crate could not make its image, or its setup failed),
+ *   so no agent ran
  * - restack_conflict: a land's rebase onto main conflicts
  * The other causes on the list name parts not built yet: untestable_as_specified, flaky_check, escape.
  */
@@ -39,14 +38,15 @@ export const causes = [
 export type Cause = (typeof causes)[number];
 
 /**
- * One run of a test command by a check, in a container of its own. Its inputs are the worktree's tree, the command and
- * the image: the same inputs give the same answer, so `input` is what a reuse would look up.
+ * One run of a test command by a check, in the attempt's workspace (factory/runs/workspace.ts). Its inputs are the
+ * worktree's tree and the command, since the tree holds the crate.toml that names the image: the same inputs give the
+ * same answer, so `input` is what a reuse would look up.
  */
 export interface CheckRun {
   command: string;
-  image: string;
+  image: string; // the image the workspace ran it in, as podman had it
   tree: string; // the worktree's tree hash, what was uncommitted included
-  input: string; // sha256 of the tree, the command and the image
+  input: string; // sha256 of the tree and the command
   code: number;
   at: number; // when it started, ms since the epoch
   ms: number;
@@ -61,15 +61,14 @@ export interface TestRun {
 
 /**
  * What a check may ask of the attempt's worktree. The loop gives one per attempt, and records the test run it made.
- * - test: runs the item's full suite, once: asked again, it gives back the same run
- * - listed: lists and runs each of `tests` alone, by its file's runner (factory/runs/listed.ts)
+ * - test: runs the item's full suite, the repo's own check, in the attempt's workspace, once: asked again, it gives back
+ *   the same run
  * - changed: which of `files` differ from the item's branch, committed or not
  * - exists: which of `files` are in the worktree
  * - touched: every file that differs from where the attempt started, the item's branch, new and removed ones too
  */
 export interface Worktree {
   test(): Promise<TestRun>;
-  listed(tests: Listed[]): Promise<Result[]>;
   changed(files: string[]): Promise<string[]>;
   touched(): Promise<string[]>;
   exists(files: string[]): string[];
@@ -116,21 +115,18 @@ export function back(about: Artifact[], routes?: string) {
 export type Back = { word: "back"; findings: Finding[] };
 
 /**
- * A repo an issue may change, with what its attempts need, read from its worktree at each attempt (factory/repos/repo.ts):
- * the image its sandbox and checks run in, its full suite, and the setup that installs its dependencies into the
- * worktree ('' for none). Its name is its folder's, as a cl names it.
+ * A repo an issue may change, with its full suite, read from its worktree at each attempt (factory/repos/repo.ts). How
+ * it runs is its crate.toml's, and crate's. Its name is its folder's, as a cl names it.
  */
 export type Repo = {
   name: string;
   repo: string;
-  image: string;
   test: string;
-  setup: string;
 };
 
 /**
  * An item's worktree, where an attempt works, before the attempt reads its settings: the item, the attempt's folder,
- * and, for an issue of several repos, each repo, its worktree at work/<name>.
+ * and, for an issue of several repos, each repo, its worktree in the item's (partsOf, factory/runs/runs.ts).
  */
 export type Tree = {
   name: string; // the item's name: the issue's, or the cl's
@@ -139,7 +135,7 @@ export type Tree = {
   n: number; // the attempt, from 1, never reused
   repo: string; // the repo the item changes: an issue's first, when it has several
   dir: string; // the attempt's folder: runs/<issue>/issue/<n>/, or runs/<issue>/cl/<cut>/<n>/
-  work: string; // the item's one worktree, beside its attempts' folders, mounted at /work in the attempt's sandbox
+  work: string; // the item's one worktree, beside its attempts' folders: its workspace's checkout, and its tools' root
   repos?: { name: string; repo: string }[];
 };
 
@@ -154,11 +150,9 @@ export type Run = Omit<Tree, "repos"> & {
   seq: number; // a cl's place in its plan's order
   note: string; // the item's note, from the notes repo's root: _well/<name>.md
   notes: NotesAt;
-  image: string; // the repo's image: the sandbox and the checks run in it
   test: string; // the repo's full suite: `scripts/check.sh all`
-  setup: string; // the command that installs the repo's dependencies into the worktree, offline. '' for none
-  // An issue's repos when it has more than one: its own steps see each at work/<name>, and its suite runs in each. Its
-  // repo, test and setup are then the first's, and its image the one its own steps' sandbox runs.
+  // An issue's repos when it has more than one: its own steps read each in its worktree, and its suite runs in each.
+  // Its repo and test are then the first's.
   repos?: Repo[];
 };
 

@@ -1,10 +1,11 @@
 /**
  * Run folders: each item's files, under its issue, so every trial of an issue is in one place. An item's folder holds
- * its one worktree, `work`; a folder per attempt, `<n>`, with the attempt's log (the orchestrator's own lines) and its
+ * its one worktree, named for the item (folderOfWork); a folder per attempt, `<n>`, with the attempt's log (the orchestrator's own lines) and its
  * trace (each tool call); and, for each agent's conversation on the item, the run of its attempt going on
  * (`<agent>.run.json`).
  */
 
+import { createHash } from "node:crypto";
 import {
   appendFileSync,
   mkdirSync,
@@ -24,6 +25,16 @@ export const folderOf = (
     ? join(runs, i.issue, "issue")
     : join(runs, i.issue, "cl", i.name.replace(`${i.issue}-`, ""));
 
+/**
+ * The folder name of an item's worktree: the item's name, or, past 32 characters, its start and a hash of it. crate
+ * names a workspace `<repo>-<folder>`, so each item's is its own, and a DNS label (at most 63 characters).
+ */
+export function folderOfWork(name: string): string {
+  if (name.length <= 32) return name;
+  const hash = createHash("sha256").update(name).digest("hex").slice(0, 8);
+  return `${name.slice(0, 23).replace(/-+$/, "")}-${hash}`;
+}
+
 /** The attempt's worktree, and where its files go: the item's worktree, and the attempt's own folder. */
 export function runOf(i: Item, n: number, runs: string): Tree {
   const under = folderOf(i, runs);
@@ -34,7 +45,7 @@ export function runOf(i: Item, n: number, runs: string): Tree {
     n,
     repo: i.repo,
     dir: join(under, String(n)),
-    work: join(under, "work"),
+    work: join(under, folderOfWork(i.name)),
     ...(i.repos.length
       ? { repos: i.repos.map((repo) => ({ name: basename(repo), repo })) }
       : {}),
@@ -43,8 +54,8 @@ export function runOf(i: Item, n: number, runs: string): Tree {
 
 /**
  * The parts of an attempt, one per repo it works in: itself, or, for an issue with several repos, one per repo, with
- * that repo's settings, its worktree at work/<repo>, which its sandbox shows at /work/<repo>, and its folder under the
- * item's repos/<repo>/.
+ * that repo's settings, its worktree at <repo>/<folder> in the item's, so its workspace is `<repo>-<folder>` too, and
+ * its folder under the item's repos/<repo>/.
  */
 export function partsOf<T extends Tree>(r: T): T[] {
   if (!r.repos?.length) return [r];
@@ -55,7 +66,7 @@ export function partsOf<T extends Tree>(r: T): T[] {
         ...repo,
         repos: [],
         dir: join(dirname(r.dir), "repos", name, String(r.n)),
-        work: join(r.work, name),
+        work: join(r.work, name, basename(r.work)),
       }) as T,
   );
 }
@@ -71,7 +82,7 @@ export type Context = {
   item: string; // the item's name
   agent: string;
   folder: string; // the item's folder, beside its worktree, where the attempt's run is written
-  readOnly: boolean; // its worktree is mounted read-only, as a review's
+  readOnly: boolean; // it may not change its worktree, as a review: what it leaves changed fails its attempt
 };
 
 /** Where the attempt's run is written for its conversation: the item's folder. */

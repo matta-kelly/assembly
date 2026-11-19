@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { changedOf, green } from "./hammer.ts";
-import { nailed, testsOf } from "./nail.ts";
+import { testsOf } from "./nail.ts";
 import { notesOf } from "../repos/notes.ts";
 import type { Step } from "../line/step.ts";
 
@@ -35,8 +35,8 @@ export const review: Step<Done> = {
       "",
       changedOf(ledger, r.name),
     ].join("\n"),
-  async check(r, d, at, ledger) {
-    const g = await green(at, nailed(ledger, r.name));
+  async check(_r, d, at) {
+    const g = await green(at);
     if (g.word !== "pass")
       return { ...g, reason: `not green at review: ${g.reason}` };
     return {

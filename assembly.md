@@ -151,7 +151,7 @@ Each level of the V has a check, met in this order.
 
 [[repo]]: what the factory builds in, a repo and the environment it defines once. An issue may change several, a cl one.
 
-- dev image: the toolchain and the package cache, which every bench starts from
+- dev image: the toolchain and the package cache, warm, which every bench starts from. crate makes it from the repo's `crate.toml`
 - services: what runs beside the work, from `pod.yaml`. Not built ([[workspace-on-crate]])
 - check: `check.sh`, the one inspection, the same at every bench and at the dock
 
@@ -159,12 +159,11 @@ Each level of the V has a check, met in this order.
 
 [[workspace]]: where one job is done, a branch, a worktree and a running copy of the repo's environment, made for the job and removed after. The same bench for the operator and for an attempt.
 
-- worktree: the item's one checkout, the whole repo, beside its attempts' folders (`runs/<issue>/cl/<cut>/work`, `runs/<issue>/issue/work`), which every attempt of the item works in. Removed when the item ends ([[#The plant]], the sweep)
+- worktree: the item's one checkout, the whole repo, beside its attempts' folders, named for the item (`runs/<issue>/cl/<cut>/<cl>`, `runs/<issue>/issue/<issue>`), which every attempt of the item works in. Removed when the item ends ([[#The plant]], the sweep)
 	- a cl's: on its branch, `assembly/<cl>/head`, made from main when the cl first needs it
-	- an issue's: detached, moved to main as it is now at each attempt. An issue of several repos holds one per repo, at `work/<repo>`
-- container: the dev image with the worktree mounted, rootless and capped
+	- an issue's: detached, moved to main as it is now at each attempt. An issue of several repos holds one per repo, at `<repo>/<issue>` in its folder
+- workspace: crate's attempt workspace on the worktree (`crate up --attempt`), named `<repo>-<folder>`: its tools member, the dev image with the worktree, its setup and its services, all from the repo's `crate.toml`. The factory knows nothing of how a repo runs
 - network: its own. An attempt's has no way out
-- setup: an offline install from the image's cache, once per worktree ([[#One job]])
 
 ## The paperwork
 
@@ -204,31 +203,29 @@ The machine: what moves jobs from station to station. Its code is in two folders
 
 - process: what the work is (`factory/stations/`, `factory/line/table.ts` and `step.ts`, `workspace/`). It decides, and touches only its own notes
 	- the path: the states an item moves through on messages, held as data in `factory/line/table.ts`
-		- an issue's repos: the ones its cls may change. By default every repo on crate under `ASSEMBLY_REPOS` (lot when it is not set; a git repo with a `server` remote) but the notes repo, and the planner picks among them; `factory submit --repo` narrows them. Each repo's image, full suite and setup are read from the item's worktree at each attempt (`factory/repos/repo.ts`): its image is its `crate.toml`'s, with `dev` its dev image, which crate makes from the worktree (`crate dev-image local`) in the orchestrator, from the host's install mounted read-only there, so a repo with no copy of the script is taken; its full suite `scripts/check.sh all`; its setup `npm ci --offline` when it has a lockfile. A repo not on crate breaks the item's contract (`contract_invalid`); crate's failure is a dependency (`missing_dependency`)
+		- an issue's repos: the ones its cls may change. By default every repo on crate under `ASSEMBLY_REPOS` (lot when it is not set; a git repo with a `server` remote) but the notes repo, and the planner picks among them; `factory submit --repo` narrows them. Each repo's full suite, `scripts/check.sh all`, is read from the item's worktree at each attempt (`factory/repos/repo.ts`). How it runs is its `crate.toml`'s, and crate's. A repo not on crate breaks the item's contract (`contract_invalid`); a workspace that does not come up is a dependency (`missing_dependency`)
 			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
-			- the issue's own steps: each repo at `/work/<repo>`, in a plain Node image, since they only read; acceptance runs each repo's full suite
+			- the issue's own steps: each repo's worktree read in place, with no shell, since they only read; acceptance runs each repo's full suite, in its own workspace
 		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl landed on main, phase by phase) → accepted (the full suite green on main, and issue-review). Acceptance closes the issue and never gates the code, which is on main already. A review can send it back to the planner, and so can a plan land the notes' check refuses. The main path: an issue the operator submits with its cl notes enters at building, past the planner and plan-review
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code, or da-nail's tests that pass at once: the code there already meets them) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 		- the operator's levers: stop, the operator's escalate of any item that moves; resume, a held item back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from the operator's move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item the operator lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a held cl put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is the operator's to judge; and note, the operator's message to an agent's conversation on an item, which its next run reads, starting none: the loop delivers it through que-pasa's note, since only its process opens the conversations
 	- a step: one per state, with its agent, its result's shape and its check (`factory/stations/*.ts`, listed in `factory/stations/index.ts`)
-		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (each listed test built and found, then by the cl's shape: a behavior cl's kept tests pass, a new test red goes to hammer, and all green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test changed, da-nail's tests green, then the full suite green), review (da-nail's tests and the full suite still green), accept (the full suite green)
+		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (each listed test file there, then the full suite by the cl's shape: a behavior cl's red goes to hammer, and green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test file changed, then the full suite green), review (the full suite still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
 		- the builders: nail and hammer, in the cl's one worktree, the whole repo. The cl's Core context is where its change lives: they start there, and read wider only when the work needs it. The instruction holds their tokens, and `factory top` shows them
 			- a path of the Core context: a file or a folder, a plain path from the repo's root
 			- the commit: every change the attempt made
-			- hammer: changes no test file da-nail listed, new or kept
-			- a test run: a command in the repo's image, offline, on the cl's worktree with the attempt's change, so the tree a test sees is the tree a pass commits (`factory/runs/tests.ts`'s `runIn`)
-				- a listed test: each test da-nail lists, `new` (the change makes it pass) or `kept` (it passes before and after), run alone by its file's runner, judged by its exit code only, never its output (`factory/runs/listed.ts`, Bazel's test contract, SWE-bench's FAIL_TO_PASS and PASS_TO_PASS). A runner is two commands chosen by the file's name, list (it builds, and the test is there) and run: `*.test.ts` vitest, `*_test.go` go test from the nearest go.mod, `*.test.sh` the script. A file with no runner is refused. The agent's `test` tool and the step's check run them the same way
-				- the full suite: the repo's `scripts/check.sh all`, once, at hammer's check, after da-nail's tests pass, and at review and acceptance. A nail pass never runs it
+			- hammer: changes no test file da-nail listed
+			- a test run: the repo's full suite, `scripts/check.sh all`, in the attempt's workspace (`crate run`), on the worktree with the attempt's change, so the tree a test sees is the tree a pass commits. Its exit code is the verdict, never its output (Bazel's test contract). Main is green and da-nail changes only tests, so a red at nail is its tests (`factory/runs/workspace.ts`'s `runIn`)
+				- a single test: the agent's own, in its shell, in the same workspace. The factory runs none
 	- the land: an approved item's attempt, code with no agent (`factory/repos/land.ts`): a cl's onto its repo's main, an issue's plan onto the notes' main. Its moves are in [[#The dock]]
 	- an agent: its instructions in its role note beside it, and the bin it names (plan, implement, review), never a model
 	- the workspace: what the agents are made of (`workspace/`), apart from the machine that runs them. Not the bench ([[workspace]])
 		- `agents/`: each agent's role note, and its code beside it
-		- `tools/`: the factory's own tools, for nail and hammer: `test`, the tests it is given, each alone by its file's runner; `remove`, a file out of the cl's worktree, so a builder can make any change the worktree holds (add, edit, remove), under its step's check
-			- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
-			- for every agent: `ls`, `read_file`, `glob`, `grep`
+		- the tools: que-pasa's, after LangChain's Deep Agents, in the sandbox the runner gives each run: the attempt's workspace, through `crate run`. The factory has none of its own
+			- for every agent: `ls`, `read_file`, `glob`, `grep`, on the worktree, with paths from the repo's root
 			- for nail and hammer: `write_file`, `edit_file`, in the cl's worktree
-			- for every agent: `execute`, a shell in its sandbox. The planner and the reviews only read; a builder's verdict is its test tool's and its step's check, never a command it ran
+			- for every agent of one repo: `execute`, a shell in its workspace: to run a test, format, remove a file. A builder's verdict is its step's check, never a command it ran. A step that only reads and leaves its worktree changed fails, and the worktree is put back
 		- `types/`: the factory's own notes that a role works to and is judged against. The work's are type notes, in `work/types/`
 			- in its context: que-pasa's memory middleware reads an agent's types once, when its conversation is made, keeps them with it, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
 			- every agent: [[terms]] first, the one vocabulary, and each state it reads or makes
@@ -242,14 +239,12 @@ The machine: what moves jobs from station to station. Its code is in two folders
 	- the tick: `loop.ts`. Sweeps, then starts attempts, up to `concurrent` at once, the open ones first; readies each (its worktree, its notes' commit, its settings, its setup), answers each check's worktree, and records its test run
 	- the lands: `loop.ts` too. One per approved item, as an attempt, and the lands onto one main one at a time, each after the one before it
 	- the sweep: at open and on each tick, in the notes repo and every repo the ledger names (`factory/repos/git.ts`). A live item, one not ended or with an attempt open, keeps its worktree and its branch; every other worktree under the runs folder and every other `assembly/` branch goes. One rule covers an item's end, a crash between moves, and an older scheme's leftovers. A worktree outside the runs folder is never touched
-	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue with no cl left to land reads its notes at the notes' main: each cl note not in the ledger goes in, in its phase's order, phase 1 ready and the rest waiting; with none to add, the issue is built. Each phase starts once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `factory/repos/registry.ts`: the cl stays waiting with the reason as a retry, written once per reason, a failed ask is a reason too, and a wait past the factory's `waitLimitMs` (30 minutes when not set) escalates the issue). A released cl's worktree is moved onto every version it needs first, each its own commit (`factory/repos/move.ts`, the one container with the network), and set up again, so its attempts run its new lockfile, in a dev image made from it. A move that fails escalates the issue, with the command's output, and the cl waits. A cl that raises, or is escalated, escalates its issue
+	- the orchestrator's own moves: `advance.ts`, each through `ledger.apply`. A building issue with no cl left to land reads its notes at the notes' main: each cl note not in the ledger goes in, in its phase's order, phase 1 ready and the rest waiting; with none to add, the issue is built. Each phase starts once the one before has landed (and, for a cl whose repo depends on a package a landed cl made, once that version is on npm, asked through `factory/repos/registry.ts`: the cl stays waiting with the reason as a retry, written once per reason, a failed ask is a reason too, and a wait past the factory's `waitLimitMs` (30 minutes when not set) escalates the issue). A released cl's worktree is moved onto every version it needs first, each its own commit (`factory/repos/move.ts`, the one container with the network), and so its attempts run its new lockfile, in a dev image crate makes from it. A move that fails escalates the issue, with the command's output, and the cl waits. A cl that raises, or is escalated, escalates its issue
 - effects: how it touches the world, each behind a small seam: `factory/repos/`, git, the land, the notes and versions; `factory/runs/`, what an attempt runs in
 	- `git.ts`: each item's worktree and branch, its commits, main as the land target has it, and the sweep
 	- `land.ts`: the land, an approved item onto its main, from its worktree: a push that crate checks, or `git land` for a repo not on crate
 	- `move.ts`: a released cl's worktree onto the version it waited for, in a container with the network, committed on its branch as `build(deps): <package> to <version>`
-	- `sandbox.ts`: what each container is given. que-pasa's `podman()` makes it
-	- `tests.ts`: a test run, in a container of its own
-	- `setup.ts`: a worktree's setup, the same way
+	- `workspace.ts`: the attempt's workspace, crate's: up, down, the agent's sandbox, and a test run, each through crate
 	- `runs.ts`: the run folders. `factory/sh.ts`: the commands under them all
 	- `runner.ts`: the run, on que-pasa's durable runtime: one conversation per agent on an item, and its context, which its tools read
 	- `models.ts`: the bins, a default model and a fallback for a retry
@@ -259,27 +254,23 @@ The machine: what moves jobs from station to station. Its code is in two folders
 
 ## One job
 
-An attempt: one step on one item, at the item's bench. Its run and its sandbox are its own, and it lives until it ends.
+An attempt: one step on one item, at the item's bench. Its run and its workspace are its own, and it lives until it ends.
 
 - begin: the ledger opens it, with its trace's ids
 - ready: the item's worktree made or kept, the notes' main fetched and its commit pinned on the attempt (a taken-up attempt keeps its own), and the repo's settings read from the worktree. A failure is a retry before any agent, with its cause
-- setup: the repo's setup installs its dependencies into the worktree from the [[repo#Dev image|dev image]]'s cache, with no network, in a container of its own, inside the attempt's task, so a tick never waits on it
-	- once per worktree: `setup.done` in the item's folder, beside the worktree, forgotten when the worktree is made again, an issue's moves to a new main, or a move changes a cl's lockfile
-	- what it installs: ignored by git
-	- a failure: a retry with `missing_dependency`, before any agent. It names an image older than the lockfile (npm's ENOTCACHED), or the files it left unignored
-- sandbox: a container with no network, the worktree mounted (read-only for a review), up on its tools' first call. The agent's loop runs in the orchestrator and holds the key (LangChain's "sandbox as tool")
+- workspace: `crate up --attempt` on the worktree, inside the attempt's task, so a tick never waits on it: crate's dev image, its `[tools] setup` and its network with no way out. A failure is a retry with `missing_dependency`, before any agent. The agent's loop runs in the orchestrator and holds the key (LangChain's "sandbox as tool"); its tools run in the workspace
 - run: que-pasa's, one input on the agent's conversation on the item (`<item>/<agent>`), with the attempt's number as its id, under the attempt's span, on the bin's model
 	- the conversation: made by the agent's first run on the item, and kept across its attempts, so the agent remembers what it read, wrote and was told. Its context lives as long as it: the item, the agent, the item's folder, read-only or not
 	- the input: the first run's, its spec and its messages; a later run's, only what is new: a review's input again, the note when it changed, and the messages since the agent's last run
-	- the attempt's run: written to the item's folder before each run (`<agent>.run.json`), where the sandbox and the test tool read it
-- check: the step's, on the worktree. Its test run in a container of its own
+	- the attempt's run: written to the item's folder before each run (`<agent>.run.json`), where the sandbox reads it
+- check: the step's, on the worktree. Its test run in the attempt's workspace
 - commit: a pass of a step that edits, on the item's branch, titled as crate reads a release. No note is written
 - any other end of a step that edits: its change stays in the worktree, uncommitted, and the cl's next attempt goes on from it
-- end: the attempt span is written, then the ledger moves the item, in one transaction with one event, its message
+- end: the attempt span is written, then the ledger moves the item, in one transaction with one event, its message, and the workspace goes (`crate down`)
 - across a stop
-	- a stopped orchestrator: ends nothing. Each attempt stays open, and its container stays up
-	- the next one: takes each open attempt up. Its sandbox again (kept, started again, or run again on the same worktree), and its run goes on from where it stopped, with no model call redone
-	- a cut-off tool call: runs again only if twice is the same as once (`ls`, `read_file`, `write_file`, `glob`, `grep`, `remove`). For `edit_file`, `execute` and `test`, the model gets `interrupted`
+	- a stopped orchestrator: ends nothing. Each attempt stays open, and its workspace stays up
+	- the next one: takes each open attempt up. Its workspace again (`crate up` changes nothing on one that is up), and its run goes on from where it stopped, with no model call redone
+	- a cut-off tool call: runs again only if twice is the same as once (`ls`, `read_file`, `write_file`, `glob`, `grep`). For `edit_file` and `execute`, the model gets `interrupted`
 	- the time limit: per process
 
 ## The dock
@@ -354,11 +345,11 @@ What it keeps.
 	- `resume <item> [<state>]`: a held item, escalated or raised, to a station of its kind, by default where it was ([[#The plant]], the operator's levers)
 	- `drop <item>`: an item the operator lets go, dropped, an issue with its cls not ended. It refuses while an attempt is open on it
 	- `note <item> <agent>`: the operator's message, from stdin, to the agent's conversation on the item, for an agent whose step has had an attempt on it. The loop's next tick delivers it, once, and `explain` shows it, delivered or pending
-	- `rebase <cl>`: a held cl's branch on main as the land target has it now, with its worktree's change, or nothing and the conflicting files. A move is a message that keeps the cl where it is, and its next attempt sets up again
-	- `run`: the loop, until a signal stops it. Its attempts stay open. It needs crate's install, which makes each attempt's dev image
+	- `rebase <cl>`: a held cl's branch on main as the land target has it now, with its worktree's change, or nothing and the conflicting files. A move is a message that keeps the cl where it is
+	- `run`: the loop, until a signal stops it. Its attempts stay open. It needs crate's install, which makes each attempt's workspace
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's note, messages, attempts, costs, the notes' commit each attempt read, and traces)
 	- `top`: the factory live, redrawn every 2s until `q`: each issue with its phase and spend, each cl with its state, its attempts and the one open now, and the tokens and cost of each role. Over ssh it asks for a terminal
-- the dependencies in an attempt: an offline install from the dev image's cache, once per worktree, proven on a que-pasa worktree (setup in 11 s, then its tests pass, no network)
+- the attempt's workspace: crate's, from a repo's own `crate.toml`, its setup offline from a dev image made for a lockfile no image had, proven end to end (`factory/runs/workspace.e2e.test.ts`)
 - the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests. `just e2e` is not in it, since it needs the podman socket
 
 ## Not built

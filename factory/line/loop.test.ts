@@ -9,20 +9,27 @@ import { open as openLedger, type Ledger } from "./ledger.ts";
 import type { World } from "./advance.ts";
 import { loop, RunFailed, type Runner } from "./loop.ts";
 import { execFileSync } from "node:child_process";
-import { commit, fresh, onMain, sweep, worktree } from "../repos/git.ts";
+import {
+  commit,
+  fresh,
+  onMain,
+  restore,
+  sweep,
+  touched,
+  treeOf,
+  worktree,
+} from "../repos/git.ts";
 import { land } from "../repos/land.ts";
-import { close, open } from "../runs/sandbox.ts";
-import { runTests } from "../runs/tests.ts";
-import { forgetSetup, needsSetup, runSetup } from "../runs/setup.ts";
+import { down, runTests, up } from "../runs/workspace.ts";
 import { ran } from "../stations/fake-worktree.ts";
 import { move } from "../repos/move.ts";
-import { CrateError, NotOnCrate, settingsAt } from "../repos/repo.ts";
+import { NotOnCrate, settingsAt } from "../repos/repo.ts";
 import { notesRepo } from "../repos/notes.fixture.ts";
 import { keep } from "../runs/runs.ts";
 import { npmRegistryUrl } from "../repos/registry.ts";
 
-// Podman and git are faked: git, the sandbox, the test runs and the land are the loop's only ways out. runOf is the
-// real one.
+// crate and git are faked: git, the workspace (its up, down and test runs) and the land are the loop's only ways out.
+// runOf is the real one.
 vi.mock("../repos/git.ts", async (original) => ({
   branchOf: (await original<typeof import("../repos/git.ts")>()).branchOf,
   // the notes repo's main is its own: it has no remote to fetch
@@ -35,19 +42,16 @@ vi.mock("../repos/git.ts", async (original) => ({
   head: vi.fn(),
   changed: vi.fn(),
   touched: vi.fn(),
+  treeOf: vi.fn(),
+  restore: vi.fn(),
 }));
-vi.mock("../runs/sandbox.ts", () => ({
-  open: vi.fn(),
-  close: vi.fn(),
+vi.mock("../runs/workspace.ts", () => ({
+  up: vi.fn(),
+  down: vi.fn(),
   imageOf: vi.fn(),
+  runTests: vi.fn(),
 }));
-vi.mock("../runs/tests.ts", () => ({ runTests: vi.fn() }));
 vi.mock("../repos/land.ts", () => ({ land: vi.fn() }));
-vi.mock("../runs/setup.ts", () => ({
-  needsSetup: vi.fn(),
-  runSetup: vi.fn(),
-  forgetSetup: vi.fn(),
-}));
 vi.mock("../repos/move.ts", () => ({ move: vi.fn() }));
 vi.mock("../repos/repo.ts", async (original) => ({
   ...(await original<typeof import("../repos/repo.ts")>()),
@@ -153,11 +157,7 @@ type L = Awaited<ReturnType<typeof make>>;
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(move).mockResolvedValue("c0ffee");
-  vi.mocked(settingsAt).mockResolvedValue({
-    image: "img",
-    test: "suite",
-    setup: "",
-  });
+  vi.mocked(settingsAt).mockResolvedValue({ test: "suite" });
   dir = mkdtempSync(join(tmpdir(), "loop-"));
   notes = notesRepo(
     { "_well/c.md": cl, "_well/i.md": issueNote },
@@ -191,10 +191,10 @@ const last = () =>
 const doc = () => readFileSync(join(notes.repo, "_well", "c.md"), "utf8");
 
 describe("an attempt", () => {
-  it("opens a sandbox, gives the agent the cl, and closes the sandbox when it ends", async () => {
+  it("brings its workspace up, gives the agent the cl, and takes the workspace down when it ends", async () => {
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner));
-    expect(open).toHaveBeenCalledOnce();
+    expect(up).toHaveBeenCalledOnce();
     expect(runner).toHaveBeenCalledWith(
       "fake",
       cl,
@@ -203,7 +203,7 @@ describe("an attempt", () => {
         readOnly: false,
       }),
     );
-    expect(close).toHaveBeenCalledOnce();
+    expect(down).toHaveBeenCalledOnce();
   });
 
   it("moves a passed done result on, commits it as the agent's, writes no note, and records its usage", async () => {
@@ -231,7 +231,7 @@ describe("an attempt", () => {
     await once(l);
     await once(l);
     const [one, two] = runner.mock.calls.map((c) => c[2].run);
-    expect(one?.work).toBe(join(dir, "runs", "i", "cl", "c", "work"));
+    expect(one?.work).toBe(join(dir, "runs", "i", "cl", "c", "c"));
     expect(two?.work).toBe(one?.work);
     expect([one?.dir, two?.dir]).toEqual([
       join(dir, "runs", "i", "cl", "c", "1"),
@@ -245,7 +245,7 @@ describe("an attempt", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
-  it("moves an issue's worktree to main for a new attempt, and sets it up again when main moved", async () => {
+  it("moves an issue's worktree to main for a new attempt", async () => {
     const db = new DatabaseSync(join(dir, "ledger.db"));
     db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
     db.close();
@@ -257,7 +257,6 @@ describe("an attempt", () => {
       }),
     );
     expect(fresh).toHaveBeenCalledWith(expect.objectContaining({ name: "i" }));
-    expect(forgetSetup).toHaveBeenCalledOnce();
   });
 
   it("keeps a taken-up issue's worktree where its run left it", async () => {
@@ -274,22 +273,47 @@ describe("an attempt", () => {
     expect(fresh).not.toHaveBeenCalled();
   });
 
-  it("tells the runner a step that must not edit is read-only, as its sandbox is", async () => {
+  it("tells the runner a step that must not edit is read-only", async () => {
     const ro = vi.fn<Run1>(gives(done("x")));
     await once(make(ro, { steps: [{ ...step, worktree: "ro" }] }));
     expect(ro.mock.calls[0]?.[2]).toMatchObject({ readOnly: true });
   });
 
-  it("opens the attempt's worktree before its sandbox, read-only for a step that must not edit", async () => {
+  it("fails a step that only reads when it leaves its worktree changed, and puts the worktree back", async () => {
+    vi.mocked(treeOf)
+      .mockResolvedValueOnce("before")
+      .mockResolvedValueOnce("after");
+    vi.mocked(touched).mockResolvedValue(["src/a.ts"]);
     await once(
       make(gives(done("x")), { steps: [{ ...step, worktree: "ro" }] }),
     );
-    expect(vi.mocked(worktree).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(open).mock.invocationCallOrder[0] as number,
-    );
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ name: "c" }), {
-      readOnly: true,
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "scope_exceeds_change",
+      reason: expect.stringMatching(/only reads: src\/a\.ts/),
     });
+    expect(restore).toHaveBeenCalledOnce();
+  });
+
+  it("passes a step that only reads and leaves its worktree as it found it", async () => {
+    vi.mocked(treeOf).mockResolvedValue("same");
+    await once(
+      make(gives(done("x")), { steps: [{ ...step, worktree: "ro" }] }),
+    );
+    expect(last()).toMatchObject({ word: "pass" });
+    expect(restore).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("makes the attempt's worktree before its workspace comes up on it", async () => {
+    await once(make(gives(done("x"))));
+    expect(vi.mocked(worktree).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(up).mock.invocationCallOrder[0] as number,
+    );
+    expect(up).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "c" }),
+      expect.anything(),
+    );
   });
 
   it("runs the tests once for a check that asks twice, and records the run with the attempt", async () => {
@@ -413,7 +437,7 @@ describe("an attempt", () => {
     });
   });
 
-  it("retries when the run fails, and still closes the sandbox", async () => {
+  it("retries when the run fails, and still takes its workspace down", async () => {
     await once(
       make(async () => {
         throw new Error("the model is down");
@@ -423,7 +447,7 @@ describe("an attempt", () => {
       word: "retry",
       reason: expect.stringMatching(/the model is down/),
     });
-    expect(close).toHaveBeenCalledOnce();
+    expect(down).toHaveBeenCalledOnce();
   });
 
   it("gives a run that failed on its own the cause invalid_output, and a failure of the factory no cause", async () => {
@@ -433,7 +457,7 @@ describe("an attempt", () => {
       }),
     );
     expect(last().cause).toBe("invalid_output");
-    vi.mocked(open).mockRejectedValueOnce(new Error("no such image"));
+    vi.mocked(commit).mockRejectedValueOnce(new Error("git is gone"));
     await once(make(gives(done("x"))));
     expect(last().cause).toBeNull();
   });
@@ -464,67 +488,40 @@ describe("an attempt", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("retries when the sandbox does not open, without running the agent", async () => {
-    vi.mocked(open).mockRejectedValue(new Error("no such image"));
+  it("retries when its workspace does not come up, a missing dependency, without running the agent", async () => {
+    vi.mocked(up).mockRejectedValue(new Error("setup: npm ci: exit 1"));
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner));
     expect(last()).toMatchObject({
       word: "retry",
-      reason: expect.stringMatching(/did not open: no such image/),
+      cause: "missing_dependency",
+      reason: expect.stringMatching(
+        /^the workspace did not come up: setup: npm ci: exit 1/,
+      ),
     });
     expect(runner).not.toHaveBeenCalled();
+    expect(down).toHaveBeenCalledOnce();
   });
 
-  it("ends the attempt when its sandbox neither opens nor is removed", async () => {
-    vi.mocked(open).mockRejectedValue(new Error("podman is gone"));
-    vi.mocked(close).mockRejectedValue(new Error("podman is gone"));
+  it("ends the attempt when its workspace neither comes up nor goes down", async () => {
+    vi.mocked(up).mockRejectedValue(new Error("podman is gone"));
+    vi.mocked(down).mockRejectedValue(new Error("podman is gone"));
     await once(make(gives(done("x"))));
     expect(last()).toMatchObject({
       word: "retry",
-      reason: expect.stringMatching(/did not open: podman is gone/),
+      reason: expect.stringMatching(/did not come up: podman is gone/),
     });
     expect(ledger.open()).toEqual([]);
   });
 });
 
-describe("an attempt's setup", () => {
-  it("runs once its worktree is made, before its sandbox opens", async () => {
-    vi.mocked(needsSetup).mockReturnValue(true);
-    await once(make(gives(done("x"))));
-    expect(runSetup).toHaveBeenCalledOnce();
-    expect(vi.mocked(worktree).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(runSetup).mock.invocationCallOrder[0] as number,
-    );
-    expect(vi.mocked(runSetup).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(open).mock.invocationCallOrder[0] as number,
-    );
-    expect(ledger.item("c").state).toBe("red");
-  });
-
-  it("is forgotten when the worktree is made again, and kept when it is not", async () => {
-    vi.mocked(worktree).mockResolvedValue(true);
-    await once(make(gives(done("x"))));
-    expect(forgetSetup).toHaveBeenCalledOnce();
-    vi.mocked(worktree).mockResolvedValue(false);
-    ledger.addCl(
-      {
-        name: "d",
-        issue: "i",
-        seq: 2,
-        note: "_well/c.md",
-        repo: "/repo",
-      },
-      "ready",
-    );
-    await once(make(gives(done("x"))));
-    expect(forgetSetup).toHaveBeenCalledOnce();
-  });
-
-  it("does not hold up the tick: other attempts start while one sets up, and the loop waits for it", async () => {
-    vi.mocked(needsSetup).mockImplementation((r) => r.name === "c");
+describe("an attempt's workspace", () => {
+  it("does not hold up the tick: other attempts start while one comes up, and the loop waits for it", async () => {
     let finish: () => void = () => undefined;
-    vi.mocked(runSetup).mockImplementation(
-      () => new Promise<void>((resolve) => (finish = resolve)),
+    vi.mocked(up).mockImplementation((r) =>
+      r.name === "c"
+        ? new Promise<void>((resolve) => (finish = resolve))
+        : Promise.resolve(),
     );
     ledger.addIssue({ name: "j", note: "_well/i.md", repos: ["/repo"] });
     ledger.addCl(
@@ -547,29 +544,6 @@ describe("an attempt's setup", () => {
     finish();
     await settled;
     expect(ledger.item("c").state).toBe("red");
-  });
-
-  it("does not run when the worktree needs none, as one set up before a restart", async () => {
-    vi.mocked(needsSetup).mockReturnValue(false);
-    await once(make(gives(done("x"))));
-    expect(runSetup).not.toHaveBeenCalled();
-    expect(ledger.item("c").state).toBe("red");
-  });
-
-  it("ends the attempt as a retry when it fails, and never starts the agent", async () => {
-    vi.mocked(needsSetup).mockReturnValue(true);
-    vi.mocked(runSetup).mockRejectedValue(
-      new Error("img's cache lacks a package of this lockfile"),
-    );
-    const runner = vi.fn<Run1>(gives(done("x")));
-    await once(make(runner));
-    expect(last()).toMatchObject({
-      word: "retry",
-      cause: "missing_dependency",
-      reason: expect.stringMatching(/^the setup failed: img's cache lacks/),
-    });
-    expect(runner).not.toHaveBeenCalled();
-    expect(open).not.toHaveBeenCalled();
   });
 });
 
@@ -615,11 +589,11 @@ describe("the notes", () => {
       cause: "contract_invalid",
       reason: expect.stringMatching(/its note is not a cl/),
     });
-    expect(open).not.toHaveBeenCalled();
+    expect(up).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("give way to settings read from the item's worktree: a repo not on crate breaks its contract, crate's failure is a dependency", async () => {
+  it("give way to settings read from the item's worktree: a repo not on crate breaks its contract", async () => {
     vi.mocked(settingsAt).mockRejectedValueOnce(
       new NotOnCrate("repo is not on crate: it has no crate.toml"),
     );
@@ -629,17 +603,8 @@ describe("the notes", () => {
       cause: "contract_invalid",
       reason: expect.stringMatching(/no crate\.toml/),
     });
-    vi.mocked(settingsAt).mockRejectedValueOnce(
-      new CrateError(1, "its Containerfile has no bake"),
-    );
-    await once(make(gives(done("x"))));
-    expect(last()).toMatchObject({
-      word: "retry",
-      cause: "missing_dependency",
-      reason: expect.stringMatching(/no bake/),
-    });
     expect(vi.mocked(settingsAt)).toHaveBeenCalledWith(
-      join(dir, "runs", "i", "cl", "c", "work"),
+      join(dir, "runs", "i", "cl", "c", "c"),
       "repo",
     );
   });
@@ -765,13 +730,17 @@ describe("the operator's notes", () => {
 });
 
 describe("the tick", () => {
-  it("takes up an attempt a stopped orchestrator left open: its sandbox again, the same run, and it ends as any other", async () => {
+  it("takes up an attempt a stopped orchestrator left open: its workspace again, the same run, and it ends as any other", async () => {
     const n = ledger.begin("c");
     const run = vi.fn<Run1>(gives(done("- b1: a.test.ts")));
     await once(make(run));
-    // Its worktree is there before the runner opens, and its sandbox comes up when it is taken up.
+    // Its worktree and its workspace are there before the runner opens, and again when it is taken up: a second up
+    // changes nothing.
     expect(worktree).toHaveBeenCalledTimes(2);
-    expect(open).toHaveBeenCalledOnce();
+    expect(up).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(up).mock.invocationCallOrder[0]).toBeLessThan(
+      run.mock.invocationCallOrder[0] as number,
+    );
     expect(run).toHaveBeenCalledWith(
       "fake",
       cl,
@@ -806,7 +775,7 @@ describe("the tick", () => {
     await l.settled();
   });
 
-  it("ends nothing when it closes: a run still going leaves its attempt open, with its sandbox", async () => {
+  it("ends nothing when it closes: a run still going leaves its attempt open, with its workspace", async () => {
     let fail: (e: Error) => void = () => undefined;
     const l = await make(
       () => new Promise((_resolve, reject) => (fail = reject)),
@@ -816,7 +785,7 @@ describe("the tick", () => {
     fail(new Error("the runtime closed"));
     await l.settled();
     expect(ledger.open()).toEqual([{ name: "c", n: 1, step: "ready" }]);
-    expect(close).not.toHaveBeenCalled();
+    expect(down).not.toHaveBeenCalled();
     // the next process takes it up
     const next = await make(gives(done("x")));
     expect(await next.tick()).toBeUndefined();
@@ -841,7 +810,7 @@ describe("the tick", () => {
     await l.settled();
     expect(ledger.open()).toEqual([{ name: "c", n: 1, step: "ready" }]);
     expect(commit).not.toHaveBeenCalled();
-    expect(close).not.toHaveBeenCalled();
+    expect(down).not.toHaveBeenCalled();
     expect(doc()).toBe(cl);
   });
 
@@ -858,13 +827,13 @@ describe("the tick", () => {
     expect(seen).toEqual([]);
   });
 
-  it("ends a taken-up attempt whose sandbox does not open again as a retry, as a new one", async () => {
+  it("ends a taken-up attempt whose workspace does not come up again as a retry, as a new one", async () => {
     ledger.begin("c");
-    vi.mocked(open).mockRejectedValue(new Error("the worktree is gone"));
+    vi.mocked(up).mockRejectedValue(new Error("the worktree is gone"));
     await once(make(gives(done("x"))));
     expect(ledger.events("c").at(-1)).toMatchObject({
       word: "retry",
-      reason: expect.stringMatching(/did not open: the worktree is gone/),
+      reason: expect.stringMatching(/did not come up: the worktree is gone/),
     });
   });
 
@@ -899,9 +868,9 @@ describe("the tick", () => {
     ]);
   });
 
-  it("does not take an attempt still opening for one left open", async () => {
+  it("does not take an attempt whose workspace is still coming up for one left open", async () => {
     let opened = () => {};
-    vi.mocked(open).mockReturnValue(new Promise<void>((r) => (opened = r)));
+    vi.mocked(up).mockReturnValue(new Promise<void>((r) => (opened = r)));
     const l = await make(gives(done("x")));
     const first = l.tick();
     await l.tick();
@@ -946,9 +915,9 @@ describe("the sweep", () => {
     expect(at).toBe(runs);
     // a live issue keeps its notes' worktree too, where its plan's land writes
     expect([...(keep ?? [])].sort()).toEqual([
-      join(runs, "i", "cl", "c", "work"),
+      join(runs, "i", "cl", "c", "c"),
+      join(runs, "i", "issue", "i"),
       join(runs, "i", "issue", "notes"),
-      join(runs, "i", "issue", "work"),
     ]);
     expect([...(branches ?? [])].sort()).toEqual([
       "assembly/c/head",
@@ -1100,7 +1069,7 @@ describe("the world", () => {
     expect(move).not.toHaveBeenCalled();
     on = true;
     await once(l);
-    const work = join(dir, "runs", "j", "cl", "b", "work");
+    const work = join(dir, "runs", "j", "cl", "b", "j-b");
     expect(vi.mocked(move)).toHaveBeenCalledWith(
       expect.objectContaining({ name: "j-b", repo: "/b", work }),
       "@x/a",

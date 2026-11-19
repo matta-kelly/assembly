@@ -59,16 +59,18 @@ import {
   planNote,
 } from "../stations/plan.ts";
 
-const image = "docker.io/library/node:22.23.4-slim";
 const suite = 'for t in test/*.test.sh; do sh "$t" || exit 1; done';
 
 /**
- * Makes `at` a repo on crate as an attempt reads it from its worktree: its image, its full suite, and a lockfile of no
- * dependencies, so each new worktree is set up with an offline npm ci, into a folder git ignores.
+ * Makes `at` a repo on crate as an attempt's workspace reads it from its worktree: its dev image, its full suite, and a
+ * lockfile of no dependencies, so each workspace is set up with npm ci from the image's cache, into a folder git
+ * ignores.
  */
 function onCrate(at: string, name: string, check = suite) {
   mkdirSync(join(at, "scripts"), { recursive: true });
-  writeFileSync(join(at, "crate.toml"), `crate = "1"\nimage = "${image}"\n`);
+  writeFileSync(join(at, "crate.toml"), devToml(name));
+  mkdirSync(join(at, ".crate"), { recursive: true });
+  writeFileSync(join(at, ".crate", "Containerfile"), containerfile(name));
   writeFileSync(join(at, "scripts", "check.sh"), `#!/bin/sh\n${check}\n`);
   chmodSync(join(at, "scripts", "check.sh"), 0o755);
   writeFileSync(
@@ -216,19 +218,7 @@ const plannerScript = (input: string, done: number) => {
   });
 };
 
-/** A review's first move: try to write the worktree. It goes on only when the read-only mount refused it. */
-const refused = (last: string) => /Read-only file system/.test(last);
-const tryWrite = fauxToolCall("execute", { command: "touch /work/edited" });
-
-const planReviewScript = (_input: string, done: number, last: string) => {
-  if (done === 0) return tryWrite;
-  if (!refused(last))
-    return submit({
-      word: "back",
-      findings: [{ about: "plan", what: "writable", where: "/work" }],
-    });
-  return submit({ word: "done" });
-};
+const planReviewScript = () => submit({ word: "done" });
 
 /** A shell test, the factory's runner for a file of its own: node runs `imports` and `assertion` from the repo's root,
  * and exits 1 when the assertion fails. */
@@ -359,27 +349,13 @@ const hammerScript = (input: string, at: number, last: string) => {
   });
 };
 
-const clReviewScript = (_input: string, done: number, last: string) => {
-  if (done === 0) return tryWrite;
-  if (!refused(last))
-    return submit({
-      word: "back",
-      findings: [{ about: "code", what: "writable", where: "/work" }],
-    });
-  return submit({ word: "done" });
-};
+const clReviewScript = () => submit({ word: "done" });
 
 /** issue-review runs the issue's check, the whole suite, then accepts. */
-const issueReviewScript = (_input: string, done: number, last: string) => {
-  if (done === 0) return tryWrite;
-  if (done === 1 && !refused(last))
-    return submit({
-      word: "back",
-      findings: [{ about: "plan", what: "writable", where: "/work" }],
-    });
-  if (done === 1) return fauxToolCall("execute", { command: suite });
-  return submit({ word: "done" });
-};
+const issueReviewScript = (_input: string, done: number) =>
+  done === 0
+    ? fauxToolCall("execute", { command: suite })
+    : submit({ word: "done" });
 
 /** A plan of two repos, the second on the first's published version: a is the package, b depends on it. */
 const versionPlanner = (_input: string, done: number) => {
@@ -723,16 +699,12 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         // The orchestrator's own moves for a settled item come on the tick after: an accepted issue's notes are done.
         await l.tick();
 
-        // Each item's one worktree was set up once, before its first agent: an offline npm ci of its lockfile.
+        // Each attempt of an agent brought its workspace up, crate's, before its agent: once each.
         const attemptsOf = (under: string) =>
           readdirSync(under)
             .filter((n) => /^\d+$/.test(n))
             .map((n) => join(under, n));
-        expect(existsSync(join(runs, "is", "issue", "setup.done"))).toBe(true);
         for (const c of ["value", "double"]) {
-          expect(existsSync(join(runs, "is", "cl", c, "setup.done"))).toBe(
-            true,
-          );
           const logs = attemptsOf(join(runs, "is", "cl", c))
             .map((a) =>
               existsSync(join(a, "log"))
@@ -740,7 +712,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
                 : "",
             )
             .join("\n");
-          expect(logs.match(/^set up in \d+ s$/gm)).toHaveLength(1);
+          expect(logs).toMatch(/^its workspace up in \d+ s$/m);
         }
 
         // value's da-hammer had the whole repo: NOTES, in no cut's core context, is there to read, and so is the root.
@@ -904,7 +876,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(nailRun.named("check ready")?.parentSpanId).toBe(
           nailRun.root.spanId,
         );
-        expect(attrOf(nailRun.root, "container.image.name")).toBe(image);
+        expect(attrOf(nailRun.root, "container.image.name")).toMatch(/repo/);
         expect(attrOf(nailRun.root, "container.image.id")).toMatch(
           /^[0-9a-f]{64}$/,
         );
@@ -981,18 +953,18 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           "building",
         );
         await advance(ledger, worldOf(f.runs));
-        const sandbox = () =>
-          execFileSync(
+        // the attempt's workspace: crate's tools member on the cl's worktree
+        const sandbox = () => {
+          const work = join(f.runs, "rs", "cl", "value", "rs-value");
+          const name = execFileSync("crate", ["-C", work, "name"], {
+            encoding: "utf8",
+          }).trim();
+          return execFileSync(
             "podman",
-            [
-              "container",
-              "inspect",
-              "--format",
-              "{{.Id}}",
-              "assembly-rs-value-1",
-            ],
+            ["container", "inspect", "--format", "{{.Id}}", `${name}-tools`],
             { encoding: "utf8" },
           ).trim();
+        };
 
         const one = await f.loop();
         await one.tick();
@@ -1048,13 +1020,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             "utf8",
           ),
         ).toMatch(/taken up by a new orchestrator/);
-        // set up once, by the first orchestrator: the second's take-up found it done, under its running agent
+        // up by the first orchestrator, and found up by the second's take-up: the same tools member, as kept shows
         expect(
           readFileSync(
             join(at, "runs", "rs", "cl", "value", "1", "log"),
             "utf8",
-          ).match(/^set up in/gm),
-        ).toHaveLength(1);
+          ).match(/^its workspace up in/gm),
+        ).toHaveLength(2);
       },
     );
 
@@ -1288,13 +1260,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(
           git(rb.bare, "ls-tree", "-r", "--name-only", "main"),
         ).not.toMatch(/alpha/);
-
-        // the issue's worktree held both repos, each set up once with its own setup
-        const issueRuns = join(f.runs, "mr", "issue");
-        for (const r of ["ra", "rb"])
-          expect(existsSync(join(issueRuns, "repos", r, "setup.done"))).toBe(
-            true,
-          );
 
         // acceptance ran each repo's suite on main: both green, alpha's and beta's tests among them
         const db = new DatabaseSync(join(at, "ledger.db"));
@@ -1686,10 +1651,6 @@ One and two, each exported, with b on the versions ra published.
           db.close();
           expect(ranIn).toHaveLength(1);
           expect(ranIn[0]).toMatch(/rb-dev:/);
-          // b's attempts had their dependencies installed, offline, from that image's cache.
-          expect(existsSync(join(f.runs, "dp", "cl", "b", "setup.done"))).toBe(
-            true,
-          );
 
           // Each landed on its own repo's main, and only there.
           expect(git(raBare, "show", "main:one/index.js")).toContain("one = 2");

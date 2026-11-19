@@ -11,9 +11,8 @@ import {
   testFilesOf,
   testsOf,
 } from "./nail.ts";
-import { fakeWorktree } from "./fake-worktree.ts";
+import { fakeWorktree, ran } from "./fake-worktree.ts";
 
-const at = fakeWorktree({ files: ["a.test.ts"] });
 const none = { events: () => [] } as unknown as Ledger;
 
 const cl = `---
@@ -46,20 +45,14 @@ beforeEach(() => {
     note: "_well/i-x.md",
     notes: notes.first,
     repo: "/repo",
-    image: "img",
     test: "npm test",
-    setup: "",
     dir,
     work: join(dir, "work"),
   };
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const t = (n: number, file = "a.test.ts", kind: "new" | "kept" = "new") => ({
-  file,
-  name: `b${n}`,
-  kind,
-});
+const t = (n: number, file = "a.test.ts") => ({ file, name: `b${n}` });
 
 describe("da-nail's tests, as the steps after it read them", () => {
   it("are its last passed result's: the files once each, and each test", () => {
@@ -67,7 +60,7 @@ describe("da-nail's tests, as the steps after it read them", () => {
       passed: () => ({ word: "done", tests: [t(1), t(2), t(3, "b.test.ts")] }),
     } as unknown as Ledger;
     expect(testFilesOf(ledger, "x")).toEqual(["a.test.ts", "b.test.ts"]);
-    expect(testsOf(ledger, "x")).toContain("- `b.test.ts`, b3 (new)");
+    expect(testsOf(ledger, "x")).toContain("- `b.test.ts`, b3");
   });
 
   it("are none before da-nail passed", () => {
@@ -111,95 +104,73 @@ describe("the nail step's check, on a structure cl", () => {
 });
 
 describe("the nail step's check, before red", () => {
-  it("runs each test da-nail lists, and never the full suite: whether every promise is kept is the review's", async () => {
-    const run = fakeWorktree({ files: ["a.test.ts"] });
-    await tests.check(r, { word: "done", tests: [t(1), t(3)] }, run, none);
-    expect(run.listedAsked).toEqual([[t(1), t(3)]]);
-    expect(run.runs).toBe(0);
+  it("runs the repo's own check once, and passes a red to da-hammer: there is code to write", async () => {
+    const run = fakeWorktree({
+      files: ["a.test.ts"],
+      test: ran(1, "b1 failed"),
+    });
+    const m = await tests.check(
+      r,
+      { word: "done", tests: [t(1), t(3)] },
+      run,
+      none,
+    );
+    expect(run.runs).toBe(1);
+    expect(m).toMatchObject({
+      word: "pass",
+      reason: "red: the check fails: exit 1",
+    });
+    expect(m.met).toBeUndefined();
   });
 
-  it("retries a test file no runner runs, and runs nothing", async () => {
-    const run = fakeWorktree({ files: ["a.test.ts", "a.test.mjs"] });
+  it("retries when a test file is not in the worktree, and runs nothing", async () => {
+    const run = fakeWorktree({ files: ["a.test.ts"] });
     const v = await tests.check(
       r,
-      { word: "done", tests: [t(1), t(2, "a.test.mjs")] },
+      { word: "done", tests: [t(1), t(2, "gone.test.ts")] },
       run,
       none,
     );
     expect(v).toMatchObject({
       word: "retry",
       cause: "invalid_output",
-      reason: /a.test.mjs: the factory runs only/,
+      reason: /not in the worktree: gone.test.ts/,
     });
-    expect(run.listedAsked).toEqual([]);
-  });
-
-  it("retries when a test file is not in the worktree", async () => {
-    const v = await tests.check(
-      r,
-      {
-        word: "done",
-        tests: [t(1), t(2, "gone.test.ts")],
-      },
-      at,
-      none,
-    );
-    expect(v.word).toBe("retry");
-    expect(v.reason).toMatch(/not in the worktree: gone.test.ts/);
+    expect(run.runs).toBe(0);
   });
 });
 
-/** A listed test's run: listed (built and found) unless said, with its exit code. */
-const res = (
-  n: number,
-  code: number,
-  kind: "new" | "kept" = "new",
-  listed = true,
-) => ({ test: t(n, "a.test.ts", kind), listed, code, out: `b${n}` });
-
 describe("judge, a behavior cl", () => {
-  it("passes to its code when a new test fails and every kept one passes: a red from an assertion or a stub alike", () => {
-    const m = judge([res(1, 1), res(2, 0, "kept")], "behavior");
-    expect(m).toMatchObject({ word: "pass", reason: /red: b1/ });
+  it("passes a red check to its code: a red from an assertion or a stub alike", () => {
+    const m = judge(1, "b1 failed", "behavior");
+    expect(m).toMatchObject({
+      word: "pass",
+      reason: "red: the check fails: exit 1",
+    });
     expect(m.met).toBeUndefined();
   });
 
-  it("passes as met when every test passes: the code meets them", () => {
-    expect(judge([res(1, 0), res(2, 0, "kept")], "behavior")).toMatchObject({
+  it("passes a green check as met: the code meets the tests", () => {
+    expect(judge(0, "ok", "behavior")).toMatchObject({
       word: "pass",
       met: true,
-    });
-  });
-
-  it("retries a kept test that fails before the change", () => {
-    expect(judge([res(1, 1), res(2, 1, "kept")], "behavior")).toMatchObject({
-      word: "retry",
-      cause: "check_failed",
-      reason: /kept tests fail before the change: b2/,
-    });
-  });
-
-  it("retries a test that does not build or is not found, whatever its exit code", () => {
-    expect(judge([res(1, 0, "new", false)], "behavior")).toMatchObject({
-      word: "retry",
-      cause: "check_failed",
-      reason: /do not build or are not found: b1/,
     });
   });
 });
 
 describe("judge, a structure cl", () => {
-  it("passes tests that all pass to da-hammer, not as met: the behavior is pinned, for the refactor", () => {
-    const m = judge([res(1, 0), res(2, 0, "kept")], "structure");
+  it("passes a green check to da-hammer, not as met: the behavior is pinned, for the refactor", () => {
+    const m = judge(0, "ok", "structure");
     expect(m).toMatchObject({ word: "pass", reason: /pinned/ });
     expect(m.met).toBeUndefined();
   });
 
-  it("retries a test that fails: a characterization test passes on the code as it is", () => {
-    expect(judge([res(1, 1)], "structure")).toMatchObject({
+  it("retries a red check, with its output's tail: a characterization test passes on the code as it is", () => {
+    expect(judge(1, "b1 failed", "structure")).toMatchObject({
       word: "retry",
       cause: "check_failed",
-      reason: /pin the code as it is/,
+      reason:
+        /pin the code as it is, so the check passes now: exit 1: b1 failed/,
     });
   });
 });

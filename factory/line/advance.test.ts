@@ -1,13 +1,7 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { move } from "../repos/move.ts";
 import { notesRepo } from "../repos/notes.fixture.ts";
@@ -778,7 +772,7 @@ describe("advance across repos", () => {
         expect.objectContaining({
           name: "x-b",
           repo: "/b",
-          work: join(dir, "runs", "x", "cl", "b", "work"),
+          work: join(dir, "runs", "x", "cl", "b", "x-b"),
         }),
         "@s/alpha",
         "1.2.0",
@@ -976,27 +970,6 @@ describe("advance across repos", () => {
           expect(state("x-b")).toBe("waiting");
         },
       );
-    });
-  });
-
-  describe("the cl after a move", () => {
-    it("sets its worktree up again, so its attempt installs the moved lockfile", async () => {
-      across();
-      const mark = join(dir, "runs", "x", "cl", "b", "setup.done");
-      mkdirSync(dirname(mark), { recursive: true });
-      writeFileSync(mark, "");
-      await advance(ledger, worldOf(files, ["v1.2.0"], registryOf(true)));
-      expect(existsSync(mark)).toBe(false);
-      expect(state("x-b")).toBe("ready");
-    });
-
-    it("keeps its setup when it moved nothing", async () => {
-      across();
-      const mark = join(dir, "runs", "x", "cl", "b", "setup.done");
-      mkdirSync(dirname(mark), { recursive: true });
-      writeFileSync(mark, "");
-      await advance(ledger, worldOf({}, [], registryOf(true)));
-      expect(existsSync(mark)).toBe(true);
     });
   });
 });
