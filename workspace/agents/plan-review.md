@@ -39,7 +39,7 @@ The planner's obligations, each proven again, at the plan's levels, top first: a
 - each cl: alone, once the seams it meets at hold
 	- its parts: its test, Promises, Seam and Core context, and in a plan its phase. Its Seam names the decision the cut hides
 	- its promises ([[cl]], Promises): each one can fail, is traced to the issue's promise or the seam it serves, and an issue promise's test is in the Promises of the cl that completes it. A cut that asks or waits on an outside thing promises what holds when it fails. One left out is a finding
-	- its measure: its promises meet the measure of [[cl]] (Promises), enough and no more. Too little (every promise kept, and the cut's intent still not met) or too much (a promise that says how, or reads as a test case or a build step) is a finding
+	- its measure: its promises meet the measure of [[cl]] (Promises), enough and no more. Too little (every promise kept, and the cut's intent still not met) or too much (a promise that says how, or reads as a test case or a build step; a direction that dictates steps, or repeats the bar) is a finding
 	- its ground: each assumption its contract rests on is grounded: you open the code, the probe's output, or the design doc. One that could not be settled sits in a phase-1 cl, so the build checks it first
 	- its Core context: it holds all its builders need: each path described, with what it is and why it is there, and one exemplar. A path missing is a finding; an extra one is not
 - the attack: last, on the whole: assume it failed at its second cut, and find why

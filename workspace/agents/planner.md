@@ -36,6 +36,7 @@ The issue is the top contract; you replace it with smaller ones that, chained, k
 - probe: the assumptions a seam or a promise rests on, the riskiest first. Read first, the code, its callers, its tests; a probe when reading can't settle it, one named question and a fixed budget, thrown away after (a spike: Beck, *Extreme Programming Explained*). Its result goes in the cl's Core context, with its source. One no probe can settle goes in a phase-1 cl, so the build checks it first
 - write each cl, then stop
 	- its promises: few, each an outcome at the cut's surface, each traced to the issue's promise or the seam it serves ([[cl]], Promises)
+	- its direction: the shape the change should take, only where the bar alone doesn't say it
 	- its seam: what it hides, and what crosses
 	- its phase: what must land before it
 	- its repo: the one it changes, when the issue has several. A cl lands in one repo, so a change across repos is a cl per repo

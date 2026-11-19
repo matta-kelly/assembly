@@ -66,6 +66,13 @@ export const clSpec = z.object({
     .describe(
       "its promises: each an outcome at the cut's surface that can fail, traced to the issue's promise or the seam it serves; never a case or a build step",
     ),
+  direction: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "its Direction section: the shape the change should take, where the bar alone doesn't say it, judged by the review and never tested. Left out when the bar says enough",
+    ),
   seam: z
     .string()
     .min(1)
@@ -163,6 +170,7 @@ export function specText(s: Spec): string {
       `- test: \`${c.test}\``,
       "- promises:",
       ...c.promises.map((b) => `  - ${b}`),
+      ...(c.direction ? [`- direction: ${c.direction}`] : []),
       `- seam: ${c.seam}`,
       "- core context:",
       c.context,
@@ -340,6 +348,7 @@ export function clNote(c: ClSpec): string {
     "",
     ...c.promises.map((b) => `- ${b}`),
     "",
+    ...(c.direction ? ["## Direction", "", c.direction, ""] : []),
     "## Seam",
     "",
     c.seam,
@@ -407,6 +416,9 @@ function clIn(
     shape: fields["shape"],
     test: fields["test"],
     promises: itemsIn(body, "Promises").map((x) => x.slice(2)),
+    ...(sectionIn(body, "Direction").trim()
+      ? { direction: sectionIn(body, "Direction").trim() }
+      : {}),
     seam: sectionIn(body, "Seam").trim(),
     context: sectionIn(body, "Core context").trim(),
   });

@@ -176,6 +176,20 @@ describe("a cl's spec", () => {
     );
   });
 
+  it("keeps its Direction through its note, and has none when the note has none", () => {
+    at.write(
+      plan(
+        cl("one", 1, { direction: "one model with two scopes" }),
+        cl("two", 2),
+      ),
+    );
+    const notes = at.notes();
+    const of = (n: string) =>
+      clOf(notes, { name: `is-${n}`, issue: "is", note: `_well/is-${n}.md` });
+    expect(of("one").direction).toBe("one model with two scopes");
+    expect(of("two").direction).toBeUndefined();
+  });
+
   it("is an error for a note that is not there at the commit, or not a cl", () => {
     const notes = at.notes();
     expect(() =>

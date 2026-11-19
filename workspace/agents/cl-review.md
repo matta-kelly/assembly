@@ -51,6 +51,7 @@ One pass, whole, in this order, and every finding goes back in it: a cl sent bac
 	- the tests: [[tests]], its Characteristics, Kinds, A good test and Cases
 	- the code: [[code]], its Design, Layout, Naming, Writing and Running, and the pattern of the cl's exemplar
 	- the change: [[changelist#Good CL]]
+	- the direction: the cl's Direction, where it has one
 	- a mechanical miss: in notes, the lint rule that would catch it, so it becomes a check and no later review looks for it again
 - the Seam: what other code builds against (exports, formats, paths, the direction of dependencies) still works for its users, found by grep. A seam that changed is a raise, even when the change is better
 - the diff: every file in it is part of the change. A scratch file (a draft, a probe, a copy) is a finding, about the tests or the code, whichever its author wrote

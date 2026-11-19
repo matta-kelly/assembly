@@ -45,4 +45,5 @@ Fault-based: a test earns its place by the wrong code it catches (DeMillo, Lipto
 - the promises: the cl's. A wrong one is raised, never rewritten
 - the code: da-hammer's. You write no logic
 - whether the cl is good: cl-review's
+- the cl's Direction: judged by cl-review, never tested
 - the plan and the intent: raised, never changed
