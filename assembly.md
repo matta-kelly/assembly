@@ -173,7 +173,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 - spec: the notes that say what must be true: the issue, the plan and its cls, in kinetic, the notes repo. The only spec: the ledger holds no copy of it
 	- types: [[issue]], [[plan]] and [[cl]], with [[objective]] and the abstract [[work]], in `work/`: the package `@mku1tra/work`, which holds the types and no notes. A graph that holds work imports it, so work is in any repo, with or without the factory
 	- shapes: held by the process. `factory/repos/notes.ts` reads them at a commit of the notes' main, never from a working tree
-	- the commit: each attempt fetches the notes' main as it starts and pins its commit on the attempt, so its note, a cl's test command and every review's input are the spec as it was then, and an edit is read by the next attempt
+	- the commit: each attempt fetches the notes' main as it starts and pins its commit on the attempt, so its note and every review's input are the spec as it was then, and an edit is read by the next attempt
 	- writes: the engine writes only the notes of a spec the factory's planner made, in kinetic's format, and lands them on the notes' main as the issue's land ([[#The dock]]). No note's `status` is written: the ledger is the status. A finding is never written into a note
 	- the operator's spec: the operator's own notes on the notes' main, which the engine reads and never writes
 - product: the files a cl's builders make, its tests and its code, in git
@@ -211,18 +211,20 @@ The machine: what moves jobs from station to station. Its code is in two folders
 		- a cl: waiting (for the phases before its own) → ready → red (da-nail's tests) → green (da-hammer's code, or da-nail's tests that pass at once: the code there already meets them) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 		- the operator's levers: stop, the operator's escalate of any item that moves; resume, a held item back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from the operator's move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item the operator lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a held cl put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is the operator's to judge; and note, the operator's message to an agent's conversation on an item, which its next run reads, starting none: the loop delivers it through que-pasa's note, since only its process opens the conversations
 	- a step: one per state, with its agent, its result's shape and its check (`factory/stations/*.ts`, listed in `factory/stations/index.ts`)
-		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (by the cl's shape: a behavior cl's tests red at an assertion go to hammer, and green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test changed, then green), review (still green), accept (the full suite green)
+		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (each listed test built and found, then by the cl's shape: a behavior cl's kept tests pass, a new test red goes to hammer, and all green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test changed, da-nail's tests green, then the full suite green), review (da-nail's tests and the full suite still green), accept (the full suite green)
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
 		- the builders: nail and hammer, in the cl's one worktree, the whole repo. The cl's Core context is where its change lives: they start there, and read wider only when the work needs it. The instruction holds their tokens, and `factory top` shows them
 			- a path of the Core context: a file or a folder, a plain path from the repo's root
 			- the commit: every change the attempt made
-			- hammer: changes no test file, none da-nail wrote and none its test command runs
-			- a test run: one op (`factory/runs/tests.ts`'s `runTests`), for the agent's `test` tool and the step's check alike, on the cl's worktree with the attempt's change, so the tree a test sees is the tree a pass commits
+			- hammer: changes no test file da-nail listed, new or kept
+			- a test run: a command in the repo's image, offline, on the cl's worktree with the attempt's change, so the tree a test sees is the tree a pass commits (`factory/runs/tests.ts`'s `runIn`)
+				- a listed test: each test da-nail lists, `new` (the change makes it pass) or `kept` (it passes before and after), run alone by its file's runner, judged by its exit code only, never its output (`factory/runs/listed.ts`, Bazel's test contract, SWE-bench's FAIL_TO_PASS and PASS_TO_PASS). A runner is two commands chosen by the file's name, list (it builds, and the test is there) and run: `*.test.ts` vitest, `*_test.go` go test from the nearest go.mod, `*.test.sh` the script. A file with no runner is refused. The agent's `test` tool and the step's check run them the same way
+				- the full suite: the repo's `scripts/check.sh all`, once, at hammer's check, after da-nail's tests pass, and at review and acceptance. A nail pass never runs it
 	- the land: an approved item's attempt, code with no agent (`factory/repos/land.ts`): a cl's onto its repo's main, an issue's plan onto the notes' main. Its moves are in [[#The dock]]
 	- an agent: its instructions in its role note beside it, and the bin it names (plan, implement, review), never a model
 	- the workspace: what the agents are made of (`workspace/`), apart from the machine that runs them. Not the bench ([[workspace]])
 		- `agents/`: each agent's role note, and its code beside it
-		- `tools/`: the factory's own tools, for nail and hammer: `test`, the cl's test command; `remove`, a file out of the cl's worktree, so a builder can make any change the worktree holds (add, edit, remove), under its step's check
+		- `tools/`: the factory's own tools, for nail and hammer: `test`, the tests it is given, each alone by its file's runner; `remove`, a file out of the cl's worktree, so a builder can make any change the worktree holds (add, edit, remove), under its step's check
 			- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
 			- for every agent: `ls`, `read_file`, `glob`, `grep`
 			- for nail and hammer: `write_file`, `edit_file`, in the cl's worktree
@@ -294,7 +296,7 @@ An attempt: one step on one item, at the item's bench. Its run and its sandbox a
 		- left the queue, or no verdict: a retry
 	- through `git land` to a repo's gate, for a repo not on crate
 		- rebase: the cl's branch onto main. A conflict is a back about the plan (`restack_conflict`)
-		- retest: the cl's test command on the rebased tree, when main moved under it. A red is a back about the code (`check_failed`), and the branch stays on the rebased tree, so da-hammer works on the code main will hold
+		- retest: the repo's full suite on the rebased tree, when main moved under it. A red is a back about the code (`check_failed`), and the branch stays on the rebased tree, so da-hammer works on the code main will hold
 		- push: `git land`, through the repo's gate. A land it refuses is a retry
 	- landed: the cl's branch is the commit main took, and the ledger keeps that commit, which its version tags are read from, and the files it changed
 	- an issue's plan: its land writes the plan and cl notes its planner made on the issue's branch of the notes repo, from main as it is now, replacing the notes of its cls not landed, commits them as `docs(<issue>): its plan`, and lands them as a cl lands, so the notes' own check lints them. A refusal is a back about the plan, to the planner

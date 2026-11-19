@@ -55,7 +55,11 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const t = (n: number, file = "a.test.ts") => ({ file, name: `b${n}` });
+const t = (n: number, file = "a.test.ts", kind: "new" | "kept" = "new") => ({
+  file,
+  name: `b${n}`,
+  kind,
+});
 
 describe("da-nail's tests, as the steps after it read them", () => {
   it("are its last passed result's: the files once each, and each test", () => {
@@ -63,7 +67,7 @@ describe("da-nail's tests, as the steps after it read them", () => {
       passed: () => ({ word: "done", tests: [t(1), t(2), t(3, "b.test.ts")] }),
     } as unknown as Ledger;
     expect(testFilesOf(ledger, "x")).toEqual(["a.test.ts", "b.test.ts"]);
-    expect(testsOf(ledger, "x")).toContain("- `b.test.ts`, b3");
+    expect(testsOf(ledger, "x")).toContain("- `b.test.ts`, b3 (new)");
   });
 
   it("are none before da-nail passed", () => {
@@ -107,10 +111,27 @@ describe("the nail step's check, on a structure cl", () => {
 });
 
 describe("the nail step's check, before red", () => {
-  it("runs the tests da-nail lists: whether every promise is kept is the review's", async () => {
+  it("runs each test da-nail lists, and never the full suite: whether every promise is kept is the review's", async () => {
     const run = fakeWorktree({ files: ["a.test.ts"] });
     await tests.check(r, { word: "done", tests: [t(1), t(3)] }, run, none);
-    expect(run.runs).toBe(1);
+    expect(run.listedAsked).toEqual([[t(1), t(3)]]);
+    expect(run.runs).toBe(0);
+  });
+
+  it("retries a test file no runner runs, and runs nothing", async () => {
+    const run = fakeWorktree({ files: ["a.test.ts", "a.test.mjs"] });
+    const v = await tests.check(
+      r,
+      { word: "done", tests: [t(1), t(2, "a.test.mjs")] },
+      run,
+      none,
+    );
+    expect(v).toMatchObject({
+      word: "retry",
+      cause: "invalid_output",
+      reason: /a.test.mjs: the factory runs only/,
+    });
+    expect(run.listedAsked).toEqual([]);
   });
 
   it("retries when a test file is not in the worktree", async () => {
@@ -128,83 +149,57 @@ describe("the nail step's check, before red", () => {
   });
 });
 
+/** A listed test's run: listed (built and found) unless said, with its exit code. */
+const res = (
+  n: number,
+  code: number,
+  kind: "new" | "kept" = "new",
+  listed = true,
+) => ({ test: t(n, "a.test.ts", kind), listed, code, out: `b${n}` });
+
 describe("judge, a behavior cl", () => {
-  it("passes a run that fails at an assertion", () => {
-    expect(
-      judge(1, "AssertionError: expected 1 to be 2", "behavior").word,
-    ).toBe("pass");
-    expect(
-      judge(1, "AssertionError [ERR_ASSERTION]: 0 !== 2", "behavior").word,
-    ).toBe("pass");
-    expect(judge(1, "expect(received).toBe(expected)", "behavior").word).toBe(
-      "pass",
-    );
-    // a test about a SyntaxError is not one that failed to load
-    expect(
-      judge(
-        1,
-        "AssertionError: expected [Function] to throw SyntaxError",
-        "behavior",
-      ).word,
-    ).toBe("pass");
+  it("passes to its code when a new test fails and every kept one passes: a red from an assertion or a stub alike", () => {
+    const m = judge([res(1, 1), res(2, 0, "kept")], "behavior");
+    expect(m).toMatchObject({ word: "pass", reason: /red: b1/ });
+    expect(m.met).toBeUndefined();
   });
 
-  it("retries a test that throws before it asserts, though the run counts it failed", () => {
-    expect(
-      judge(1, "TypeError: x is not a function\n Tests  1 failed", "behavior")
-        .word,
-    ).toBe("retry");
-  });
-
-  it("passes a run that passes as met, and a red one not", () => {
-    expect(judge(0, "Tests 3 passed", "behavior")).toMatchObject({
+  it("passes as met when every test passes: the code meets them", () => {
+    expect(judge([res(1, 0), res(2, 0, "kept")], "behavior")).toMatchObject({
       word: "pass",
       met: true,
     });
-    expect(judge(1, "AssertionError: x", "behavior").met).toBeUndefined();
   });
 
-  it("retries a run that fails before any assertion", () => {
-    expect(
-      judge(1, "Error: Cannot find module './a.ts'", "behavior"),
-    ).toMatchObject({
+  it("retries a kept test that fails before the change", () => {
+    expect(judge([res(1, 1), res(2, 1, "kept")], "behavior")).toMatchObject({
       word: "retry",
-      reason: /before any assertion/,
+      cause: "check_failed",
+      reason: /kept tests fail before the change: b2/,
     });
   });
 
-  it("retries a failure that shows no assertion", () => {
-    expect(judge(1, "segfault", "behavior")).toMatchObject({
+  it("retries a test that does not build or is not found, whatever its exit code", () => {
+    expect(judge([res(1, 0, "new", false)], "behavior")).toMatchObject({
       word: "retry",
-      reason: /no assertion failure/,
+      cause: "check_failed",
+      reason: /do not build or are not found: b1/,
     });
   });
 });
 
 describe("judge, a structure cl", () => {
-  it("passes a run that passes to da-hammer, not as met: the behavior is pinned, for the refactor", () => {
-    const m = judge(0, "Tests 3 passed", "structure");
+  it("passes tests that all pass to da-hammer, not as met: the behavior is pinned, for the refactor", () => {
+    const m = judge([res(1, 0), res(2, 0, "kept")], "structure");
     expect(m).toMatchObject({ word: "pass", reason: /pinned/ });
     expect(m.met).toBeUndefined();
   });
 
-  it("retries a run red at an assertion: a characterization test passes on the code as it is", () => {
-    expect(
-      judge(1, "AssertionError: expected 1 to be 2", "structure"),
-    ).toMatchObject({
+  it("retries a test that fails: a characterization test passes on the code as it is", () => {
+    expect(judge([res(1, 1)], "structure")).toMatchObject({
       word: "retry",
       cause: "check_failed",
       reason: /pin the code as it is/,
-    });
-  });
-
-  it("retries a run that fails before any assertion, or shows none, as a behavior cl's", () => {
-    expect(
-      judge(1, "Error: Cannot find module './a.ts'", "structure"),
-    ).toMatchObject({ word: "retry", reason: /before any assertion/ });
-    expect(judge(1, "segfault", "structure")).toMatchObject({
-      word: "retry",
-      reason: /no assertion failure/,
     });
   });
 });

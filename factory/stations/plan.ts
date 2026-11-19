@@ -1,14 +1,14 @@
 /**
  * The plan step: an issue from open to planned. The planner reads the issue and the code, read-only, and hands back the
  * spec as data, in the shape of kinetic's plan and cl types: its plan (the approach, each phase's reason, and what does
- * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, test, promises, seam and
- * core context). The check is spec lint, in code: what can be decided without judgment.
+ * not fit), absent for an issue of one cl, and its cls (each one's intent, phase, shape, promises, direction, seam
+ * and core context). The check is spec lint, in code: what can be decided without judgment.
  * Whether the cut is good is the plan review's. Nothing is written yet: once the plan review approves, the issue's land
  * commits the plan and its cl notes to the notes repo and lands them (factory/line/advance.ts, writePlan). From then on
  * the notes are the spec: every attempt reads them at its own commit (readSpec, clOf), whoever made them.
  */
 
-import { basename, dirname, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import type { Ledger } from "../line/ledger.ts";
@@ -42,7 +42,7 @@ export const clSpec = z.object({
     .min(1)
     .optional()
     .describe(
-      "the repo it changes, by its folder's name: one of the issue's. Needed when the issue has more than one; its paths and test are from that repo's root",
+      "the repo it changes, by its folder's name: one of the issue's. Needed when the issue has more than one; its paths are from that repo's root",
     ),
   shape: z.object({
     change: z
@@ -54,12 +54,6 @@ export const clSpec = z.object({
       .enum(["repo", "system"])
       .describe("where its check runs: in the repo, or on the running system"),
   }),
-  test: z
-    .string()
-    .min(1)
-    .describe(
-      "the command its checks run, from the repo's root: its new test files and the existing ones that test what it changes",
-    ),
   promises: z
     .array(z.string().min(1))
     .min(1)
@@ -167,7 +161,6 @@ export function specText(s: Spec): string {
     ...s.cls.flatMap((c) => [
       `### ${c.name}${c.phase ? `, phase ${c.phase}` : ""}: ${c.intent}`,
       `- shape: ${c.shape.change}, checked in the ${c.shape.checked}`,
-      `- test: \`${c.test}\``,
       "- promises:",
       ...c.promises.map((b) => `  - ${b}`),
       ...(c.direction ? [`- direction: ${c.direction}`] : []),
@@ -178,26 +171,9 @@ export function specText(s: Spec): string {
   ].join("\n");
 }
 
-/**
- * The files a test command names, by path: each argument after the program that is not a flag and looks like a path
- * (a folder in it, or a file extension). `node --test test/a.test.mjs` names test/a.test.mjs.
- */
-export function pathsIn(command: string): string[] {
-  const [, ...args] = command.trim().split(/\s+/);
-  return args.filter(
-    (a) => !a.startsWith("-") && /^[\w.@/-]+$/.test(a) && /\/|\.\w+$/.test(a),
-  );
-}
-
 /** The names of the repos an issue's cls may change: its several, or its one, by their folders' names. */
 export const reposOf = (r: Pick<Run, "repo" | "repos">): string[] =>
   r.repos?.length ? r.repos.map((p) => p.name) : [basename(r.repo)];
-
-/** A file in the repo, from its root: not the root itself, nor outside it. */
-const inside = (f: string) => {
-  const n = normalize(f).replace(/\/+$/, "");
-  return !isAbsolute(f) && n !== "." && !n.startsWith("..");
-};
 
 const no = (reason: string): Lint => ({
   word: "retry",
@@ -209,8 +185,7 @@ const no = (reason: string): Lint => ({
  * Spec lint: what can be decided about a spec without judgment, the same rules kinetic's lint holds and what only the
  * repo can say. A plan's cls each have a phase, the phases run from 1 with no gap, and each has a reason; a lone cl has
  * no plan and no phase. The cls' names are their own and new. A cl names a repo of the issue's, and must when the issue
- * has more than one. The files its test command runs are in its repo. Whether
- * the cls of one phase stay apart is a judgment: the plan review's.
+ * has more than one. Whether the cls of one phase stay apart is a judgment: the plan review's.
  */
 export function specLint(
   s: Spec,
@@ -252,11 +227,6 @@ export function specLint(
     if (c.repo !== undefined && !o.repos.includes(c.repo))
       return no(
         `cl ${c.name}: its repo ${c.repo} is not the issue's: ${o.repos.join(", ")}`,
-      );
-    const outside = pathsIn(c.test).filter((f) => !inside(f));
-    if (outside.length)
-      return no(
-        `cl ${c.name}: its test command runs files outside the repo, or its root: ${outside.join(", ")}`,
       );
   }
   return { word: "pass", reason: "the spec lints" };
@@ -368,7 +338,6 @@ export const clFields = (issue: string, c: ClSpec, plan: boolean) => ({
   ...(c.phase === undefined ? {} : { phase: c.phase }),
   ...(c.repo === undefined ? {} : { repo: c.repo }),
   shape: c.shape,
-  test: c.test,
 });
 
 /** A note's frontmatter, parsed, and its body. A note with none has an empty one. */
@@ -414,7 +383,6 @@ function clIn(
     ...(fields["phase"] === undefined ? {} : { phase: fields["phase"] }),
     ...(fields["repo"] === undefined ? {} : { repo: fields["repo"] }),
     shape: fields["shape"],
-    test: fields["test"],
     promises: itemsIn(body, "Promises").map((x) => x.slice(2)),
     ...(sectionIn(body, "Direction").trim()
       ? { direction: sectionIn(body, "Direction").trim() }

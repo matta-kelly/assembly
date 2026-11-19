@@ -60,7 +60,6 @@ type: cl
 belongsTo: "[[i]]"
 status: new
 shape: { change: behavior, checked: repo }
-test: t
 ---
 It works.
 
@@ -575,23 +574,22 @@ describe("an attempt's setup", () => {
 });
 
 describe("the notes", () => {
-  /** The cl's note, changed so its test command is `command`, committed on the notes' main. */
-  const edit = (command: string) =>
-    notes.commit({ "_well/c.md": cl.replace("test: t", `test: ${command}`) });
+  /** The cl's note, changed so its intent is `intent`, committed on the notes' main. */
+  const edit = (intent: string) =>
+    notes.commit({ "_well/c.md": cl.replace("It works.", intent) });
 
   it("are read at the notes' main as an attempt starts, the commit pinned on it, and an edit is read by the next attempt", async () => {
     message = { word: "retry", reason: "red", findings: [] };
     const runner = vi.fn<Run1>(gives(done("x")));
     const l = await make(runner);
     await once(l);
-    const later = edit("node --test b.test.mjs");
+    const later = edit("It works again.");
     await once(l);
     const [one, two] = runner.mock.calls.map((c) => c[2].run);
     expect(one?.notes).toEqual(notes.first);
-    expect(one?.test).toBe("t");
     expect(two?.notes).toEqual(later);
-    expect(two?.test).toBe("node --test b.test.mjs");
-    expect(runner.mock.calls[1]?.[1]).toContain("It works.");
+    expect(runner.mock.calls[0]?.[1]).toContain("It works.");
+    expect(runner.mock.calls[1]?.[1]).toContain("It works again.");
     expect(ledger.pinned("c", 1)).toBe(notes.first.commit);
     expect(ledger.pinned("c", 2)).toBe(later.commit);
   });
@@ -599,13 +597,13 @@ describe("the notes", () => {
   it("are read by a taken-up attempt at the commit it pinned, not at main", async () => {
     ledger.begin("c");
     ledger.pin("c", 1, notes.first.commit);
-    edit("node --test b.test.mjs");
+    edit("It works again.");
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner));
     expect(runner.mock.calls[0]?.[2].run).toMatchObject({
       notes: notes.first,
-      test: "t",
     });
+    expect(runner.mock.calls[0]?.[1]).not.toContain("It works again.");
   });
 
   it("end an attempt whose cl note is not a cl as a retry, contract_invalid, before its sandbox", async () => {

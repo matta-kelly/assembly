@@ -68,7 +68,6 @@ ${phase === undefined ? "" : `phase: ${phase}\n`}repo: repo
 shape:
   change: behavior
   checked: repo
-test: npx vitest run test/${name}.test.ts
 ---
 src/${name}.ts exports ${name}, which is 2.
 
@@ -336,12 +335,10 @@ describe("submit", () => {
         /list puts fx-c in phase 2, and the cl says phase 1/,
       ),
     ]);
-    note("fx-c", cl("c", 2).replace("run test/c.test.ts", "run ../c.test.ts"));
-    publish("a path outside the repo");
+    note("fx-c", cl("c", 2).replace("repo: repo\n", "repo: elsewhere\n"));
+    publish("a repo not the issue's");
     expect((await submit(factory, "fx", runK())).lines).toEqual([
-      expect.stringMatching(
-        /cl c: its test command runs files outside the repo, or its root: ..\/c.test.ts/,
-      ),
+      expect.stringMatching(/cl c: its repo elsewhere is not the issue's/),
     ]);
     expect(factory().ledger.items()).toEqual([]);
   });
@@ -696,10 +693,10 @@ describe("stop and resume", () => {
   it("resume of an issue to building refuses notes that do not read as a spec, and changes nothing", async () => {
     const ledger = await building();
     stop(factory, "fx");
-    note("fx-c", cl("c", 2).replace("run test/c.test.ts", "run ../c.test.ts"));
-    publish("a path outside the repo");
+    note("fx-c", cl("c", 2).replace("repo: repo\n", "repo: elsewhere\n"));
+    publish("a repo not the issue's");
     expect((await go("fx")).lines).toEqual([
-      expect.stringMatching(/files outside the repo/),
+      expect.stringMatching(/its repo elsewhere is not the issue's/),
     ]);
     expect(ledger.item("fx").state).toBe("escalated");
   });

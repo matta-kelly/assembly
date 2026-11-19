@@ -1,6 +1,6 @@
 /**
- * Test runs: the item's test command, in a container of its own, offline, on the item's worktree, with what the
- * attempt changed in it. A test run never runs in the agent's sandbox, and the agent's `test` tool and its step's check
+ * Test runs: a command, in a container of its own, offline, on the item's worktree, with what the attempt changed in
+ * it: the repo's full suite (runTests), or one listed test (listed.ts). A test run never runs in the agent's sandbox, and the agent's `test` tool and its step's check
  * are the same op, on the tree a pass commits. Each run is recorded with its inputs (the tree, the command and the
  * image), so the same inputs could be looked up again.
  */
@@ -16,7 +16,7 @@ import { sh } from "../sh.ts";
 export const checkLimitS = 15 * 60;
 
 /**
- * Runs the item's test command on its worktree. Gives back its output, and the run as the ledger records it. It stops
+ * Runs the item's full suite on its worktree. Gives back its output, and the run as the ledger records it. It stops
  * when `signal` aborts.
  */
 export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
@@ -35,6 +35,18 @@ export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
       out: ran.map((t) => t.out).join("\n"),
     };
   }
+  return runIn(r, r.test, signal);
+}
+
+/**
+ * Runs `command` in the item's image, offline, on its worktree at /work, and records it with its inputs. It stops when
+ * `signal` aborts.
+ */
+export async function runIn(
+  r: Run,
+  command: string,
+  signal?: AbortSignal,
+): Promise<TestRun> {
   const tree = await treeOf(r);
   const at = Date.now();
   const ran = await sh(
@@ -53,20 +65,20 @@ export async function runTests(r: Run, signal?: AbortSignal): Promise<TestRun> {
       r.image,
       "sh",
       "-c",
-      r.test,
+      command,
     ],
     undefined,
     undefined,
     signal,
   );
   const input = createHash("sha256")
-    .update(JSON.stringify([tree, r.test, r.image]))
+    .update(JSON.stringify([tree, command, r.image]))
     .digest("hex");
   return {
     code: ran.code,
     out: ran.out,
     check: {
-      command: r.test,
+      command,
       image: r.image,
       tree,
       input,

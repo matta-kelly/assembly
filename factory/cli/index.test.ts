@@ -79,7 +79,6 @@ repo: repo
 shape:
   change: behavior
   checked: repo
-test: npx vitest run test/a.test.ts
 ---
 src/a.ts exports a, which is 2.
 

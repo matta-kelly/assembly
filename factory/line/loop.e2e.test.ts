@@ -60,7 +60,7 @@ import {
 } from "../stations/plan.ts";
 
 const image = "docker.io/library/node:22.23.4-slim";
-const suite = "node --test test/*.test.mjs";
+const suite = 'for t in test/*.test.sh; do sh "$t" || exit 1; done';
 
 /**
  * Makes `at` a repo on crate as an attempt reads it from its worktree: its image, its full suite, and a lockfile of no
@@ -142,7 +142,6 @@ const cl = (
   intent,
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
-  test: `node --test test/${name}.test.mjs`,
   promises: [promise],
   seam: `src/${name}.mjs's export, which the next cl imports`,
   context: [
@@ -231,12 +230,17 @@ const planReviewScript = (_input: string, done: number, last: string) => {
   return submit({ word: "done" });
 };
 
+/** A shell test, the factory's runner for a file of its own: node runs `imports` and `assertion` from the repo's root,
+ * and exits 1 when the assertion fails. */
 const testOf = (name: string, imports: string, assertion: string) =>
   [
-    'import { test } from "node:test";',
+    "#!/bin/sh",
+    `# ${name}`,
+    "exec node --input-type=module -e '",
     'import assert from "node:assert";',
-    imports,
-    `test("${name}", () => ${assertion});`,
+    imports.replaceAll('"../', '"./'),
+    `${assertion};`,
+    "'",
     "",
   ].join("\n");
 
@@ -246,7 +250,7 @@ const nailScript = (input: string, done: number) => {
   if (lone) {
     if (done === 0)
       return fauxToolCall("write_file", {
-        file_path: `test/${lone}.test.mjs`,
+        file_path: `test/${lone}.test.sh`,
         content: testOf(
           lone,
           `import { ${lone} } from "../src/${lone}.mjs";`,
@@ -258,17 +262,20 @@ const nailScript = (input: string, done: number) => {
         file_path: `src/${lone}.mjs`,
         content: `export const ${lone} = 0;\n`,
       });
-    if (done === 2) return fauxToolCall("test", {});
+    if (done === 2)
+      return fauxToolCall("test", {
+        tests: [{ file: `test/${lone}.test.sh`, name: lone }],
+      });
     return submit({
       word: "done",
-      tests: [{ file: `test/${lone}.test.mjs`, name: lone }],
+      tests: [{ file: `test/${lone}.test.sh`, name: lone, kind: "new" }],
     });
   }
   const double = input.includes("The cut double of");
   const name = double ? "double" : "value";
   if (done === 0)
     return fauxToolCall("write_file", {
-      file_path: `test/${name}.test.mjs`,
+      file_path: `test/${name}.test.sh`,
       content: double
         ? testOf(
             "double",
@@ -288,10 +295,13 @@ const nailScript = (input: string, done: number) => {
         ? "export const double = () => 0;\n"
         : "export const value = 0;\n",
     });
-  if (done === 2) return fauxToolCall("test", {});
+  if (done === 2)
+    return fauxToolCall("test", {
+      tests: [{ file: `test/${name}.test.sh`, name }],
+    });
   return submit({
     word: "done",
-    tests: [{ file: `test/${name}.test.mjs`, name }],
+    tests: [{ file: `test/${name}.test.sh`, name, kind: "new" }],
   });
 };
 
@@ -389,10 +399,9 @@ const versionPlanner = (_input: string, done: number) => {
           1,
         ),
         repo: "ra",
-        test: "node --test test/a.test.mjs",
         seam: "the two packages' exports, which b's versions carry",
         context:
-          "- one/index.js, two/index.js: the two packages' exports\n- test/a.test.mjs: the test",
+          "- one/index.js, two/index.js: the two packages' exports\n- test/a.test.sh: the test",
       },
       {
         ...cl(
@@ -402,10 +411,9 @@ const versionPlanner = (_input: string, done: number) => {
           2,
         ),
         repo: "rb",
-        test: "node --test test/b.test.mjs",
         seam: "src/b.mjs's export",
         context:
-          "- src/b.mjs: the code\n- test/b.test.mjs: the test\n- package.json: the dependency the move changes",
+          "- src/b.mjs: the code\n- test/b.test.sh: the test\n- package.json: the dependency the move changes",
       },
     ],
   });
@@ -418,22 +426,25 @@ const cutNail = (input: string, done: number) => {
   if (cut === "a") {
     if (done === 0)
       return fauxToolCall("write_file", {
-        file_path: "test/a.test.mjs",
+        file_path: "test/a.test.sh",
         content: testOf(
           "a",
           'import { one } from "../one/index.js";\nimport { two } from "../two/index.js";',
           "assert.deepStrictEqual([one, two], [2, 2])",
         ),
       });
-    if (done === 1) return fauxToolCall("test", {});
+    if (done === 1)
+      return fauxToolCall("test", {
+        tests: [{ file: "test/a.test.sh", name: "a" }],
+      });
     return submit({
       word: "done",
-      tests: [{ file: "test/a.test.mjs", name: "a" }],
+      tests: [{ file: "test/a.test.sh", name: "a", kind: "new" }],
     });
   }
   if (done === 0)
     return fauxToolCall("write_file", {
-      file_path: "test/b.test.mjs",
+      file_path: "test/b.test.sh",
       content: testOf(
         "b",
         'import { b } from "../src/b.mjs";',
@@ -445,10 +456,13 @@ const cutNail = (input: string, done: number) => {
       file_path: "src/b.mjs",
       content: "export const b = () => 0;\n",
     });
-  if (done === 2) return fauxToolCall("test", {});
+  if (done === 2)
+    return fauxToolCall("test", {
+      tests: [{ file: "test/b.test.sh", name: "b" }],
+    });
   return submit({
     word: "done",
-    tests: [{ file: "test/b.test.mjs", name: "b" }],
+    tests: [{ file: "test/b.test.sh", name: "b", kind: "new" }],
   });
 };
 
@@ -820,7 +834,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           traceIn(join(runs, "is", "issue", "4"))
             .spans.filter((x) => x.name === "execute_tool execute")
             .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
-        ).toContainEqual(expect.stringMatching(/node --test/));
+        ).toContainEqual(expect.stringMatching(/test\/\*\.test\.sh/));
 
         // The planner's raise is a message about the issue, to the operator, and each cl's landed files are kept.
         expect(
@@ -837,7 +851,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             )
             .all()
             .map((p) => p["path"]),
-        ).toEqual(["src/double.mjs", "test/double.test.mjs"]);
+        ).toEqual(["src/double.mjs", "test/double.test.sh"]);
         // Each check's test run is recorded with its attempt: the cl's red, green and review checks, on real trees.
         const checks = db
           .prepare(
@@ -1161,7 +1175,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           onCrate(r, name);
           // its full suite has a test from the start, so it runs before and after its cl
           writeFileSync(
-            join(r, "test", "readme.test.mjs"),
+            join(r, "test", "readme.test.sh"),
             testOf(
               "readme",
               'import { readFileSync } from "node:fs";',
@@ -1338,7 +1352,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             // the repo's check: its dependencies installed, then its tests
             writeFileSync(
               join(r, "scripts", "check.sh"),
-              "#!/bin/sh\nnpm ci --no-audit --no-fund\nnode --test test/*.test.mjs\n",
+              `#!/bin/sh\nnpm ci --no-audit --no-fund\n${suite}\n`,
             );
             chmodSync(join(r, "scripts", "check.sh"), 0o755);
             writeFileSync(join(r, ".gitignore"), "node_modules/\n");
@@ -1347,7 +1361,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
               containerfile(name),
             );
             writeFileSync(
-              join(r, "test", "base.test.mjs"),
+              join(r, "test", "base.test.sh"),
               testOf("base", "", "assert.ok(true)"),
             );
             return r;

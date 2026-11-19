@@ -9,6 +9,7 @@
 import { z } from "zod";
 import type { Ledger } from "./ledger.ts";
 import type { Artifact, State, Word } from "./table.ts";
+import type { Listed, Result } from "../runs/listed.ts";
 
 /**
  * Why an attempt failed, from a fixed list, so failures can be counted by cause: the master plan's reason list. A
@@ -60,13 +61,15 @@ export interface TestRun {
 
 /**
  * What a check may ask of the attempt's worktree. The loop gives one per attempt, and records the test run it made.
- * - test: runs the item's test command, once: asked again, it gives back the same run
+ * - test: runs the item's full suite, once: asked again, it gives back the same run
+ * - listed: lists and runs each of `tests` alone, by its file's runner (factory/runs/listed.ts)
  * - changed: which of `files` differ from the item's branch, committed or not
  * - exists: which of `files` are in the worktree
  * - touched: every file that differs from where the attempt started, the item's branch, new and removed ones too
  */
 export interface Worktree {
   test(): Promise<TestRun>;
+  listed(tests: Listed[]): Promise<Result[]>;
   changed(files: string[]): Promise<string[]>;
   touched(): Promise<string[]>;
   exists(files: string[]): string[];
@@ -152,7 +155,7 @@ export type Run = Omit<Tree, "repos"> & {
   note: string; // the item's note, from the notes repo's root: _well/<name>.md
   notes: NotesAt;
   image: string; // the repo's image: the sandbox and the checks run in it
-  test: string; // a cl: the command that runs its test files, from its note. An issue: the repo's full suite
+  test: string; // the repo's full suite: `scripts/check.sh all`
   setup: string; // the command that installs the repo's dependencies into the worktree, offline. '' for none
   // An issue's repos when it has more than one: its own steps see each at work/<name>, and its suite runs in each. Its
   // repo, test and setup are then the first's, and its image the one its own steps' sandbox runs.

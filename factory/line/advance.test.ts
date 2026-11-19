@@ -31,7 +31,6 @@ const cl = (name: string, phase?: number): ClSpec => ({
   intent: `${name} is right`,
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
-  test: `node --test test/${name}.test.mjs`,
   promises: [`given ${name}, when read, then right`],
   seam: "src/value.mjs's exports",
   context: `- src/${name}.mjs: the code`,

@@ -38,7 +38,7 @@ promise  ⇄  cases  ⇄  tests  ⇄  code
 ## The review
 
 One pass, whole, in this order, and every finding goes back in it: a cl sent back for a miss this pass could have seen is a review that failed (an inspection logs every defect in one pass: Fagan).
-- the run: the repo's static checks on the files the change touches, the cl's test command, and the tests of each module it touches, found by grep. Red is a finding. A step that cannot run is named, and the rest still runs
+- the run: the repo's static checks on the files the change touches, da-nail's tests, and the tests of each module it touches, found by grep. Red is a finding. A step that cannot run is named, and the rest still runs
 - the cases: for each promise, the list of its cases, made before you read a test and kept in your notes. The list is finite, so the pass is complete by its making and not by luck
 - forward: each case to its test
 	- no test: a finding about the tests, with the case

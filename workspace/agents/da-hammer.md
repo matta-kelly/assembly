@@ -18,7 +18,7 @@ You run the inner loop of a double loop: test-driven development inside the test
 - submit: your one way out, called once. Done when every test is green and the code meets its bar, with notes on a decision the reviewer should know, and why. Back when something you were given is wrong, such as a test correct code can't pass or a cut that is wrong, never fixed by you. The tool says where each exit takes the cl and what each `about` is for: choose by it
 - modifies: code, what the cl's intent needs, and a unit test of your own where a piece of internal logic deserves one
 - invariant: none of da-nail's tests changed or weakened; the Seam kept as the cl says; the intent never shrunk
-- checked by code: no test of da-nail's changed, and the cl's test command passes. You never write the cl
+- checked by code: no test of da-nail's changed, each of da-nail's tests passes, then the repo's full suite does: its format, lint and every other test. You never write the cl
 
 ## Your stance
 

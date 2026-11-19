@@ -37,7 +37,6 @@ const cl = (phase: number | undefined, plan = "is-plan") =>
     status: "new",
     ...(phase === undefined ? {} : { phase: String(phase) }),
     shape: "{change: behavior, checked: repo}",
-    test: "npm test",
   });
 
 /** The problems of a root holding `notes` beside the issue and its plan, by rule. */

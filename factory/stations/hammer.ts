@@ -1,16 +1,17 @@
 /**
  * The hammer step: red to green. da-hammer writes the least code that makes da-nail's tests pass, and never changes a
- * test. The check confirms no test file da-nail wrote, or the cl's test command runs, differs from the cl's branch,
- * then runs the cl's test command and passes only when it passes (green.sh in loke's v1 gates). A review that sends
+ * test. The check confirms no test file da-nail wrote differs from the cl's branch, then runs each of da-nail's tests
+ * alone and, when every one passes, the repo's full suite once: its format, lint and every other test. It passes only
+ * when both do, by their exit codes (green.sh in loke's v1 gates). A review that sends
  * the cl back to its code brings it here again, and da-hammer reads the findings in its messages.
  */
 
 import { z } from "zod";
 import { notesOf } from "../repos/notes.ts";
 import type { Ledger } from "../line/ledger.ts";
-import { testFilesOf, testsOf } from "./nail.ts";
-import { pathsIn } from "./plan.ts";
+import { nailed, testFilesOf, testsOf } from "./nail.ts";
 import { type Message, say, type Step, type Worktree } from "../line/step.ts";
+import type { Listed } from "../runs/listed.ts";
 
 const done = z.object({
   word: z.literal("done"),
@@ -25,11 +26,22 @@ const done = z.object({
 });
 type Done = z.infer<typeof done>;
 
-/** Green: the cl's test command passes. */
-export async function green(at: Worktree): Promise<Message> {
+/** Green: each of da-nail's tests passes, run alone, and then the repo's full suite does. */
+export async function green(at: Worktree, tests: Listed[]): Promise<Message> {
+  const red = (await at.listed(tests)).filter((x) => !x.listed || x.code !== 0);
+  if (red.length)
+    return say(
+      "retry",
+      `red: ${red.map((x) => `${x.test.name} (${x.test.file})`).join(", ")}: ${red[0]?.out.slice(-400)}`,
+      "check_failed",
+    );
   const { code, out } = await at.test();
   if (code === 0) return say("pass", "green");
-  return say("retry", `red: exit ${code}: ${out.slice(-400)}`, "check_failed");
+  return say(
+    "retry",
+    `the full suite is red: exit ${code}: ${out.slice(-400)}`,
+    "check_failed",
+  );
 }
 
 /** The files da-hammer changed for the cl, as the review reads them. */
@@ -49,20 +61,18 @@ export const hammer: Step<Done> = {
   input: (r, ledger) =>
     [notesOf(r).text(r.note), "", testsOf(ledger, r.name)].join("\n"),
   async check(r, d, at, ledger) {
-    // The tests: da-nail's, and every test file the cl's test command runs, the existing ones too.
-    const nailed = testFilesOf(ledger, r.name);
-    if (!nailed.length)
+    // The tests: every file da-nail listed, the kept ones' too.
+    const files = testFilesOf(ledger, r.name);
+    if (!files.length)
       return say("retry", "da-nail wrote no test file", "contract_invalid");
-    const touched = await at.changed([
-      ...new Set([...nailed, ...pathsIn(r.test)]),
-    ]);
+    const touched = await at.changed(files);
     if (touched.length)
       return say(
         "retry",
         `a test was changed: ${touched.join(", ")}`,
         "scope_exceeds_change",
       );
-    const m = await green(at);
+    const m = await green(at, nailed(ledger, r.name));
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;
   },
 };

@@ -7,7 +7,7 @@ The bench: the sandbox a builder (da-nail, da-hammer) works in, one cl at a time
 
 - /work: the cl's worktree, the whole repo at the cl's branch, in a container with no network
 	- the start: the cl's Core context, where its change lives. Read wider only when the work needs it
-- the tools: read, write and edit files in /work, and test, which runs the cl's test command on /work with your changes
+- the tools: read, write and edit files in /work, test, which runs the tests you give it, each alone by its file's runner (vitest, go test, or the shell script), on /work with your changes, and answers each one's exit code, and execute, a shell in your sandbox for the work around them, such as a formatter
 - the commit: everything left in /work, committed by the orchestrator when your step passes. So you never run git
 	- scratch: a file made only to work (a draft, a probe, a copy) goes in /tmp, never in /work
 - the conversation: yours for this cl, kept across its attempts. A later attempt brings only what is new: your role note when it changed, and the messages since your last run. /work holds your work as you left it

@@ -101,7 +101,7 @@ export const plan = defineType({
 export const cl = defineType({
   name: "cl",
   description:
-    "The spec of one cut, the CL that builds it, as a contract: its promises, its phase (what must land before it) and its seam (what it keeps). Its shape and test command are data; its intent, promises, seam and core context are prose. The note holds the spec only: what happens to it (its state, attempts, results and findings) is the controller's record, keyed by its name. new once written, done once the CL lands.",
+    "The spec of one cut, the CL that builds it, as a contract: its promises, its phase (what must land before it) and its seam (what it keeps). Its shape is data; its intent, promises, seam and core context are prose. The note holds the spec only: what happens to it (its state, attempts, results and findings) is the controller's record, keyed by its name. new once written, done once the CL lands.",
   fields: {
     // The plan it is a cut of, or the issue itself when the issue takes one CL.
     belongsTo: one(() => [plan, issue] as const),
@@ -135,13 +135,6 @@ export const cl = defineType({
       })
       .optional()
       .describe("What the change is, and where its check runs"),
-    test: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        "The command its checks run: its new test files and the existing ones that test what it changes",
-      ),
     status: z
       .enum(["new", "in-progress", "done", "dropped"])
       .describe(

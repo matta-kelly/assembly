@@ -8,7 +8,6 @@ import {
   clFields,
   clNote,
   clOf,
-  pathsIn,
   planNote,
   readSpec,
   type Spec,
@@ -21,7 +20,6 @@ const cl = (name: string, phase?: number, o: Partial<ClSpec> = {}): ClSpec => ({
   intent: `${name} works`,
   ...(phase === undefined ? {} : { phase }),
   shape: { change: "behavior", checked: "repo" },
-  test: `node --test src/${name}.test.ts`,
   promises: ["given x, when y, then z"],
   seam: `the export of src/${name}.ts`,
   context: `- src/${name}.ts: the code\n- src/a.ts: the exemplar`,
@@ -67,15 +65,6 @@ describe("spec lint", () => {
     ).toMatch(/already has the name: one/);
   });
 
-  it("retries a test command that runs a file outside the repo", () => {
-    const c = cl("one", undefined, {
-      test: "node --test src/one.test.ts ../etc/passwd",
-    });
-    expect(specLint({ cls: [c] }, o).reason).toMatch(
-      /runs files outside the repo, or its root: \.\.\/etc\/passwd/,
-    );
-  });
-
   it("takes a cl that names one of the issue's repos, and one that names none when the issue has one", () => {
     expect(specLint({ cls: [cl("one")] }, o).word).toBe("pass");
     expect(specLint({ cls: [{ ...cl("one"), repo: "repo" }] }, o).word).toBe(
@@ -98,19 +87,6 @@ describe("spec lint", () => {
     expect(
       specLint(plan({ ...cl("one", 1), repo: "a" }, cl("two", 1)), two).reason,
     ).toMatch(/cl two: names no repo, and the issue has 2: a, b/);
-  });
-});
-
-describe("a test command", () => {
-  it("names its files by path, after the program, past its flags", () => {
-    expect(pathsIn("node --test test/a.test.mjs b.test.ts")).toEqual([
-      "test/a.test.mjs",
-      "b.test.ts",
-    ]);
-    expect(pathsIn("npm test")).toEqual([]);
-    expect(pathsIn("npx vitest run --reporter=dot src/x.test.ts")).toEqual([
-      "src/x.test.ts",
-    ]);
   });
 });
 
@@ -160,12 +136,11 @@ describe("a cl's spec", () => {
   beforeEach(() => (at = issueRepo()));
   afterEach(() => at.rm());
 
-  it("is read from its note at the notes' commit, with its core context and test", () => {
+  it("is read from its note at the notes' commit, with its core context", () => {
     at.write(plan(cl("one", 1), cl("two", 2)));
     const notes = at.notes();
     const two = { name: "is-two", issue: "is", note: "_well/is-two.md" };
     expect(clOf(notes, two).name).toBe("two");
-    expect(clOf(notes, two).test).toBe("node --test src/two.test.ts");
     const one = clOf(notes, {
       ...two,
       name: "is-one",
@@ -289,12 +264,10 @@ describe("a spec's notes", () => {
     at.write({ cls: [cl("one")] });
     const before = at.notes();
     at.write({
-      cls: [cl("one", undefined, { test: "node --test src/b.test.ts" })],
+      cls: [cl("one", undefined, { intent: "one works, changed" })],
     });
     at.notes();
     const then = readSpec(before, "_well/is.md", "is");
-    expect(then.ok && then.spec.cls[0]?.test).toBe(
-      "node --test src/one.test.ts",
-    );
+    expect(then.ok && then.spec.cls[0]?.intent).toBe("one works");
   });
 });

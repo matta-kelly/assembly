@@ -55,9 +55,10 @@ import {
 import { folderOf, last, log, partsOf, runOf } from "../runs/runs.ts";
 import { close, imageOf, open } from "../runs/sandbox.ts";
 import { forgetSetup, needsSetup, runSetup } from "../runs/setup.ts";
+import { runListed } from "../runs/listed.ts";
 import { runTests } from "../runs/tests.ts";
-import { checkSpan, endAttempt, openTracing, within } from "../runs/trace.ts";
 import { clOf } from "../stations/plan.ts";
+import { checkSpan, endAttempt, openTracing, within } from "../runs/trace.ts";
 import {
   type Cause,
   type CheckRun,
@@ -211,6 +212,11 @@ function worktreeOf(
         ran = t.check;
         return t;
       })),
+    listed: async (list) => {
+      const l = await runListed(r, list, signal);
+      ran = l.check ?? ran;
+      return l.results;
+    },
     changed: (files) => changed(r, files),
     touched: () => touched(r),
     // A path that leaves the worktree is never in it.
@@ -639,22 +645,20 @@ export async function loop({
       repos.push({ name, repo: p.repo, ...s });
     }
     const [first] = repos as [Repo, ...Repo[]];
-    const test =
-      t.kind === "cl"
-        ? await readying(
-            "its note is not a cl",
-            async () =>
-              clOf(notesOf({ notes }), { ...t, note: item.note }).test,
-            () => "contract_invalid",
-          )
-        : first.test;
+    // a cl's note must read as a cl before anything runs on it
+    if (t.kind === "cl")
+      await readying(
+        "its note is not a cl",
+        async () => clOf(notesOf({ notes }), { ...t, note: item.note }),
+        () => "contract_invalid",
+      );
     return {
       ...one(t),
       seq: item.seq,
       note: item.note,
       notes,
       image: repos.length > 1 ? readerImage : first.image,
-      test,
+      test: first.test,
       setup: first.setup,
       ...(repos.length > 1 ? { repos } : {}),
     };
