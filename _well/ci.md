@@ -50,8 +50,8 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 *The same check, on the change's branch, so the commit main takes is the commit that was checked*
 
-- on crate: presubmit and the merge queue are one run, the queue's check of the change on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack and deeotee
-- not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check, and landl runs it on every push. landl-db and lotus-dash run their check at land. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
+- on crate: presubmit and the merge queue are one run, the queue's check of the change on the server ([[#Merge queue]]). On crate: que-pasa, basis, stateball, publicpersona, kinetic, lot, assembly, homepage, media-stack, deeotee, landl-que, landl-db, landl-dash, monkeydo and loke (dazoo's `crate.env`, `REPOS`)
+- not on crate: `checks.yml` in GitHub Actions, below. dazoo and monkeyimage keep it as a required check. Every other repo lands with no check, and its ruleset keeps only the rules against deleting main and force-pushing
 
 ### checks.yml
 
@@ -92,7 +92,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 	- jump: `crate queue <bare> jump <sha>`, on the server, puts a change first, checked alone; every run starts again behind it. `crate queue <bare>` shows the queue
 	- after main moves: postsubmit, when the repo names one. Once main is green, crate copies it to GitHub, with the repo's own deploy key, and releases it ([[#Postsubmit]]). A repo with no postsubmit is green as it lands
 	- the record: each check, land, postsubmit, copy and release is a run in `~/git/<repo>.git/crate/log.jsonl`, one JSON line per step with its seconds, so a slow check says where its time went, and a land says how long it waited in the queue. Queried with `jq` or `duckdb` (crate's README, The record)
-	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/crate/`), and applied by dazoo-sync through `crate apply`, which also starts a worker that stopped
+	- the server: declared in [[dazoo]] (`nodes/mutable/monkeybusiness/etc/crate/crate.env`), and applied by `crate-apply.timer` every five minutes through `crate apply`, which also starts a worker that stopped and a publish not yet done
 - a repo not on crate: `git land` rebases, waits for presubmit on the rebased commit, and fast-forwards GitHub's main
 
 ### Land a change
@@ -222,6 +222,7 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 		- the run files: `[app] quadlets`, each `Image=` stamped with that tag, pushed beside it as an OCI artifact, `<publish>-quadlets:sha-<short>`
 		- the pin line: `<name> sha-<short> <publish>-quadlets sha256:<digest>`, for the node's releases file ([[cd]])
 		- a failed publish holds nothing: it is tried again until the green main is published
+		- landl-db and landl-dash
 	- a source (`source`): its version tag alone, with nothing published, for a repo that runs from a checkout at its tag. assembly, which the server runs at a version
 	- nothing: no `ship`, no versions. A semantic or config repo, whose land is its release
 - Not built: que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[assembly-on-server]])
