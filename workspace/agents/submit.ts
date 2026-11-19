@@ -44,6 +44,27 @@ function who(kind: "issue" | "cl", s: State): string {
 /** The kind of item a step works on: an issue or a cl, by the table that holds its state. */
 const kindOf = (s: State): "issue" | "cl" => (table.cl[s] ? "cl" : "issue");
 
+/** The states a step's item passes through from `from` on, in order, by each state's pass. */
+function onward(kind: "issue" | "cl", from: State): State[] {
+  const path: State[] = [];
+  for (let s = table[kind][from]?.pass; s; s = table[kind][s]?.pass)
+    path.push(s);
+  return path;
+}
+
+/**
+ * The artifacts the steps after this one change: each one whose owner's state is later on the path than the step's.
+ * What one of them lacks is their work, never a fault this step sends back.
+ */
+export function ahead(step: Step<{ word: "done" }>): Artifact[] {
+  const kind = kindOf(step.from);
+  const later = onward(kind, step.from);
+  return levels.filter((a) => {
+    const at = owner[kind][a];
+    return at !== undefined && at !== "raised" && later.includes(at);
+  });
+}
+
 /** Where a step's done takes the item, in words. */
 export function doneRoute(step: Step<{ word: "done" }>): string {
   const kind = kindOf(step.from);
@@ -52,14 +73,19 @@ export function doneRoute(step: Step<{ word: "done" }>): string {
   const met = row.met
     ? `, or to ${who(kind, row.met)} when the tests already pass, since the code meets them`
     : "";
-  return `Done: your work is finished and meets its bar. The ${kind} goes to ${who(kind, row.pass)}${met}.`;
+  const work = ahead(step).map(
+    (a) =>
+      ` What the ${a} lacks or gets wrong, what is there already included, is the work of ${who(kind, owner[kind][a] as State)} after you, never a back: hand it on in your notes.`,
+  );
+  return `Done: your work is finished and meets its bar. The ${kind} goes to ${who(kind, row.pass)}${met}.${work.join("")}`;
 }
 
 /** Where a step's back takes the item, in words. */
 export function backRoute(step: Step<{ word: "done" }>): string {
   const kind = kindOf(step.from);
   return [
-    `Back: something you were given is wrong, so it goes back to whoever made it. Never fix it yourself.`,
+    `Back: what must change to fix it is something made before you, which you may not change, so it goes back to whoever made it. Never fix it yourself.`,
+    `Make your own part right first: a back names only what is still wrong once it is.`,
     `The whole back goes to one place: the owner of the highest 'about' among its findings (from the top: ${levels.join(", ")}).`,
     `So a finding about the ${kind === "cl" ? "cl" : "issue"} beside findings about lower things takes them all with it.`,
     `Each finding is a fault that blocks the work; a remark that blocks nothing is not a finding.`,

@@ -5,7 +5,7 @@ import { hammer } from "../../factory/stations/hammer.ts";
 import { nail } from "../../factory/stations/nail.ts";
 import { review } from "../../factory/stations/review.ts";
 import { accept } from "../../factory/stations/accept.ts";
-import { aboutRoute, backRoute, doneRoute, submitOf } from "./submit.ts";
+import { aboutRoute, ahead, backRoute, doneRoute, submitOf } from "./submit.ts";
 
 /** The form as the model reads it: its JSON Schema, as que-pasa gives a tool's parameters. */
 const schema = (s: Parameters<typeof submitOf>[0]) =>
@@ -33,6 +33,20 @@ describe("an agent's submit form", () => {
     expect(routes).not.toContain("code:");
     expect(aboutRoute(review)).toContain("the cl goes back to da-hammer.");
     expect(aboutRoute(accept)).toContain("the issue goes back to planner.");
+  });
+
+  it("hands on what the steps after it change, and sends back only what was made before it", () => {
+    expect(ahead(nail)).toEqual(["code"]);
+    expect(doneRoute(nail)).toContain(
+      "What the code lacks or gets wrong, what is there already included, is the work of da-hammer after you, never a back",
+    );
+    expect(ahead(hammer)).toEqual([]);
+    expect(ahead(review)).toEqual([]);
+    expect(doneRoute(hammer)).not.toContain("never a back");
+    expect(backRoute(hammer)).toContain(
+      "something made before you, which you may not change",
+    );
+    expect(backRoute(hammer)).toContain("Make your own part right first");
   });
 
   it("says the highest about takes the whole back", () => {
