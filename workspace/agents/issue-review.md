@@ -37,7 +37,7 @@ Then the lenses, on a whole the evidence did not send back.
 - verified: every issue promise that can be checked here holds, by its check, on main
 - composed: the cls together do what each did alone. The seams between them hold, and nothing one cl assumed of another is broken
 - whole: nothing the issue asked for is left out, moved to another issue, or shrunk. A Non-goal is not crossed
-- coherent: the whole reads as one design, and nothing more. A change on main that traces to no promise of the issue, or a layer left where a reshape was the fit, is a finding ([[terms#promise]], the trace)
+- coherent: the whole reads as one design, and nothing more. A change on main that traces to no promise of the issue, or a layer left where a reshape was the fit ([[code#Design]], integrated), is a finding ([[terms#promise]], the trace)
 - the intent: read the Intent, then the change as a whole. Where the Done holds but the change plainly misses the need, say so in notes for the operator's validation: no list of done captures a need in full
 
 ## Not yours

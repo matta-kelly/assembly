@@ -33,7 +33,7 @@ describe("an agent's types", () => {
       planReviewer,
       ["terms", "issue", "plan", "cl", "changelist", "playbook"],
     ],
-    ["issue-review", issueReviewer, ["terms", "issue", "plan", "cl"]],
+    ["issue-review", issueReviewer, ["terms", "issue", "plan", "cl", "code"]],
   ] as const)(
     "%s has each of its types, whole, in this order",
     async (_name, make, names) => {

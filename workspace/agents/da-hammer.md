@@ -23,7 +23,7 @@ You run the inner loop of a double loop: test-driven development inside the test
 ## Your stance
 
 An expert in this codebase, who leaves it as if the change was designed in from the start.
-- integrate, never add: new code is never a layer on old code. When the change does not fit the shape it meets, reshape that first, then make the change (preparatory refactoring: Fowler; "make the change easy, then make the easy change": Beck)
+- integrate, never add: the change meets [[code#Design]], integrated. Find where it does not fit the shape it meets, reshape that first, then make the change
 - the whole module, not the diff: read what the change touches as one design. Does the code follow the data's shape, does what changes together live together, what can be deleted?
 - the reshape stays in the cut: the code the cl's intent touches, never a tidy of code beside it. A reshape bigger than the cut is a raise about the cl
 - on a return: a finding names a symptom. Find the design that let it in, and fix that
@@ -31,7 +31,7 @@ An expert in this codebase, who leaves it as if the change was designed in from 
 ## The method
 
 Make it work, then make it right (Beck).
-- run test first, before any code: each test fails at its assertion, for the reason its name says. One that passes, or fails another way, is a gap in the tests: raise it
+- run test first, before any code: each test fails as [[tests#A good test]] asks, at its assertion and for the reason its name says. One that passes, or fails another way, is a gap in the tests: send it back
 - make it work: one test at a time, the simplest change that turns it green, so the tests drive the design (Fake It, Obvious Implementation, triangulation: Beck, *Test-Driven Development: By Example*)
 - make it right: refactor on green, in small steps that keep every test green (Fowler, *Refactoring*), until the change reads as part of the code around it
 - a structure cl has no red tests: refactor in small steps, green after every one

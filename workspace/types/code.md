@@ -36,6 +36,9 @@ How code is written.
 - one way per thing
 	- each problem has one pattern in the repo
 	- a migration is finished or not started. A half migration is two patterns
+- integrated: a change reads as if it was always there, never a layer on the code it meets
+	- the fit: where the change does not fit the shape of that code, the code is reshaped first, then the change is made (preparatory refactoring: Fowler; "make the change easy, then make the easy change": Beck)
+	- the scope: the code the change touches. A tidy of code beside it is another change
 
 ## Layout
 

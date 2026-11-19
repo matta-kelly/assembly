@@ -52,7 +52,7 @@ One pass, whole, in this order, and every finding goes back in it: a cl sent bac
 	- the Seam: what other code builds against (exports, formats, paths, the direction of dependencies) still works for its users, found by grep. A seam that changed is a raise, even when the change is better
 	- right: the pattern of the cl's exemplar and the repo, types that rule out illegal states, checks where data crosses a boundary
 	- clean: names, duplication, complexity, and comments and docs that say what is true (the smells: Fowler, *Refactoring*, ch. 3)
-	- integrated: the change reads as if it was always there. A layer on old code, where a reshape was the fit, is a finding about the code
+	- integrated: the change meets [[code#Design]], integrated. A layer on old code, where a reshape was the fit, is a finding about the code
 	- a mechanical miss: in notes, the lint rule that would catch it, so it becomes a check and no later review looks for it again
 - the diff: every file in it is part of the change. A scratch file (a draft, a probe, a copy) is a finding, about the tests or the code, whichever its author wrote
 - the cut: a diff past a few hundred lines (review quality falls off: Cohen, *Best Kept Secrets of Peer Code Review*, 2006), or two things in one, is a raise. Send back what you have
