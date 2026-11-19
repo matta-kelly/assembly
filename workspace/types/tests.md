@@ -71,6 +71,11 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 - its expected result comes from the promise
 - it goes through the public surface, and checks the result, not the steps
 - as small as the change: each promise is tested at the smallest place that decides it. A small change whose test needs a large harness says the seam is wrong
+- its stand-ins: what it uses in place of a real thing, held as true as the real thing, since a test measures its stand-in as much as the code ^stand-in
+	- the real thing first: real files in the test's own folder, a real database in a container. A stand-in only for what can't run in a test (another user, the init system, a live service), so none of the subject's own work is pretended
+	- at the narrowest seam: it takes the one call and answers as the real thing would, never by acting out its input. A stand-in that reads shell text is a second shell, wrong wherever a change reaches a command it never acted out
+	- true for what the test uses: a stand-in a change reaches further does what the real thing does for each new use, and the tests that already ran through it still pass. One too weak fails correct code; one too forgiving passes wrong code, and nothing sends that back
+	- a unit test that needs one: its subject is not logic
 - it is named for the promise: "does X when Y"
 - straight-line: no loops, no conditions, expected values written out
 	- the exception: a property-based test, for a rule over a whole domain ("sorting never loses an element"). Only next to at least one plain example test, which says what the promise is
@@ -80,12 +85,11 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 		- a limit (a timeout, a retry count) keeps its real value: only the test of that limit shortens it, since a short limit fails at random under the load of a parallel suite
 - DAMP, not DRY: clear beats free of repetition
 - seen to fail: before the code exists, or by breaking the code once on purpose
-	- for the right reason: before the code, it fails only because the promised behaviour is missing. A test red for a wrong reason (a wrong path, a wrong expectation, its own mistake) fails correct code too
+	- for the right reason: before the code, it fails only because the promised behaviour is missing. A test red for a wrong reason (a wrong path, a wrong expectation, a [[#^stand-in|stand-in]] that can't do what the real thing does, its own mistake) fails correct code too
 	- each case at its own assertion: a failure ends a test, so a case after it was never seen. A case is a test, or a row of a table, never a second block in one test
 - the only test that fails for at least one fault put in the code: a test that catches no mutant, or only the mutants another catches, goes
 - it changes only when its promise changes; it goes only when another test fails for every fault it catches
 	- a changed promise makes old tests false, and they change with it, before the code: one that expects the old result, and one whose setup builds what the new promise forbids
-- a unit test that needs a fake: its subject is not logic
 - if you liked it, you should have put a test on it: what has no test is not protected (Google's "Beyoncé rule")
 
 ## Cases

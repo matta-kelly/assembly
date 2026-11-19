@@ -43,6 +43,7 @@ One pass, whole, in this order, and every finding goes back in it: a cl sent bac
 - forward: each case to its test
 	- no test: a finding about the tests, with the case
 	- a test that may not fail, where a reading leaves doubt: break the code in a copy and see the test fail (a mutant)
+	- a test through a [[tests#^stand-in|stand-in]]: the stand-in does what the real thing does, for each use the test makes of it. One too weak or too forgiving is a finding about the tests
 	- a case missed for one member of a class is missed for each: one finding names every member
 - backward: each line of the new code to a test, by the repo's coverage tool where it has one, else by reading
 	- a line no test reaches: the code is more than the promises need, so it goes (da-hammer); or its Promises miss one, a raise. Never a test for a promise the cl does not make
