@@ -12,11 +12,9 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compose } from "../main.ts";
-import { advance, type World } from "../line/advance.ts";
 import { notesAt } from "../repos/notes.ts";
 import { clOf } from "../stations/plan.ts";
 import type { Reader } from "../repos/repo.ts";
-import { npmRegistryUrl } from "../repos/registry.ts";
 import { rebaseOnMain } from "../repos/git.ts";
 import {
   drop,
@@ -25,6 +23,7 @@ import {
   resume,
   stop,
   submit,
+  go as goLever,
 } from "./levers.ts";
 
 // The notes' main is the kinetic repo's own main: it has no remote to fetch.
@@ -151,14 +150,6 @@ const commit = (message: string) => {
 /** Commits on the kinetic repo's main. */
 const publish = commit;
 
-/** The world a building issue reads its notes from: the kinetic repo, and nothing to wait for. */
-const world = (): World => ({
-  runs: join(home, "factory", "runs"),
-  notes: kinetic,
-  registry: { url: npmRegistryUrl, published: async () => true },
-  reader: read,
-  tags: async () => [],
-});
 /** A cl's spec, read from its note at the kinetic repo's main. */
 const clAt = (name: string) =>
   clOf(notesAt(kinetic, "main"), {
@@ -204,9 +195,9 @@ describe("submit", () => {
       [null, null, "building"],
     ]);
     expect(ledger.attemptsOf("fx")).toEqual([]);
-    await advance(ledger, world());
+    await goLever(factory, "fx", { notes: kinetic });
     expect(ledger.cls("fx").map((c) => [c.name, c.phase, c.state])).toEqual([
-      ["fx-a", 1, "ready"],
+      ["fx-a", 1, "waiting"],
       ["fx-c", 2, "waiting"],
     ]);
     expect(clAt("fx-a").context).toBe("- src/b.ts: the exemplar");
@@ -221,7 +212,7 @@ describe("submit", () => {
     rmSync(put("fx-c"));
     expect((await submit(factory, "fx", runK())).code).toBe(0);
     const { ledger } = factory();
-    await advance(ledger, world());
+    await goLever(factory, "fx", { notes: kinetic });
     expect(ledger.cls("fx").map((c) => c.name)).toEqual(["fx-a", "fx-c"]);
     expect(clAt("fx-a").intent).toBe("src/a.ts exports a, which is 2.");
   });
@@ -320,9 +311,9 @@ describe("submit", () => {
     publish("the spec");
     expect((await submit(factory, "fx", runK())).code).toBe(0);
     const { ledger } = factory();
-    await advance(ledger, world());
+    await goLever(factory, "fx", { notes: kinetic });
     expect(ledger.cls("fx").map((c) => [c.name, c.phase, c.state])).toEqual([
-      ["fx-a", 1, "ready"],
+      ["fx-a", 1, "waiting"],
     ]);
   });
 
@@ -343,12 +334,13 @@ describe("submit", () => {
     expect(factory().ledger.items()).toEqual([]);
   });
 
-  it("sends its issue to the operator, escalated, on a raise about its plan, with the raise's findings", async () => {
+  it("parks a cl raised about its plan, and leaves its issue as it is: the next move is the operator's", async () => {
     specNotes();
     publish("the spec");
     expect((await submit(factory, "fx", runK())).code).toBe(0);
     const { ledger } = factory();
-    await advance(ledger, world());
+    await goLever(factory, "fx", { notes: kinetic });
+    await goLever(factory, "fx-a", { notes: kinetic });
     ledger.apply(
       "fx-a",
       {
@@ -358,12 +350,8 @@ describe("submit", () => {
       },
       { attempt: ledger.begin("fx-a") },
     );
-    await advance(ledger, world());
-    expect(ledger.item("fx").state).toBe("escalated");
-    expect(ledger.events("fx").at(-1)).toMatchObject({
-      by: "orchestrator",
-      findings: [{ about: "plan", what: "no seam" }],
-    });
+    expect(ledger.item("fx-a").state).toBe("raised");
+    expect(ledger.item("fx").state).toBe("building");
   });
 });
 
@@ -374,7 +362,9 @@ describe("stop and resume", () => {
     publish("the spec");
     expect((await submit(factory, "fx", runK())).code).toBe(0);
     const { ledger } = factory();
-    await advance(ledger, world());
+    // the operator's go: the issue's cls go in, and its first starts
+    await goLever(factory, "fx", { notes: kinetic });
+    await goLever(factory, "fx-a", { notes: kinetic });
     return ledger;
   };
   const go = (name: string, state?: string) =>
@@ -659,7 +649,7 @@ describe("stop and resume", () => {
   it("resume of an issue to building makes its cls match its notes at main: a new cl added, a gone one dropped, its held cls back", async () => {
     const ledger = await building();
     stop(factory, "fx-a");
-    await advance(ledger, world());
+    stop(factory, "fx");
     expect(ledger.item("fx").state).toBe("escalated");
     // The operator edits the notes: fx-c is gone, fx-d is new, in phase 2
     rmSync(put("fx-c"));

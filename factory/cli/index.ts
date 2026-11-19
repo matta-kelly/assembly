@@ -33,6 +33,7 @@ import { gitReader, type Reader } from "../repos/repo.ts";
 import {
   type Done,
   drop,
+  go,
   note,
   rebase,
   resume,
@@ -61,6 +62,7 @@ export function notesOf(
 
 export const usage = `factory submit <issue> [--repo <path>]...
 factory stop <item>
+factory go <item>
 factory resume <item> [<state>]
 factory drop <item>
 factory rebase <cl>
@@ -142,6 +144,9 @@ export async function main(
       if (!arg || !agent) break;
       return print(note(factory, arg, agent, await input()));
     }
+    case "go":
+      if (!arg) break;
+      return print(await go(factory, arg, { notes }));
     case "rebase":
       if (!arg) break;
       return print(await rebase(factory, arg));

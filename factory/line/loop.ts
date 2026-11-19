@@ -68,7 +68,7 @@ import {
   type Worktree,
   type Problem,
 } from "./step.ts";
-import { ends, type State, top } from "./table.ts";
+import { ends, inner, type State, top } from "./table.ts";
 import { advance, type World, writePlan } from "./advance.ts";
 import { titleOf } from "./title.ts";
 import type { Event, Item, Ledger, Usage } from "./ledger.ts";
@@ -606,7 +606,7 @@ export async function loop({
     ticking = true;
     try {
       await swept();
-      await advance(ledger, world);
+      advance(ledger);
       await deliver();
       await start();
     } finally {
@@ -773,9 +773,20 @@ export async function loop({
     const withOperator = new Set(
       ledger.inState("escalated").map((e) => e.name),
     );
+    /** Whether the operator's go asks the item's step to run: a go since its last move or attempt. */
+    const asked = (name: string) => {
+      for (const e of ledger.events(name).toReversed()) {
+        if (e.by === "operator" && e.word === "go") return true;
+        if (e.from_state !== e.to_state || e.by === "attempt") return false;
+      }
+      return false;
+    };
     for (const i of ledger.waiting([...steps.map((s) => s.from), landing])) {
       if (running.size >= concurrent) return;
       if (i.kind === "cl" && withOperator.has(i.issue)) continue;
+      // The inner loop runs on its own; any other step only when the operator's go asks for it, once.
+      if (!(i.kind === "cl" && inner.includes(i.state)) && !asked(i.name))
+        continue;
       const n = ledger.begin(i.name);
       if (i.state === landing) {
         launchLand(runOf(i, n, runs));

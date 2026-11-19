@@ -17,7 +17,7 @@
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { Built } from "../main.ts";
-import { notesNow, reconcile } from "../line/advance.ts";
+import { notesNow, reconcile, start } from "../line/advance.ts";
 import { itemsIn } from "../repos/notes.ts";
 import {
   clNotesOf,
@@ -373,4 +373,70 @@ export async function resume(
     ledger.apply(name, why, "operator", to);
   });
   return { code: 0, lines };
+}
+
+/**
+ * go <item>: the operator starts the next step of an item outside the inner loop, once; the factory never starts one on
+ * its own (factory/line/table.ts, inner). For:
+ * - a waiting cl: its moves onto the versions it needs, then ready, and its inner loop runs. One that can't start yet
+ *   (a version not on npm, a move that failed) stays waiting, with why
+ * - an issue building: each cl note at the notes' main not in the ledger goes in, waiting. Each starts with its own go
+ * - an issue at a step (open, planned, approved, built): that step runs once, at the loop's next tick, and the issue
+ *   waits again where it ends
+ */
+export async function go(
+  f: () => Built,
+  name: string,
+  o: { notes?: string | undefined },
+): Promise<Done> {
+  const { ledger, world } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (ledger.open().some((a) => a.name === name))
+    return refused(`${name} has an attempt open: it ends first`);
+  if (i.kind === "cl") {
+    if (i.state !== "waiting")
+      return refused(
+        `${name} is ${i.state}: go starts a cl that is waiting, and one past it runs on its own`,
+      );
+    const why = await start(ledger, i, world);
+    if (why) return refused(`${name} can't start yet: ${why}`);
+    return { code: 0, lines: [`started ${name}: its inner loop runs now`] };
+  }
+  if (i.state === "building") {
+    if (!o.notes)
+      return refused(
+        "go on a building issue reads the notes repo: ASSEMBLY_NOTES, or ASSEMBLY_REPOS",
+      );
+    let read;
+    try {
+      read = readSpec(await notesNow(o.notes), i.note, name);
+    } catch (e) {
+      return refused(`the notes were not read: ${(e as Error).message}`);
+    }
+    if (!read.ok) return refused(...read.errors);
+    const added = reconcile(ledger, i, read.spec);
+    return {
+      code: 0,
+      lines: added.length
+        ? [
+            `added to ${name}, each waiting for its go:`,
+            ...added.map((c) => `  ${c}`),
+          ]
+        : [`${name} has every cl of its notes already`],
+    };
+  }
+  if (!["open", "planned", "approved", "built"].includes(i.state))
+    return refused(
+      `${name} is ${i.state}: go takes an issue at open, planned, approved, building or built`,
+    );
+  ledger.apply(
+    name,
+    said("go", `the operator runs its ${i.state} step`),
+    "operator",
+  );
+  return {
+    code: 0,
+    lines: [`${name} runs its ${i.state} step once, at the loop's next tick`],
+  };
 }

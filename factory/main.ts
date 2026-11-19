@@ -31,7 +31,6 @@ export interface Factory {
   steps?: Step<{ word: "done" }>[]; // every step when left out
   concurrent?: number;
   timeoutMs?: number;
-  waitLimitMs?: number; // the longest a cl waits for a version on npm: 30 minutes when left out
   registry?: Registry; // the registry a cl's package moves from: npm's when left out, a test's when stood in
 }
 
@@ -54,9 +53,18 @@ export function compose(f: Factory) {
   mkdirSync(f.home, { recursive: true });
   const ledger = open(join(f.home, "ledger.db"));
   const runs = join(f.home, "runs");
+  // what the operator's go and the loop read of the world: the run folders, the notes, the repos, their tags, npm
+  const world = {
+    runs,
+    notes: f.notes ?? "",
+    registry: f.registry ?? npmRegistry(),
+    reader: gitReader,
+    tags: landedTags,
+  };
   return {
     ledger,
     runs,
+    world,
     loop: () => {
       if (!f.notes)
         throw new Error(
@@ -71,14 +79,7 @@ export function compose(f: Factory) {
             f.models ?? hostModels(),
             join(f.home, "pi.db"),
           ),
-        world: {
-          runs,
-          notes: f.notes,
-          registry: f.registry ?? npmRegistry(),
-          reader: gitReader,
-          tags: landedTags,
-          ...(f.waitLimitMs !== undefined ? { limitMs: f.waitLimitMs } : {}),
-        },
+        world: { ...world, notes: f.notes },
         ...(f.concurrent !== undefined ? { concurrent: f.concurrent } : {}),
         ...(f.timeoutMs !== undefined ? { timeoutMs: f.timeoutMs } : {}),
       });

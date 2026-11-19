@@ -39,7 +39,14 @@ export type State =
  * rebase records that the operator put a held cl's branch on main as it is now: it moves nothing.
  */
 export type Word =
-  "pass" | "retry" | "back" | "drop" | "escalate" | "resume" | "rebase";
+  "pass" | "retry" | "back" | "drop" | "escalate" | "resume" | "rebase" | "go";
+
+/**
+ * The inner loop: the states a cl moves through on its own, from ready to landed. Every other step, an issue's and a
+ * waiting cl's start, runs only when the operator says go (factory/cli/levers.ts, go): the factory never starts work
+ * outside the inner loop.
+ */
+export const inner: State[] = ["ready", "red", "green", "approved"];
 
 /** What a finding is about: a spec (the issue, the plan, a cl) or a product (a cl's tests, its code). */
 export type Artifact = "issue" | "plan" | "cl" | "tests" | "code";
@@ -147,6 +154,11 @@ export function next(
     )
       throw new Error(`no transition from ${state} on resume`);
     return c.prior;
+  }
+  if (word === "go") {
+    if (kind !== "issue" || !table.issue[state] || state === "building")
+      throw new Error(`no transition from ${state} on go`);
+    return state;
   }
   if (word === "rebase") {
     if (kind !== "cl" || !held.includes(state))

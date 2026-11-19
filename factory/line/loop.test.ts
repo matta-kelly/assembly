@@ -156,6 +156,14 @@ const make = (
   });
 type L = Awaited<ReturnType<typeof make>>;
 
+/** The operator's go on an item: its step outside the inner loop runs once, at the next tick. */
+const goes = (name: string) =>
+  ledger.apply(
+    name,
+    { word: "go", reason: "the operator runs it", findings: [] },
+    "operator",
+  );
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(move).mockResolvedValue("c0ffee");
@@ -261,6 +269,7 @@ describe("an attempt", () => {
     db.close();
     vi.mocked(worktree).mockResolvedValue(false);
     vi.mocked(fresh).mockResolvedValue(true);
+    goes("i");
     await once(
       make(gives(done("x")), {
         steps: [{ ...step, from: "open", worktree: "ro" }],
@@ -682,6 +691,7 @@ describe("the notes", () => {
       files: ["_well/i-seam.md"],
       commit: "d".repeat(40),
     });
+    goes("i");
     await once(make(gives(done("x")), { steps: [] }));
     expect(onMain).toHaveBeenCalledWith(
       expect.objectContaining({ name: "i", repo: notes.repo, work }),
@@ -764,6 +774,22 @@ describe("the operator's notes", () => {
 });
 
 describe("the tick", () => {
+  it("starts no step outside the inner loop on its own: an issue's step runs once the operator says go, then waits again", async () => {
+    const db = new DatabaseSync(join(dir, "ledger.db"));
+    db.prepare("UPDATE items SET state = 'dropped' WHERE name = 'c'").run();
+    db.close();
+    message = { word: "retry", reason: "again", findings: [] };
+    const runner = vi.fn<Run1>(gives(done("x")));
+    const l = await make(runner, { steps: [{ ...step, from: "open" }] });
+    await once(l);
+    expect(runner).not.toHaveBeenCalled();
+    goes("i");
+    await once(l);
+    expect(runner).toHaveBeenCalledOnce();
+    await once(l);
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
   it("takes up an attempt a stopped orchestrator left open: its workspace again, the same run, and it ends as any other", async () => {
     const n = ledger.begin("c");
     const run = vi.fn<Run1>(gives(done("- b1: a.test.ts")));
@@ -965,159 +991,6 @@ describe("the sweep", () => {
   });
 });
 
-describe("the world", () => {
-  /**
-   * Issue j across two repos: a, phase 1, landed with the tag v1.2.0, and b, phase 2, waiting. b's repo depends on the
-   * package a's repo ships, `@x/a`.
-   */
-  const across = (published: () => Promise<boolean>) => {
-    ledger.addIssue({ name: "j", note: "_well/i.md", repos: ["/a", "/b"] });
-    for (const [name, seq, phase, repo, state] of [
-      ["j-a", 1, 1, "/a", "landed"],
-      ["j-b", 2, 2, "/b", "waiting"],
-    ] as const)
-      ledger.addCl(
-        {
-          name,
-          issue: "j",
-          seq,
-          phase,
-          note: "_well/c.md",
-          repo,
-        },
-        state,
-      );
-    // a's land took a commit: its name stands in for it
-    ledger.landed("j-a", "j-a", []);
-    const files: Record<string, string> = {
-      "/a:package.json": JSON.stringify({ name: "@x/a", version: "1.2.0" }),
-      "/b:package.json": JSON.stringify({
-        name: "b",
-        dependencies: { "@x/a": "^1.0.0" },
-      }),
-    };
-    const registry = { url: npmRegistryUrl, published: vi.fn(published) };
-    const world: Omit<World, "runs" | "notes"> = {
-      registry,
-      reader: { file: (r, f) => files[`${r}:${f}`], onCrate: () => true },
-      tags: async (repo, cl) =>
-        repo === "/a" && cl === "j-a" ? ["v1.2.0"] : [],
-    };
-    return { registry, world };
-  };
-  const ranFor = (runner: ReturnType<typeof vi.fn<Run1>>, name: string) =>
-    runner.mock.calls.some((c) => c[2].run.name === name);
-
-  it("holds a cl whose dependency's version is not on npm, and starts it on the tick after it is", async () => {
-    let on = false;
-    const { registry, world } = across(async () => on);
-    const runner = vi.fn<Run1>(gives(done("x")));
-    const l = await make(runner, { world });
-    await once(l);
-    expect(registry.published).toHaveBeenCalledWith("@x/a", "1.2.0");
-    expect(ledger.item("j-b").state).toBe("waiting");
-    expect(ranFor(runner, "j-b")).toBe(false);
-    on = true;
-    await once(l);
-    expect(ranFor(runner, "j-b")).toBe(true);
-    expect(ledger.item("j-b").state).toBe("red");
-  });
-
-  const saidOf = (name: string) =>
-    ledger
-      .events(name)
-      .filter((e) => e.word === "retry")
-      .map((e) => e.reason);
-
-  it("records why a cl waits where the ledger shows it: the package and version, once over many ticks", async () => {
-    const { world } = across(async () => false);
-    const l = await make(vi.fn<Run1>(gives(done("x"))), { world });
-    await once(l);
-    await once(l);
-    await once(l);
-    expect(saidOf("j-b")).toHaveLength(1);
-    expect(saidOf("j-b")[0]).toMatch(/@x\/a/);
-    expect(saidOf("j-b")[0]).toMatch(/1\.2\.0/);
-    expect(ledger.item("j-b").state).toBe("waiting");
-  });
-
-  it("survives a registry that fails: the cl waits with the failure as its reason, and other cls go on", async () => {
-    const { world } = across(async () => {
-      throw new Error("npm answered 503 for @x/a@1.2.0");
-    });
-    const runner = vi.fn<Run1>(gives(done("x")));
-    const l = await make(runner, { world });
-    await expect(once(l)).resolves.toBeUndefined();
-    expect(ledger.item("j-b").state).toBe("waiting");
-    expect(saidOf("j-b")).toHaveLength(1);
-    expect(saidOf("j-b")[0]).toMatch(/npm answered 503/);
-    expect(ranFor(runner, "c")).toBe(true);
-    // the next tick still runs
-    await expect(once(l)).resolves.toBeUndefined();
-  });
-
-  it("survives a land target that fails to answer: the cl waits, and the tick does not throw", async () => {
-    const { world } = across(async () => true);
-    const failing: Omit<World, "runs" | "notes"> = {
-      ...world,
-      tags: async () => {
-        throw new Error("git ls-remote failed");
-      },
-    };
-    const runner = vi.fn<Run1>(gives(done("x")));
-    await expect(
-      once(make(runner, { world: failing })),
-    ).resolves.toBeUndefined();
-    expect(ledger.item("j-b").state).toBe("waiting");
-    expect(saidOf("j-b")[0]).toMatch(/git ls-remote failed/);
-    expect(ranFor(runner, "c")).toBe(true);
-  });
-
-  it("starts at once a cl that waits for nothing: its dependency's version is on npm already", async () => {
-    const { world } = across(async () => true);
-    const runner = vi.fn<Run1>(gives(done("x")));
-    await once(make(runner, { world }));
-    expect(ranFor(runner, "j-b")).toBe(true);
-  });
-
-  it("moves a cl's package before its attempt, and reads the attempt's settings from the moved worktree", async () => {
-    let on = false;
-    const { world } = across(async () => on);
-    const runner = vi.fn<Run1>(gives(done("x")));
-    const l = await make(runner, { world });
-    await once(l);
-    // it waited: nothing moved
-    expect(move).not.toHaveBeenCalled();
-    on = true;
-    await once(l);
-    const work = join(dir, "runs", "j", "cl", "b", "j-b");
-    expect(vi.mocked(move)).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "j-b", repo: "/b", work }),
-      "@x/a",
-      "1.2.0",
-      npmRegistryUrl,
-    );
-    // the move is the orchestrator's, and it comes before the settings of the attempt it precedes, read from it
-    const at = vi.mocked(settingsAt).mock.calls.findIndex((c) => c[0] === work);
-    expect(at).toBeGreaterThanOrEqual(0);
-    expect(vi.mocked(settingsAt).mock.calls[at]).toEqual([work, "b"]);
-    expect(vi.mocked(move).mock.invocationCallOrder[0] as number).toBeLessThan(
-      vi.mocked(settingsAt).mock.invocationCallOrder[at] as number,
-    );
-  });
-
-  it("is a world a loop cannot be built without", () => {
-    const withoutWorld = () =>
-      // @ts-expect-error a loop is built with a world
-      loop({
-        ledger,
-        steps: [step],
-        runner: runnerOf(gives(done("x"))),
-      });
-    expect(withoutWorld).toBeTypeOf("function");
-  });
-});
-
 describe("a message with no move", () => {
   it("escalates the item, with why, and leaves no attempt open to run again", async () => {
     ledger.addIssue({ name: "j", note: "_well/i.md", repos: ["/repo"] });
@@ -1126,6 +999,7 @@ describe("a message with no move", () => {
       reason: "r",
       findings: [{ about: "code", what: "w", where: "x" }],
     };
+    goes("j");
     await once(make(gives(done("x")), { steps: [{ ...step, from: "open" }] }));
     expect(ledger.item("j").state).toBe("escalated");
     expect(ledger.open()).toEqual([]);

@@ -23,7 +23,6 @@ import {
   planNote,
   planPath,
   plannedOf,
-  readSpec,
   type Spec,
 } from "../stations/plan.ts";
 import type { Message } from "./step.ts";
@@ -121,7 +120,7 @@ export function reconcile(
         note: clPath(issue.note, issue.name, c.name),
         repo,
       },
-      phase === 1 ? "ready" : "waiting",
+      "waiting",
     );
     added.push(name);
   }
@@ -136,27 +135,6 @@ export async function notesNow(repo: string): Promise<Notes> {
   return notesAt(repo, commit);
 }
 
-const live = (c: Item) => c.state !== "dropped" && c.state !== "raised";
-
-/**
- * Makes one item's move. A move that fails (notes that do not read as a spec) escalates the item, with why: the
- * factory cannot fix it, and the other items go on.
- */
-async function guarded(ledger: Ledger, item: Item, move: () => unknown) {
-  try {
-    await move();
-  } catch (e) {
-    ledger.apply(
-      item.name,
-      say(
-        "escalate",
-        `the orchestrator's move failed: ${(e as Error).message.slice(0, 400)}`,
-      ),
-      "orchestrator",
-    );
-  }
-}
-
 /**
  * What the orchestrator's moves need of the world: where the items' folders are, the notes repo, its repos' files, the
  * tags a land put on main, and the registry.
@@ -168,19 +146,6 @@ export interface World {
   reader: Reader;
   /** The version tags the land target of `repo` holds on `commit`, the commit main took for a landed cl. */
   tags(repo: string, commit: string): Promise<string[]>;
-  /** The longest a cl waits for a version, counted from the land that made it: 30 minutes when not set. */
-  limitMs?: number;
-}
-
-/** The wait limit when the factory sets none. */
-const defaultLimitMs = 30 * 60_000;
-
-/** Why a cl still waits for a version, and what it waits for: its package and version, and when the land made it. */
-interface Hold {
-  reason: string;
-  package?: string;
-  version?: string;
-  since?: number;
 }
 
 /** A version a waiting cl's repo takes from a landed cl of its issue: the package, the version, and the land's time. */
@@ -255,172 +220,60 @@ async function versionFor(
   ledger: Ledger,
   cl: Item,
   world: World,
-): Promise<{ moved: Moved[]; held?: Hold }> {
+): Promise<{ moved: Moved[]; held?: string }> {
   const moved = await wanted(ledger, cl, world);
   for (const m of moved) {
     if (!(await world.registry.published(m.package, m.version)))
       return {
         moved,
-        held: {
-          reason: `${m.package}@${m.version}, made by ${m.landed}, is not on npm yet`,
-          package: m.package,
-          version: m.version,
-          ...(m.since === undefined ? {} : { since: m.since }),
-        },
+        held: `${m.package}@${m.version}, made by ${m.landed}, is not on npm yet`,
       };
   }
   return { moved };
 }
 
+export function advance(ledger: Ledger) {
+  for (const issue of ledger.inState("building")) {
+    const cls = ledger.cls(issue.name);
+    if (cls.length && cls.every((c) => ends.includes(c.state)))
+      ledger.apply(
+        issue.name,
+        say("pass", "its cls have all ended"),
+        "orchestrator",
+      );
+  }
+}
+
 /**
- * Moves a released cl's worktree onto the version it needs, so its attempts run on it: their dev image is made from the
- * worktree, and its setup runs again. A failure escalates its issue, with the command's output, and leaves the cl
- * waiting. Gives back whether the cl may start.
+ * Starts a waiting cl, as the operator's go asks: its worktree moves onto each version its repo needs from its issue's
+ * landed cls, each its own commit, then it is ready, and its inner loop runs. Gives back why it can't start yet: a
+ * version not on npm yet, or a move that failed, with its output. A cl that can't start stays waiting.
  */
-async function released(
+export async function start(
   ledger: Ledger,
   cl: Item,
-  m: Moved,
   world: World,
-): Promise<boolean> {
+): Promise<string | undefined> {
+  let found;
   try {
-    const tree = runOf(cl, 0, world.runs);
-    await move(tree, m.package, m.version, world.registry.url);
-    return true;
+    found = await versionFor(ledger, cl, world);
   } catch (e) {
-    ledger.apply(
-      cl.issue,
-      say(
-        "escalate",
-        `${cl.name} could not move to ${m.package}@${m.version}: ${(e as Error).message.slice(0, 400)}`,
-      ),
-      "orchestrator",
-    );
-    return false;
+    return `what it needs could not be read: ${(e as Error).message.slice(0, 400)}`;
   }
-}
-
-/**
- * Keeps a waiting cl waiting, with why. The reason is written when it differs from the last one written, so many ticks
- * for one reason leave one message. A wait past its limit escalates the cl's issue, once.
- */
-function hold(ledger: Ledger, cl: Item, h: Hold, world: World) {
-  const last = ledger.events(cl.name).findLast((e) => e.word === "retry");
-  if (last?.reason !== h.reason)
-    ledger.apply(cl.name, say("retry", h.reason), "orchestrator");
-  if (h.since === undefined) return;
-  const waited = Date.now() - h.since;
-  if (waited <= (world.limitMs ?? defaultLimitMs)) return;
-  if (ledger.item(cl.issue).state === "escalated") return;
-  const what = h.package
-    ? `waits for ${h.package}@${h.version} to be on npm`
-    : `cannot ask what it waits for (${h.reason})`;
-  ledger.apply(
-    cl.issue,
-    say(
-      "escalate",
-      `${cl.name} ${what}: ${Math.floor(waited / 60_000)} min, past its limit`,
-    ),
-    "orchestrator",
-  );
-}
-
-export async function advance(ledger: Ledger, world: World) {
-  // The notes at main, read once a tick, and only when an issue building has no cl left to land. A fetch that fails
-  // holds no issue: the next tick reads again.
-  let notes: Notes | undefined;
-  for (const issue of ledger.inState("building")) {
-    if (ledger.cls(issue.name).some((c) => !ends.includes(c.state))) continue;
+  const { moved, held } = found;
+  if (held) return held;
+  for (const m of moved) {
     try {
-      notes ??= await notesNow(world.notes);
-    } catch (e) {
-      console.error(`the notes were not read: ${(e as Error).message}`);
-      break;
-    }
-    const at = notes;
-    await guarded(ledger, issue, () => {
-      const read = readSpec(at, issue.note, issue.name);
-      if (!read.ok) throw new Error(read.errors.join("; "));
-      // Built once every cl of its notes is in the ledger and has landed or is dropped.
-      if (!reconcile(ledger, issue, read.spec).length)
-        ledger.apply(
-          issue.name,
-          say("pass", "its cls have all landed"),
-          "orchestrator",
-        );
-    });
-  }
-
-  // A phase starts once every cl of the phases before it has landed or been dropped: a raised cl has not landed.
-  for (const cl of ledger.inState("waiting")) {
-    // An issue escalated waits for the operator: its waiting cls move nothing, and start nothing.
-    if (ledger.inState("escalated").some((e) => e.name === cl.issue)) continue;
-    const before = ledger
-      .cls(cl.issue)
-      .filter(
-        (c) =>
-          c.state !== "dropped" &&
-          (c.phase ?? 1) < (cl.phase ?? 1) &&
-          c.state !== "landed",
+      await move(
+        runOf(cl, 0, world.runs),
+        m.package,
+        m.version,
+        world.registry.url,
       );
-    if (before.length) continue;
-    // A failed ask is a reason too: the cl waits and the others go on. Its limit counts from the last land before the cl.
-    const since = Math.max(
-      ...ledger
-        .cls(cl.issue)
-        .filter((c) => live(c) && (c.phase ?? 1) < (cl.phase ?? 1))
-        .map((c) => landedAt(ledger, c) ?? -Infinity),
-    );
-    let moved: Moved[] = [];
-    let held: Hold | undefined;
-    try {
-      ({ moved, held } = await versionFor(ledger, cl, world));
     } catch (e) {
-      held = {
-        reason: (e as Error).message.slice(0, 400),
-        ...(Number.isFinite(since) ? { since } : {}),
-      };
+      return `it could not move to ${m.package}@${m.version}: ${(e as Error).message.slice(0, 400)}`;
     }
-    if (held) {
-      hold(ledger, cl, held, world);
-      continue;
-    }
-    // Its worktree takes each version it needs, each its own commit, before its first attempt. A move that fails
-    // escalates the issue, and the cl waits.
-    let allMoved = true;
-    for (const m of moved)
-      if (!(await released(ledger, cl, m, world))) {
-        allMoved = false;
-        break;
-      }
-    if (!allMoved) continue;
-    ledger.apply(
-      cl.name,
-      say(
-        "pass",
-        `phase ${cl.phase ?? 1} starts: the phases before it have landed`,
-      ),
-      "orchestrator",
-    );
   }
-
-  // A cl held for the operator holds its issue: the raise's message, or the escalation, goes to the issue, with its findings.
-  for (const cl of ledger
-    .items()
-    .filter(
-      (c) =>
-        c.kind === "cl" && (c.state === "raised" || c.state === "escalated"),
-    )) {
-    if (ledger.item(cl.issue).state !== "building") continue;
-    const last = ledger.events(cl.name).at(-1);
-    ledger.apply(
-      cl.issue,
-      say(
-        "escalate",
-        `${cl.name} is ${cl.state}${last?.reason ? `: ${last.reason}` : ""}`,
-        last?.findings ?? [],
-      ),
-      "orchestrator",
-    );
-  }
+  ledger.apply(cl.name, say("pass", "the operator starts it"), "operator");
+  return undefined;
 }

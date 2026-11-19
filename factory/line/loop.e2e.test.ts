@@ -44,12 +44,12 @@ import { planner } from "../../workspace/agents/planner.ts";
 import { crateTarget, landTarget } from "../repos/land-target.fixture.ts";
 import { containerfile, devToml } from "../repos/dev-image.fixture.ts";
 import { standInRegistry } from "../repos/registry.fixture.ts";
-import { gitReader } from "../repos/repo.ts";
-import { npmRegistryUrl } from "../repos/registry.ts";
 import { sectionIn, writeNote } from "../repos/notes.ts";
 import { blocked, explain } from "../cli/report.ts";
+import { go } from "../cli/levers.ts";
+import { ends, held } from "./table.ts";
+import type { Ledger } from "./ledger.ts";
 import { compose } from "../main.ts";
-import { advance } from "./advance.ts";
 import { nail } from "../stations/nail.ts";
 import {
   type ClSpec,
@@ -294,6 +294,34 @@ const nailScript = (input: string, done: number) => {
     changed: [`test/${name}.test.sh`, `src/${name}.mjs`],
   });
 };
+
+/**
+ * The operator, as the project manager on top of the factory will be: says go to each item parked outside the inner
+ * loop, and starts a cl only once every cl of its issue's phases before it has landed. It ends nothing, and leaves an
+ * item the operator holds where it is.
+ */
+/** What the operator's go said when it could not start a cl, by cl. */
+const told: Record<string, string[]> = {};
+
+async function operator(f: { ledger: Ledger }, notes: string) {
+  const { ledger } = f;
+  const built = () => f as never;
+  for (const i of ledger.items()) {
+    if (ends.includes(i.state) || held.includes(i.state)) continue;
+    if (ledger.open().some((a) => a.name === i.name)) continue;
+    if (i.kind === "cl") {
+      if (i.state !== "waiting") continue;
+      const before = ledger
+        .cls(i.issue)
+        .filter(
+          (c) => (c.phase ?? 1) < (i.phase ?? 1) && c.state !== "dropped",
+        );
+      if (before.some((c) => c.state !== "landed")) continue;
+    }
+    const said = await go(built, i.name, { notes });
+    if (said.code !== 0) (told[i.name] ??= []).push(said.lines.join(" "));
+  }
+}
 
 /** A tool result as the model got it: its text parts, joined. */
 const plain = (last: string) => {
@@ -543,14 +571,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       git(notes, "commit", "-q", "-m", "notes");
       git(notes, "push", "-q", "local", "HEAD:main");
     };
-    /** What advance needs of the world, outside a loop: the notes repo, and nothing to wait for. */
-    const worldOf = (runs: string) => ({
-      runs,
-      notes,
-      registry: { url: npmRegistryUrl, published: async () => true },
-      reader: gitReader,
-      tags: async () => [],
-    });
     /** A note as the notes' main holds it now. */
     const onMain = (name: string) =>
       git(notesBare, "show", `main:_well/${name}.md`);
@@ -703,6 +723,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
 
         const settled = ["accepted", "raised", "escalated"];
         for (let i = 0; i < 40; i++) {
+          await operator(f, notes);
           await l.tick();
           await l.settled();
           if (
@@ -752,6 +773,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const moves = (name: string) =>
           ledger
             .events(name)
+            // the operator's go asks for a step, and moves nothing
+            .filter((e) => e.word !== "go")
             .map((e) => `${String(e["from_state"])}>${String(e["to_state"])}`);
         expect(moves("is"), JSON.stringify(ledger.events("is"))).toEqual([
           "new>open",
@@ -766,9 +789,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             moves(cl),
             `${cl}: ${JSON.stringify(ledger.events(cl))}`,
           ).toEqual([
-            ...(cl === "is-double"
-              ? ["new>waiting", "waiting>ready"]
-              : ["new>ready"]),
+            // each cl waits for the operator's go, the next phase once the one before has landed
+            "new>waiting",
+            "waiting>ready",
             "ready>red",
             "red>green",
             "green>approved",
@@ -982,7 +1005,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           { name: "rs", note: "_well/rs.md", repos: [own] },
           "building",
         );
-        await advance(ledger, worldOf(f.runs));
+        await go(() => f, "rs", { notes });
+        await go(() => f, "rs-value", { notes });
         // the attempt's workspace: crate's tools member on the cl's worktree
         const sandbox = () => {
           const work = join(f.runs, "rs", "cl", "value", "rs-value");
@@ -1061,7 +1085,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
     );
 
     it(
-      "escalates a submitted issue to the operator with the findings of a cl that raised, and builds no further",
+      "parks a cl that raised for the operator, with its findings, and builds no further",
       { timeout: 300_000 },
       async () => {
         const at = join(dir, "raise");
@@ -1120,37 +1144,38 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
 
         const l = await f.loop();
         for (let i = 0; i < 10; i++) {
+          await operator(f, notes);
           await l.tick();
           await l.settled();
-          if (ledger.item("rz").state === "escalated") break;
+          if (ledger.item("rz-one").state === "raised") break;
         }
         const attempts = () =>
           ["rz", "rz-one", "rz-two"].map((n) => ledger.attemptsOf(n).length);
         const after = attempts();
         // more ticks: nothing starts
         for (let i = 0; i < 3; i++) {
+          await operator(f, notes);
           await l.tick();
           await l.settled();
         }
         await l.close();
 
-        // The issue is the operator's, with the cl's findings in its message.
-        expect(ledger.item("rz").state).toBe("escalated");
+        // The cl is the operator's, with its findings, and its issue is as it was: the next move is the operator's.
         expect(ledger.item("rz-one").state).toBe("raised");
-        expect(ledger.inbox("rz", "escalated")).toMatchObject([
-          {
-            word: "escalate",
-            findings: [
-              { about: "cl", where: "Promises 1" },
-              { about: "cl", where: "Seam" },
-            ],
-          },
-        ]);
-        const line = blocked(ledger).find((x) => x.startsWith("rz  "));
-        expect(line).toMatch(/^rz {2}escalated/);
-        expect(line).toContain("rz-one is raised");
-        expect(explain(ledger, join(at, "runs"), "rz")).toContain(
-          "     cl: the promise names a file the core context lacks (Promises 1)",
+        expect(ledger.item("rz").state).toBe("building");
+        expect(ledger.events("rz-one").at(-1)).toMatchObject({
+          word: "back",
+          findings: [
+            { about: "cl", where: "Promises 1" },
+            { about: "cl", where: "Seam" },
+          ],
+        });
+        const line = blocked(ledger).find((x) => x.startsWith("rz-one  "));
+        expect(line).toMatch(/^rz-one {2}raised/);
+        expect(
+          explain(ledger, join(at, "runs"), "rz-one").join("\n"),
+        ).toContain(
+          "the promise names a file the core context lacks (Promises 1)",
         );
 
         // Nothing is built after it: the phase 2 cl is never ready, and no attempt starts.
@@ -1247,6 +1272,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const l = await f.loop();
         const settled = ["accepted", "raised", "escalated"];
         for (let i = 0; i < 40; i++) {
+          await operator(f, notes);
           await l.tick();
           await l.settled();
           if (settled.includes(ledger.item("mr").state)) break;
@@ -1256,6 +1282,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const moves = (name: string) =>
           ledger
             .events(name)
+            // the operator's go asks for a step, and moves nothing
+            .filter((e) => e.word !== "go")
             .map((e) => `${String(e["from_state"])}>${String(e["to_state"])}`);
         expect(moves("mr"), JSON.stringify(ledger.events("mr"))).toEqual([
           "new>open",
@@ -1271,7 +1299,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         for (const c of ["mr-alpha", "mr-beta"])
           expect(moves(c), `${c}: ${JSON.stringify(ledger.events(c))}`).toEqual(
             [
-              "new>ready",
+              "new>waiting",
+              "waiting>ready",
               "ready>red",
               "red>green",
               "green>approved",
@@ -1562,6 +1591,7 @@ One and two, each exported, with b on the versions ra published.
           const start = Date.now();
           try {
             for (let i = 0; i < 60 && Date.now() - start < 420_000; i++) {
+              await operator(f, notes);
               await l.tick();
               await l.settled();
               if (!tagged && git(raBare, "rev-parse", "main") !== raMain)
@@ -1578,6 +1608,7 @@ One and two, each exported, with b on the versions ra published.
           const moves = (name: string) =>
             ledger
               .events(name)
+              .filter((e) => e.word !== "go")
               .map(
                 (e) => `${String(e["from_state"])}>${String(e["to_state"])}`,
               );
@@ -1609,16 +1640,16 @@ One and two, each exported, with b on the versions ra published.
             "built>accepted",
           ]);
           expect(moves("dp-a")).toEqual([
-            "new>ready",
+            "new>waiting",
+            "waiting>ready",
             "ready>red",
             "red>green",
             "green>approved",
             "approved>landed",
           ]);
           expect(moves("dp-b")).toEqual([
+            // it waited for the operator's go, which says why it can't start while its version is not on npm
             "new>waiting",
-            // the retry that records why it waited: the version its repo needs was not on npm yet
-            "waiting>waiting",
             "waiting>ready",
             "ready>red",
             "red>green",
@@ -1626,11 +1657,10 @@ One and two, each exported, with b on the versions ra published.
             "approved>landed",
           ]);
 
-          // B waited for the version A released, before it started.
-          const b = ledger.events("dp-b");
-          const held = b.findIndex((e) => e.word === "retry");
-          expect(b[held]?.reason).toMatch(/@e2e\/one.*1\.2\.0.*not on npm yet/);
-          expect(held).toBeLessThan(b.findIndex((e) => e.to_state === "ready"));
+          // B waited for the version A released: the operator's go said why it could not start yet.
+          expect(told["dp-b"]?.[0]).toMatch(
+            /@e2e\/one.*1\.2\.0.*not on npm yet/,
+          );
 
           // Main took its branch: the moves first, then its own work, one build commit per package, the second on
           // the first, and no version of its own.
