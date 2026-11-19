@@ -217,17 +217,21 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 	- the copy: every version tag to GitHub, by the repo's deploy key, which the version-tag ruleset lets through
 - the ship kinds, `crate.toml`'s `ship`
 	- a package (`npm`): published by the repo's `publish.yml` on the version tag, by npm's trusted publishing: no token, with provenance. It runs the check set, sets `package.json`'s version from the tag, and publishes. que-pasa and basis
-	- an image: built once, in presubmit, tagged by its commit, and released by a tag ([[cd#ship.yml]])
+	- an image (`image`): published by crate itself, so a node runs the image crate tested ([[daworks/crate/README#The ship|crate's ship]])
+		- the image: the one the check built and ran, kept by its commit until main is green, then pushed as `<publish>:sha-<short>`. No version tag, and no build on GitHub
+		- the run files: `[app] quadlets`, each `Image=` stamped with that tag, pushed beside it as an OCI artifact, `<publish>-quadlets:sha-<short>`
+		- the pin line: `<name> sha-<short> <publish>-quadlets sha256:<digest>`, for the node's releases file ([[cd]])
+		- a failed publish holds nothing: it is tried again until the green main is published
 	- a source (`source`): its version tag alone, with nothing published, for a repo that runs from a checkout at its tag. assembly, which the server runs at a version
 	- nothing: no `ship`, no versions. A semantic or config repo, whose land is its release
-- Not built: the image kind on crate. que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[assembly-on-server]])
+- Not built: que's `ship.yml` builds its image on main, not in presubmit, and que publishes on a `v*` tag pushed by hand ([[assembly-on-server]])
 
 ## Every workflow
 
 - a run of any workflow but `checks.yml` starts only when a file it reads has changed, and the file lists them. `checks.yml` always starts ([[#When it runs]])
 - least rights
 	- a job reads the repo and nothing else, unless it says so
-	- only a job that pushes an image writes to the registry, with the run's own short-lived token: the runtime image's in `ship.yml` or `publish.yml`, the dev image's in `dev-image.yml` (and que's `image` job in `checks.yml`). No password is stored
+	- only a job that pushes an image writes to the registry, with the run's own short-lived token: the runtime image's in `ship.yml` or `publish.yml`, the dev image's in `dev-image.yml` (and que's `image` job in `checks.yml`). No password is stored in GitHub. The one stored token is crate's push login on the server, for an `image` ship, read by its publish alone
 - an action from someone else is pinned to a full commit hash; a tag can be moved to different code
 - every job has a time limit: one without its own runs for up to six hours ([[code#^waiting|waiting]])
 - runners: GitHub's own, so nothing to patch or keep registered. The check jobs run in the repo's dev image on them ([[#One command]])
