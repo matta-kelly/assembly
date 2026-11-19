@@ -226,7 +226,7 @@ The machine: what moves jobs from station to station. Its code is in two folders
 			- que-pasa's tools: every other one, after LangChain's Deep Agents, in the sandbox the runner gives each run
 			- for every agent: `ls`, `read_file`, `glob`, `grep`
 			- for nail and hammer: `write_file`, `edit_file`, in the cl's worktree
-			- for the planner and the reviews: `execute`, a shell. They only read
+			- for every agent: `execute`, a shell in its sandbox. The planner and the reviews only read; a builder's verdict is its test tool's and its step's check, never a command it ran
 		- `types/`: the factory's own notes that a role works to and is judged against. The work's are type notes, in `work/types/`
 			- in its context: que-pasa's memory middleware reads an agent's types once, when its conversation is made, keeps them with it, and adds them to the system prompt before each model call (`workspace/agents/types.ts`)
 			- every agent: [[terms]] first, the one vocabulary, and each state it reads or makes
