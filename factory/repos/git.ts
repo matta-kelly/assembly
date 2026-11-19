@@ -9,9 +9,15 @@
  * has its branch and its worktree; the sweep removes every other one under assembly/ and under the runs folder.
  */
 
-import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join, normalize, relative } from "node:path";
-import type { Tree } from "../line/step.ts";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { isAbsolute, join, normalize, relative } from "node:path";
+import type { Tree, View } from "../line/step.ts";
 import { partsOf } from "../runs/runs.ts";
 import { must, sh } from "../sh.ts";
 
@@ -251,11 +257,90 @@ export async function touched(r: Tree): Promise<string[]> {
     .map((line) => line.slice(3));
 }
 
-/** Puts the worktree back at its HEAD: what is changed is reverted, what is new and not ignored goes. */
-export async function restore(r: Tree) {
-  await must("git", ["-C", r.work, "reset", "-q", "--hard", "HEAD"]);
-  await must("git", ["-C", r.work, "clean", "-q", "-fd"]);
+/** Where an attempt's starting tree is kept: its own folder. */
+const startOf = (r: Pick<Tree, "dir">) => join(r.dir, "start.tree");
+
+/** Keeps the worktree's tree as the attempt begins, once, for `since`: a taken-up attempt keeps its own. */
+export async function started(r: Tree) {
+  for (const p of partsOf(r)) {
+    if (existsSync(startOf(p))) continue;
+    const tree = await treeOf(p);
+    writeFileSync(startOf(p), tree);
+  }
 }
+
+/**
+ * Every file that differs from the worktree as the attempt began: changed, new or removed, as paths from the item's
+ * worktree. A file git ignores is not one. None when the attempt kept no start.
+ */
+export async function since(r: Tree): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of partsOf(r)) {
+    if (!existsSync(startOf(p))) continue;
+    const start = readFileSync(startOf(p), "utf8").trim();
+    const now = await treeOf(p);
+    if (now === start) continue;
+    const at = relative(r.work, p.work);
+    const names = await must("git", [
+      "-C",
+      p.work,
+      "diff-tree",
+      "-r",
+      "--name-only",
+      "--no-renames",
+      start,
+      now,
+    ]);
+    for (const f of names.split("\n").filter(Boolean))
+      out.push(at ? join(at, f) : f);
+  }
+  return out;
+}
+
+/** Puts back each of `files` as the attempt began: a changed or removed one as it was, a new one gone. */
+export async function putBack(r: Tree, files: string[]) {
+  if (!files.length || r.repos?.length) return;
+  const start = readFileSync(startOf(r), "utf8").trim();
+  const listed = await must("git", [
+    "-C",
+    r.work,
+    "ls-tree",
+    "-r",
+    "--name-only",
+    start,
+    "--",
+    ...files,
+  ]);
+  const known = new Set(listed.split("\n").filter(Boolean));
+  const back = files.filter((f) => known.has(f));
+  if (back.length)
+    await must("git", [
+      "-C",
+      r.work,
+      "restore",
+      `--source=${start}`,
+      "--worktree",
+      "--",
+      ...back,
+    ]);
+  for (const f of files.filter((x) => !known.has(x)))
+    rmSync(join(r.work, f), { force: true });
+}
+
+/** The view a gate reads of an attempt's worktree. */
+export const viewOf = (r: Tree): View => ({
+  changed: (files) => changed(r, files),
+  touched: () => touched(r),
+  since: () => since(r),
+  // A path that leaves the worktree is never in it.
+  exists: (files) =>
+    files.filter(
+      (f) =>
+        !isAbsolute(f) &&
+        !normalize(f).startsWith("..") &&
+        existsSync(join(r.work, f)),
+    ),
+});
 
 /** Which of `files` differ in the worktree from the item's branch, its HEAD, committed or not. */
 export async function changed(r: Tree, files: string[]): Promise<string[]> {

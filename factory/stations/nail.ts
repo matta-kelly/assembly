@@ -16,6 +16,7 @@ import { z } from "zod";
 import { notesOf } from "../repos/notes.ts";
 import type { Ledger } from "../line/ledger.ts";
 import { type Message, say, type Step } from "../line/step.ts";
+import { declared, present } from "../line/gate.ts";
 import { noteOf } from "./plan.ts";
 
 /** What a cl changes, by its note's shape: what it does, or only how the code is shaped (Beck, *Tidy First?*). */
@@ -39,6 +40,12 @@ const done = z.object({
     )
     .min(1)
     .describe("each test of the cl's Promises, new or changed"),
+  changed: z
+    .array(z.string())
+    .min(1)
+    .describe(
+      "every file you changed, from the repo's root: your tests, their stand-ins and your stubs",
+    ),
   notes: z
     .string()
     .optional()
@@ -91,17 +98,13 @@ export const nail: Step<Done> = {
   agent: "da-nail",
   done,
   about: ["cl", "plan", "issue"],
+  // each listed test is there, and the change is exactly the files listed
+  gate: async (_r, d, view) => [
+    ...(await present(d.tests.map((t) => t.file))(view)),
+    ...(await declared(d.changed)(view)),
+  ],
   async check(r, d, at) {
     const note = notesOf(r).text(r.note);
-    const files = [...new Set(d.tests.map((t) => t.file))];
-    const there = new Set(at.exists(files));
-    const missing = files.filter((f) => !there.has(f));
-    if (missing.length)
-      return say(
-        "retry",
-        `test files not in the worktree: ${missing.join(", ")}`,
-        "invalid_output",
-      );
     const ran = await at.test();
     const m = judge(ran.code, ran.out, changeOf(note));
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;

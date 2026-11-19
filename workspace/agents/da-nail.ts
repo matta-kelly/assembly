@@ -6,7 +6,7 @@
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { nail } from "../../factory/stations/nail.ts";
-import { submitOf } from "./submit.ts";
+import { acceptOf, submitOf } from "./submit.ts";
 import { execute, fileTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 import { types } from "./types.ts";
@@ -22,4 +22,5 @@ export const daNail = (model: string) =>
     // what a test is, and what a good one is: always in its context
     middleware: [types("terms", "bench", "cl", "tests")],
     output: z.object({ result: submitOf(nail) }),
+    accept: acceptOf(nail),
   });

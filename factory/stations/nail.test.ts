@@ -46,6 +46,7 @@ beforeEach(() => {
     notes: notes.first,
     repo: "/repo",
     test: "npm test",
+    tests: [],
     dir,
     work: join(dir, "work"),
   };
@@ -71,7 +72,11 @@ describe("da-nail's tests, as the steps after it read them", () => {
 
 describe("the nail step's check, on tests that pass", () => {
   it("passes them as met, first pass or a return: the code meets them, so the cl goes to its review", async () => {
-    const both = { word: "done" as const, tests: [t(1), t(2)] };
+    const both = {
+      word: "done" as const,
+      tests: [t(1), t(2)],
+      changed: ["a.test.ts"],
+    };
     const passing = fakeWorktree({ files: ["a.test.ts"] });
     expect(await tests.check(r, both, passing, none)).toMatchObject({
       word: "pass",
@@ -87,7 +92,11 @@ describe("the nail step's check, on a structure cl", () => {
       "type: cl\nshape: { change: structure, checked: repo }\n",
     );
     const notes = notesRepo({ "_well/i-x.md": structural });
-    const both = { word: "done" as const, tests: [t(1), t(2)] };
+    const both = {
+      word: "done" as const,
+      tests: [t(1), t(2)],
+      changed: ["a.test.ts"],
+    };
     try {
       const m = await tests.check(
         { ...r, notes: notes.first, dir: notes.repo },
@@ -111,7 +120,7 @@ describe("the nail step's check, before red", () => {
     });
     const m = await tests.check(
       r,
-      { word: "done", tests: [t(1), t(3)] },
+      { word: "done", tests: [t(1), t(3)], changed: ["a.test.ts"] },
       run,
       none,
     );
@@ -123,20 +132,24 @@ describe("the nail step's check, before red", () => {
     expect(m.met).toBeUndefined();
   });
 
-  it("retries when a test file is not in the worktree, and runs nothing", async () => {
-    const run = fakeWorktree({ files: ["a.test.ts"] });
-    const v = await tests.check(
-      r,
-      { word: "done", tests: [t(1), t(2, "gone.test.ts")] },
-      run,
-      none,
-    );
-    expect(v).toMatchObject({
-      word: "retry",
-      cause: "invalid_output",
-      reason: /not in the worktree: gone.test.ts/,
+  it("gates a done: each listed test file is there, and the change is exactly the files listed", async () => {
+    const view = fakeWorktree({
+      files: ["a.test.ts"],
+      touched: ["a.test.ts", "scratch.ts"],
     });
-    expect(run.runs).toBe(0);
+    const problems = await tests.gate!(
+      r,
+      {
+        word: "done",
+        tests: [t(1), t(2, "gone.test.ts")],
+        changed: ["a.test.ts"],
+      },
+      view,
+    );
+    expect(problems.map((p) => p.what)).toEqual([
+      "gone.test.ts is listed, but it is not in the worktree",
+      "scratch.ts is changed in the worktree but not in your list: remove it if it is scratch, or list it",
+    ]);
   });
 });
 

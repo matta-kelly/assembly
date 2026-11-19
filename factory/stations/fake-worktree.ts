@@ -27,6 +27,7 @@ export function fakeWorktree(
     changed?: string[];
     files?: string[];
     touched?: string[];
+    since?: string[];
   } = {},
 ): Worktree & { runs: number; asked: string[][] } {
   const at = {
@@ -41,6 +42,7 @@ export function fakeWorktree(
       return (o.changed ?? []).filter((f) => files.includes(f));
     },
     touched: async () => o.touched ?? o.changed ?? [],
+    since: async () => o.since ?? [],
     exists: (files: string[]) =>
       files.filter((f) => (o.files ?? []).includes(f)),
   };

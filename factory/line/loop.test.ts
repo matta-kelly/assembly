@@ -13,10 +13,10 @@ import {
   commit,
   fresh,
   onMain,
-  restore,
+  putBack,
+  since,
   sweep,
-  touched,
-  treeOf,
+  viewOf,
   worktree,
 } from "../repos/git.ts";
 import { land } from "../repos/land.ts";
@@ -42,8 +42,10 @@ vi.mock("../repos/git.ts", async (original) => ({
   head: vi.fn(),
   changed: vi.fn(),
   touched: vi.fn(),
-  treeOf: vi.fn(),
-  restore: vi.fn(),
+  started: vi.fn(),
+  since: vi.fn(),
+  putBack: vi.fn(),
+  viewOf: vi.fn(),
 }));
 vi.mock("../runs/workspace.ts", () => ({
   up: vi.fn(),
@@ -157,6 +159,14 @@ type L = Awaited<ReturnType<typeof make>>;
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(move).mockResolvedValue("c0ffee");
+  // the worktree as a gate reads it: unchanged since the attempt began, unless a test says otherwise
+  vi.mocked(since).mockResolvedValue([]);
+  vi.mocked(viewOf).mockImplementation((r) => ({
+    changed: () => Promise.resolve([]),
+    touched: () => Promise.resolve([]),
+    since: () => since(r),
+    exists: (files) => files,
+  }));
   vi.mocked(settingsAt).mockResolvedValue({ test: "suite" });
   dir = mkdtempSync(join(tmpdir(), "loop-"));
   notes = notesRepo(
@@ -279,30 +289,54 @@ describe("an attempt", () => {
     expect(ro.mock.calls[0]?.[2]).toMatchObject({ readOnly: true });
   });
 
-  it("fails a step that only reads when it leaves its worktree changed, and puts the worktree back", async () => {
-    vi.mocked(treeOf)
-      .mockResolvedValueOnce("before")
-      .mockResolvedValueOnce("after");
-    vi.mocked(touched).mockResolvedValue(["src/a.ts"]);
+  it("fails a step that only reads when it leaves its worktree changed, and puts back what it changed", async () => {
+    vi.mocked(since).mockResolvedValue(["src/a.ts"]);
     await once(
       make(gives(done("x")), { steps: [{ ...step, worktree: "ro" }] }),
     );
     expect(last()).toMatchObject({
       word: "retry",
       cause: "scope_exceeds_change",
-      reason: expect.stringMatching(/only reads: src\/a\.ts/),
+      reason: expect.stringMatching(
+        /src\/a\.ts changed, and this step only reads/,
+      ),
     });
-    expect(restore).toHaveBeenCalledOnce();
+    expect(putBack).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "c" }),
+      ["src/a.ts"],
+    );
   });
 
-  it("passes a step that only reads and leaves its worktree as it found it", async () => {
-    vi.mocked(treeOf).mockResolvedValue("same");
+  it("passes a step that only reads and leaves its worktree as it began", async () => {
     await once(
       make(gives(done("x")), { steps: [{ ...step, worktree: "ro" }] }),
     );
     expect(last()).toMatchObject({ word: "pass" });
-    expect(restore).not.toHaveBeenCalled();
+    expect(putBack).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("ends a done its step's gate still faults as a retry, with the first fault's cause and every fault, before the check", async () => {
+    const check = vi.fn(() => Promise.resolve(message));
+    const gated: Step<{ word: "done"; text: string }> = {
+      ...step,
+      check,
+      gate: () =>
+        Promise.resolve([
+          { what: "scratch.txt is not in your list", cause: "invalid_output" },
+          {
+            what: "a.test.ts is da-nail's test",
+            cause: "scope_exceeds_change",
+          },
+        ]),
+    };
+    await once(make(gives(done("x")), { steps: [gated] }));
+    expect(last()).toMatchObject({
+      word: "retry",
+      cause: "invalid_output",
+      reason: "scratch.txt is not in your list; a.test.ts is da-nail's test",
+    });
+    expect(check).not.toHaveBeenCalled();
   });
 
   it("makes the attempt's worktree before its workspace comes up on it", async () => {
@@ -812,19 +846,6 @@ describe("the tick", () => {
     expect(commit).not.toHaveBeenCalled();
     expect(down).not.toHaveBeenCalled();
     expect(doc()).toBe(cl);
-  });
-
-  it("answers a check that a path outside the worktree is not in it", async () => {
-    let seen: string[] = [];
-    const asks: Step<{ word: "done"; text: string }> = {
-      ...step,
-      check: async (_r, _d, at) => {
-        seen = at.exists(["../log", "/etc/passwd", "cl.md"]);
-        return message;
-      },
-    };
-    await once(make(gives(done("x")), { steps: [asks] }));
-    expect(seen).toEqual([]);
   });
 
   it("ends a taken-up attempt whose workspace does not come up again as a retry, as a new one", async () => {

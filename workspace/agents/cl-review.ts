@@ -7,7 +7,7 @@
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { review } from "../../factory/stations/review.ts";
-import { submitOf } from "./submit.ts";
+import { acceptOf, submitOf } from "./submit.ts";
 import { execute, readTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 import { types } from "./types.ts";
@@ -21,4 +21,5 @@ export const clReview = (model: string) =>
     // the bars it judges against, the same notes the builders work to: always in its context
     middleware: [types("terms", "code", "tests", "changelist", "cl")],
     output: z.object({ result: submitOf(review) }),
+    accept: acceptOf(review),
   });

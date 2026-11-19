@@ -253,12 +253,13 @@ const nailScript = (input: string, done: number) => {
         content: `export const ${lone} = 0;\n`,
       });
     if (done === 2)
-      return fauxToolCall("test", {
-        tests: [{ file: `test/${lone}.test.sh`, name: lone }],
+      return fauxToolCall("execute", {
+        command: `sh ${`test/${lone}.test.sh`}`,
       });
     return submit({
       word: "done",
-      tests: [{ file: `test/${lone}.test.sh`, name: lone, kind: "new" }],
+      tests: [{ file: `test/${lone}.test.sh`, name: lone }],
+      changed: [`test/${lone}.test.sh`, `src/${lone}.mjs`],
     });
   }
   const double = input.includes("The cut double of");
@@ -286,12 +287,11 @@ const nailScript = (input: string, done: number) => {
         : "export const value = 0;\n",
     });
   if (done === 2)
-    return fauxToolCall("test", {
-      tests: [{ file: `test/${name}.test.sh`, name }],
-    });
+    return fauxToolCall("execute", { command: `sh ${`test/${name}.test.sh`}` });
   return submit({
     word: "done",
-    tests: [{ file: `test/${name}.test.sh`, name, kind: "new" }],
+    tests: [{ file: `test/${name}.test.sh`, name }],
+    changed: [`test/${name}.test.sh`, `src/${name}.mjs`],
   });
 };
 
@@ -314,7 +314,13 @@ const probes = [
   fauxToolCall("ls", { path: "." }),
 ];
 
-/** da-hammer makes its cut's test pass. value's first reads past its cut's core context. */
+/** What double's da-hammer was told when it submitted with a scratch file left in its worktree. */
+const toldAtSubmit: string[] = [];
+
+/**
+ * da-hammer makes its cut's test pass. value's first reads past its cut's core context. double's leaves a scratch file,
+ * submits, is told, removes it, and submits again, in one run.
+ */
 const hammerScript = (input: string, at: number, last: string) => {
   const lone = /The cut (alpha|beta) of/.exec(input)?.[1];
   if (lone)
@@ -343,6 +349,17 @@ const hammerScript = (input: string, at: number, last: string) => {
           old_string: "value = 0",
           new_string: "value = 2",
         });
+  if (double && done === 1)
+    return fauxToolCall("write_file", {
+      file_path: "scratch.txt",
+      content: "a probe\n",
+    });
+  if (double && done === 2)
+    return submit({ word: "done", changed: ["src/double.mjs"] });
+  if (double && done === 3) {
+    toldAtSubmit.push(plain(last));
+    return fauxToolCall("execute", { command: "rm scratch.txt" });
+  }
   return submit({
     word: "done",
     changed: [double ? "src/double.mjs" : "src/value.mjs"],
@@ -410,12 +427,11 @@ const cutNail = (input: string, done: number) => {
         ),
       });
     if (done === 1)
-      return fauxToolCall("test", {
-        tests: [{ file: "test/a.test.sh", name: "a" }],
-      });
+      return fauxToolCall("execute", { command: `sh ${"test/a.test.sh"}` });
     return submit({
       word: "done",
-      tests: [{ file: "test/a.test.sh", name: "a", kind: "new" }],
+      tests: [{ file: "test/a.test.sh", name: "a" }],
+      changed: ["test/a.test.sh"],
     });
   }
   if (done === 0)
@@ -433,12 +449,11 @@ const cutNail = (input: string, done: number) => {
       content: "export const b = () => 0;\n",
     });
   if (done === 2)
-    return fauxToolCall("test", {
-      tests: [{ file: "test/b.test.sh", name: "b" }],
-    });
+    return fauxToolCall("execute", { command: `sh ${"test/b.test.sh"}` });
   return submit({
     word: "done",
-    tests: [{ file: "test/b.test.sh", name: "b", kind: "new" }],
+    tests: [{ file: "test/b.test.sh", name: "b" }],
+    changed: ["test/b.test.sh", "src/b.mjs"],
   });
 };
 
@@ -715,6 +730,12 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           expect(logs).toMatch(/^its workspace up in \d+ s$/m);
         }
 
+        // double's da-hammer was told of its scratch file at submit, removed it, and passed in the same attempt.
+        expect(toldAtSubmit).toHaveLength(1);
+        expect(toldAtSubmit[0]).toMatch(
+          /scratch\.txt is changed in the worktree but not in your list/,
+        );
+
         // value's da-hammer had the whole repo: NOTES, in no cut's core context, is there to read, and so is the root.
         expect(probed[0]).toMatch(/not in any cut/);
         expect(probed[1]).toMatch(/NOTES/);
@@ -890,6 +911,15 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
       async () => {
         const at = join(dir, "restart");
         mkdirSync(at, { recursive: true });
+        // a repo of its own, as main had it before any cl: the suites has values test on main already
+        const own = join(at, "repo");
+        mkdirSync(own);
+        git(own, "init", "-q", "-b", "main");
+        writeFileSync(join(own, "README"), "a repo\n");
+        onCrate(own, "repo");
+        git(own, "add", "-A");
+        git(own, "commit", "-q", "-m", "init");
+        landTarget(own, at);
         // A lone cl, the operator's spec in the notes.
         publish({
           rs: issueNote(false),
@@ -949,7 +979,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         const ledger = f.ledger;
         // The issue enters as submit enters it, at building, and the engine builds it from its notes.
         ledger.addIssue(
-          { name: "rs", note: "_well/rs.md", repos: [repo] },
+          { name: "rs", note: "_well/rs.md", repos: [own] },
           "building",
         );
         await advance(ledger, worldOf(f.runs));
@@ -1008,8 +1038,8 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .filter((n) => n.startsWith("execute_tool"))
             .sort(),
         ).toEqual([
+          "execute_tool execute",
           "execute_tool submit",
-          "execute_tool test",
           "execute_tool write_file",
           "execute_tool write_file",
         ]);

@@ -86,6 +86,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("an attempt's workspace", () => {
       notes: { repo: "", commit: "" },
       repo,
       test: "scripts/check.sh",
+      tests: [],
       dir: join(dir, "runs", "1"),
       work,
     };

@@ -30,20 +30,19 @@
  */
 
 import { z } from "zod";
-import { existsSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   branchOf,
-  changed,
   commit,
   fresh,
   head,
   mainOf,
   onMain,
-  restore,
+  putBack,
+  since,
+  started,
   sweep,
-  touched,
-  treeOf,
+  viewOf,
   worktree,
 } from "../repos/git.ts";
 import { land } from "../repos/land.ts";
@@ -52,6 +51,8 @@ import { NotOnCrate, settingsAt } from "../repos/repo.ts";
 import { folderOf, last, log, partsOf, runOf } from "../runs/runs.ts";
 import { down, imageOf, runTests, up } from "../runs/workspace.ts";
 import { clOf } from "../stations/plan.ts";
+import { testFilesOf } from "../stations/nail.ts";
+import { gateOf } from "./gate.ts";
 import { checkSpan, endAttempt, openTracing, within } from "../runs/trace.ts";
 import {
   type Cause,
@@ -65,6 +66,7 @@ import {
   type TestRun,
   type Tree,
   type Worktree,
+  type Problem,
 } from "./step.ts";
 import { ends, type State, top } from "./table.ts";
 import { advance, type World, writePlan } from "./advance.ts";
@@ -202,16 +204,7 @@ function worktreeOf(
         ran = t.check;
         return t;
       })),
-    changed: (files) => changed(r, files),
-    touched: () => touched(r),
-    // A path that leaves the worktree is never in it.
-    exists: (files) =>
-      files.filter(
-        (f) =>
-          !isAbsolute(f) &&
-          !normalize(f).startsWith("..") &&
-          existsSync(join(r.work, f)),
-      ),
+    ...viewOf(r),
     ran: () => ran,
   };
 }
@@ -346,9 +339,6 @@ export async function loop({
     let error: string | undefined;
     const span = ledger.span(r.name, r.n);
     try {
-      // A step that only reads may run commands in its workspace: its tree is taken now, to see what it left changed.
-      const reads = step.worktree === "ro" && !r.repos?.length;
-      const before = reads ? await treeOf(r) : undefined;
       const input = inputOf(r, state, step);
       // The run starts under the attempt span, and que-pasa keeps it: every process's part of the run is under it.
       const out = await abortable(
@@ -364,17 +354,17 @@ export async function loop({
       );
       usage = out.usage;
       const parsed = z.object({ result: resultOf(step) }).safeParse(out.value);
-      // What a step that only reads left changed fails it, and goes.
-      const left =
-        before !== undefined && (await treeOf(r)) !== before
-          ? await touched(r)
-          : [];
-      if (left.length) {
-        await restore(r);
+      // The step's gate, as its agent's submit ran it: a fault still there is a retry, with the first one's cause. What a
+      // step that only reads changed goes back as it was.
+      const problems = parsed.success
+        ? await gateOf(step)(r, parsed.data.result, viewOf(r))
+        : [];
+      if (problems.length) {
+        if (step.worktree === "ro") await putBack(r, await since(r));
         v = {
           word: "retry",
-          cause: "scope_exceeds_change",
-          reason: `it changed its worktree, which its step only reads: ${left.slice(0, 10).join(", ")}`,
+          cause: (problems[0] as Problem).cause,
+          reason: problems.map((p) => p.what).join("; "),
           findings: [],
         };
       } else if (!parsed.success)
@@ -469,7 +459,14 @@ export async function loop({
       () => settingsAt(at.work, basename(world.notes)),
       unreadable,
     );
-    return { ...at, seq: item.seq, note: item.note, notes, ...settings };
+    return {
+      ...at,
+      seq: item.seq,
+      note: item.note,
+      notes,
+      tests: [],
+      ...settings,
+    };
   }
 
   /**
@@ -645,6 +642,7 @@ export async function loop({
       repos.push({ name, repo: p.repo, ...s });
     }
     const [first] = repos as [Repo, ...Repo[]];
+    // a cl's tests, da-nail's, which its later steps may not change: its gate reads them from the run
     // a cl's note must read as a cl before anything runs on it
     if (t.kind === "cl")
       await readying(
@@ -658,6 +656,7 @@ export async function loop({
       note: item.note,
       notes,
       test: first.test,
+      tests: t.kind === "cl" ? testFilesOf(ledger, t.name) : [],
       ...(repos.length > 1 ? { repos } : {}),
     };
   }
@@ -672,6 +671,8 @@ export async function loop({
     await readying("the worktree was not made", () => worktree(t));
     if (t.kind === "issue" && !ledger.resumed(t.name, t.n))
       await readying("the worktree did not move to main", () => fresh(t));
+    // the worktree as the attempt begins: what a step that only reads must leave it as
+    await readying("the worktree's start was not kept", () => started(t));
     const r = await runFor(t, ledger.item(t.name));
     const at = Date.now();
     // workspace.ts keeps the tail of crate's output, where the failure is

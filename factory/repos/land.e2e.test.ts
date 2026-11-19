@@ -63,6 +63,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])("the land", () => {
       notes: { repo: "", commit: "" },
       repo,
       test: `node --test test/${cut}.test.mjs`,
+      tests: [],
       dir: at,
       work: workOf(cut),
     };

@@ -6,7 +6,7 @@
 import { defineAgent } from "@mku1tra/que-pasa/define";
 import { z } from "zod";
 import { hammer } from "../../factory/stations/hammer.ts";
-import { submitOf } from "./submit.ts";
+import { acceptOf, submitOf } from "./submit.ts";
 import { execute, fileTools } from "@mku1tra/que-pasa/sandbox";
 import { instructions } from "./instructions.ts";
 import { types } from "./types.ts";
@@ -22,4 +22,5 @@ export const daHammer = (model: string) =>
     // how code is written here, and what a good test is, so it can tell a wrong test: always in its context
     middleware: [types("terms", "bench", "cl", "code", "tests")],
     output: z.object({ result: submitOf(hammer) }),
+    accept: acceptOf(hammer),
   });

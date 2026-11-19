@@ -7,6 +7,9 @@
 
 import { z } from "zod";
 import { back, type Step } from "../../factory/line/step.ts";
+import { gateOf } from "../../factory/line/gate.ts";
+import { viewOf } from "../../factory/repos/git.ts";
+import { type Context, current } from "../../factory/runs/runs.ts";
 import {
   type Artifact,
   levels,
@@ -125,4 +128,19 @@ export function submitOf<D extends { word: "done" }>(step: Step<D>) {
     .describe(
       `Your result. It decides where the ${kindOf(step.from)} goes next: pick the exit by its route.`,
     );
+}
+
+/**
+ * The agent's check of its result at submit: the step's gate, on the attempt going on and its worktree. que-pasa answers
+ * a result with problems with each one's what, and the agent fixes them and submits again (factory/line/gate.ts).
+ */
+export function acceptOf<D extends { word: "done" }>(step: Step<D>) {
+  const gate = gateOf(step as unknown as Step<{ word: "done" }>);
+  return async (
+    output: { result: { word: string } },
+    run: { context: Context },
+  ): Promise<string[]> => {
+    const r = current(run.context);
+    return (await gate(r, output.result, viewOf(r))).map((p) => p.what);
+  };
 }

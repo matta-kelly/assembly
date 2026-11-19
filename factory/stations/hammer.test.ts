@@ -4,13 +4,10 @@ import type { Run } from "../line/step.ts";
 import type { Ledger } from "../line/ledger.ts";
 import { fakeWorktree, ran } from "./fake-worktree.ts";
 
-vi.mock("./nail.ts", () => ({
-  testFilesOf: vi.fn(() => files),
-  testsOf: vi.fn(() => ""),
-}));
+vi.mock("./nail.ts", () => ({ testsOf: vi.fn(() => "") }));
 
 let files: string[];
-const r = { test: "scripts/check.sh all" } as Run;
+const runOf = () => ({ test: "scripts/check.sh all", tests: files }) as Run;
 const d = { word: "done" as const, changed: ["src/a.ts"] };
 const ledger = {} as Ledger;
 
@@ -21,34 +18,40 @@ beforeEach(() => {
 describe("the hammer step's check", () => {
   it("retries when da-nail wrote no test file", async () => {
     files = [];
-    expect(await hammer.check(r, d, fakeWorktree(), ledger)).toMatchObject({
+    expect(
+      await hammer.check(runOf(), d, fakeWorktree(), ledger),
+    ).toMatchObject({
       word: "retry",
       reason: /wrote no test file/,
     });
   });
 
-  it("retries when a test was changed, and does not run the tests", async () => {
-    const at = fakeWorktree({ changed: ["a.test.ts"] });
-    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
-      word: "retry",
-      reason: /a test was changed: a.test.ts/,
-    });
-    expect(at.runs).toBe(0);
-  });
-
-  it("retries when any test file da-nail listed was changed", async () => {
+  it("gates a done: no test of da-nail's changed, and the change is exactly the files listed", async () => {
     files = ["a.test.ts", "old.test.ts"];
-    const at = fakeWorktree({ changed: ["old.test.ts"] });
-    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
-      word: "retry",
-      cause: "scope_exceeds_change",
-      reason: /a test was changed: old.test.ts/,
+    const view = fakeWorktree({
+      changed: ["old.test.ts"],
+      touched: ["old.test.ts", "src/a.ts", "probe_test.go"],
     });
+    const problems = await hammer.gate!(runOf(), d, view);
+    expect(problems).toEqual([
+      {
+        what: "old.test.ts is da-nail's test, which you may not change: put it back as it was",
+        cause: "scope_exceeds_change",
+      },
+      {
+        what: "old.test.ts is changed in the worktree but not in your list: remove it if it is scratch, or list it",
+        cause: "invalid_output",
+      },
+      {
+        what: "probe_test.go is changed in the worktree but not in your list: remove it if it is scratch, or list it",
+        cause: "invalid_output",
+      },
+    ]);
   });
 
   it("retries when the repo's check is red, with its output's tail: da-nail's tests, format, lint and every other test are hammer's", async () => {
     const at = fakeWorktree({ test: ran(1, "gofmt: not formatted") });
-    expect(await hammer.check(r, d, at, ledger)).toMatchObject({
+    expect(await hammer.check(runOf(), d, at, ledger)).toMatchObject({
       word: "retry",
       cause: "check_failed",
       reason: "red: the check fails: exit 1: gofmt: not formatted",
@@ -57,12 +60,11 @@ describe("the hammer step's check", () => {
 
   it("passes when no test changed and the repo's check is green, run once", async () => {
     const at = fakeWorktree();
-    expect(await hammer.check(r, d, at, ledger)).toEqual({
+    expect(await hammer.check(runOf(), d, at, ledger)).toEqual({
       word: "pass",
       reason: "green",
       findings: [],
     });
-    expect(at.asked).toEqual([["a.test.ts"]]);
     expect(at.runs).toBe(1);
   });
 });

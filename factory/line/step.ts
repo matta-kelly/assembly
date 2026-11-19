@@ -65,14 +65,22 @@ export interface TestRun {
  *   the same run
  * - changed: which of `files` differ from the item's branch, committed or not
  * - exists: which of `files` are in the worktree
- * - touched: every file that differs from where the attempt started, the item's branch, new and removed ones too
+ * - touched: every file that differs from the item's branch, its HEAD, new and removed ones too
+ * - since: every file that differs from the worktree as the attempt began, new and removed ones too
  */
 export interface Worktree {
   test(): Promise<TestRun>;
   changed(files: string[]): Promise<string[]>;
   touched(): Promise<string[]>;
+  since(): Promise<string[]>;
   exists(files: string[]): string[];
 }
+
+/** What a gate may read of the attempt's worktree: the files, never a test run. */
+export type View = Omit<Worktree, "test">;
+
+/** A fault a gate finds: what to fix, as the agent reads it, and the cause its retry carries when it reaches the check. */
+export type Problem = { what: string; cause: Cause };
 
 /** A fault in one artifact: what fails, with its evidence, and where (the file and line, the promise, the Done item). */
 export const finding = z.object({
@@ -151,6 +159,7 @@ export type Run = Omit<Tree, "repos"> & {
   note: string; // the item's note, from the notes repo's root: _well/<name>.md
   notes: NotesAt;
   test: string; // the repo's full suite: `scripts/check.sh all`
+  tests: string[]; // a cl's test files, da-nail's last pass's, which no later step may change; [] for an issue
   // An issue's repos when it has more than one: its own steps read each in its worktree, and its suite runs in each.
   // Its repo and test are then the first's.
   repos?: Repo[];
@@ -163,6 +172,11 @@ export interface Step<D extends { word: "done" }> {
   done: z.ZodType<D>; // the done shape. The result is this or the back shape
   about: Artifact[]; // what its agent may send back about
   check(run: Run, d: D, at: Worktree, ledger: Ledger): Promise<Message>;
+  /**
+   * The step's gate: its quick, exact checks of a done result against the worktree, each fault one its agent can fix.
+   * It runs at the agent's submit, which answers with each problem, and again before `check` (factory/line/gate.ts).
+   */
+  gate?(run: Run, d: D, view: View): Promise<Problem[]>;
   /**
    * What the agent reads, before its messages: the item's note when left out. A review reads more, as the issue with
    * its plan.

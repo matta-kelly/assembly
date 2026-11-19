@@ -9,7 +9,8 @@
 import { z } from "zod";
 import { notesOf } from "../repos/notes.ts";
 import type { Ledger } from "../line/ledger.ts";
-import { testFilesOf, testsOf } from "./nail.ts";
+import { testsOf } from "./nail.ts";
+import { declared, untouched } from "../line/gate.ts";
 import { type Message, say, type Step, type Worktree } from "../line/step.ts";
 
 const done = z.object({
@@ -52,18 +53,14 @@ export const hammer: Step<Done> = {
   about: ["tests", "cl", "plan", "issue"],
   input: (r, ledger) =>
     [notesOf(r).text(r.note), "", testsOf(ledger, r.name)].join("\n"),
-  async check(r, d, at, ledger) {
-    // The tests: every file da-nail listed.
-    const files = testFilesOf(ledger, r.name);
-    if (!files.length)
+  // no test of da-nail's changed, and the change is exactly the files listed
+  gate: async (r, d, view) => [
+    ...(await untouched(r.tests)(view)),
+    ...(await declared(d.changed)(view)),
+  ],
+  async check(r, d, at) {
+    if (!r.tests.length)
       return say("retry", "da-nail wrote no test file", "contract_invalid");
-    const touched = await at.changed(files);
-    if (touched.length)
-      return say(
-        "retry",
-        `a test was changed: ${touched.join(", ")}`,
-        "scope_exceeds_change",
-      );
     const m = await green(at);
     return m.word === "pass" && d.notes ? { ...m, notes: d.notes } : m;
   },

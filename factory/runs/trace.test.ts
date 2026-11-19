@@ -46,6 +46,7 @@ beforeEach(() => {
     notes: { repo: "", commit: "" },
     repo: "",
     test: "",
+    tests: [],
     dir: join(dir, "runs", "is", "cl", "value", "2"),
     work: "",
   };
