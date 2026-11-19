@@ -6,7 +6,6 @@ import { notesRepo } from "../repos/notes.fixture.ts";
 import type { Ledger } from "../line/ledger.ts";
 import {
   changeOf,
-  promises,
   judge,
   nail as tests,
   testFilesOf,
@@ -56,28 +55,15 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const t = (promise: number, file = "a.test.ts") => ({
-  promise,
-  file,
-  name: `b${promise}`,
-});
-
-describe("promises", () => {
-  it("are the top-level items of the cl's Promises list", () => {
-    expect(promises(cl)).toEqual([
-      "- given a, when b, then c",
-      "- given d, when e, then f",
-    ]);
-  });
-});
+const t = (n: number, file = "a.test.ts") => ({ file, name: `b${n}` });
 
 describe("da-nail's tests, as the steps after it read them", () => {
-  it("are its last passed result's: the files once each, and each test by promise", () => {
+  it("are its last passed result's: the files once each, and each test", () => {
     const ledger = {
       passed: () => ({ word: "done", tests: [t(1), t(2), t(3, "b.test.ts")] }),
     } as unknown as Ledger;
     expect(testFilesOf(ledger, "x")).toEqual(["a.test.ts", "b.test.ts"]);
-    expect(testsOf(ledger, "x")).toContain("- promise 3: `b.test.ts`, b3");
+    expect(testsOf(ledger, "x")).toContain("- `b.test.ts`, b3");
   });
 
   it("are none before da-nail passed", () => {
@@ -121,25 +107,10 @@ describe("the nail step's check, on a structure cl", () => {
 });
 
 describe("the nail step's check, before red", () => {
-  it("retries when a promise has no test", async () => {
-    const v = await tests.check(r, { word: "done", tests: [t(1)] }, at, none);
-    expect(v).toEqual({
-      word: "retry",
-      cause: "invalid_output",
-      reason: "promise 2 has no test",
-      findings: [],
-    });
-  });
-
-  it("retries when a test names a promise the cl does not have", async () => {
-    const v = await tests.check(
-      r,
-      { word: "done", tests: [t(1), t(2), t(3)] },
-      at,
-      none,
-    );
-    expect(v.word).toBe("retry");
-    expect(v.reason).toMatch(/promises the cl does not have: 3/);
+  it("runs the tests da-nail lists: whether every promise is kept is the review's", async () => {
+    const run = fakeWorktree({ files: ["a.test.ts"] });
+    await tests.check(r, { word: "done", tests: [t(1), t(3)] }, run, none);
+    expect(run.runs).toBe(1);
   });
 
   it("retries when a test file is not in the worktree", async () => {

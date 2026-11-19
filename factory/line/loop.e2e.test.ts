@@ -261,7 +261,7 @@ const nailScript = (input: string, done: number) => {
     if (done === 2) return fauxToolCall("test", {});
     return submit({
       word: "done",
-      tests: [{ promise: 1, file: `test/${lone}.test.mjs`, name: lone }],
+      tests: [{ file: `test/${lone}.test.mjs`, name: lone }],
     });
   }
   const double = input.includes("The cut double of");
@@ -291,7 +291,7 @@ const nailScript = (input: string, done: number) => {
   if (done === 2) return fauxToolCall("test", {});
   return submit({
     word: "done",
-    tests: [{ promise: 1, file: `test/${name}.test.mjs`, name }],
+    tests: [{ file: `test/${name}.test.mjs`, name }],
   });
 };
 
@@ -428,7 +428,7 @@ const cutNail = (input: string, done: number) => {
     if (done === 1) return fauxToolCall("test", {});
     return submit({
       word: "done",
-      tests: [{ promise: 1, file: "test/a.test.mjs", name: "a" }],
+      tests: [{ file: "test/a.test.mjs", name: "a" }],
     });
   }
   if (done === 0)
@@ -448,7 +448,7 @@ const cutNail = (input: string, done: number) => {
   if (done === 2) return fauxToolCall("test", {});
   return submit({
     word: "done",
-    tests: [{ promise: 1, file: "test/b.test.mjs", name: "b" }],
+    tests: [{ file: "test/b.test.mjs", name: "b" }],
   });
 };
 

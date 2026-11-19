@@ -222,7 +222,11 @@ describe("an attempt", () => {
   });
 
   it("works every attempt of an item in its one worktree, each with its own folder", async () => {
-    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    message = {
+      word: "retry",
+      reason: "test files not in the worktree: a.test.ts",
+      findings: [],
+    };
     const runner = vi.fn<Run1>(gives(done("x")));
     const l = await make(runner);
     await once(l);
@@ -327,10 +331,14 @@ describe("an attempt", () => {
   });
 
   it("keeps the cl in its state when the check retries, and writes nothing", async () => {
-    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    message = {
+      word: "retry",
+      reason: "test files not in the worktree: a.test.ts",
+      findings: [],
+    };
     await once(make(gives(done("x"))));
     expect(ledger.item("c").state).toBe("ready");
-    expect(last().reason).toBe("promise 1 has no test");
+    expect(last().reason).toBe("test files not in the worktree: a.test.ts");
     expect(doc()).toBe(cl);
     expect(commit).not.toHaveBeenCalled();
   });
@@ -352,35 +360,47 @@ describe("an attempt", () => {
   });
 
   it("gives the next attempt the messages it answers: a retry's reason", async () => {
-    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    message = {
+      word: "retry",
+      reason: "test files not in the worktree: a.test.ts",
+      findings: [],
+    };
     await once(make(gives(done("x"))));
     const runner = vi.fn<Run1>(gives(done("x")));
     await once(make(runner));
     expect(runner.mock.calls[0]?.[1]).toBe(
-      `${cl}\n# Messages\n- from fake, retry: promise 1 has no test`,
+      `${cl}\n# Messages\n- from fake, retry: test files not in the worktree: a.test.ts`,
     );
   });
 
   it("goes on in the agent's conversation: a later attempt reads only its messages since its last run", async () => {
-    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    message = {
+      word: "retry",
+      reason: "test files not in the worktree: a.test.ts",
+      findings: [],
+    };
     await once(make(kept(gives(done("x")))));
     message = { word: "retry", reason: "still no test", findings: [] };
     const runner = vi.fn<Run1>(kept(gives(done("x"))));
     await once(make(runner));
     expect(runner.mock.calls[0]?.[1]).toBe(
-      "# Attempt 2: your work goes on\n# Messages\n- from fake, retry: promise 1 has no test",
+      "# Attempt 2: your work goes on\n# Messages\n- from fake, retry: test files not in the worktree: a.test.ts",
     );
   });
 
   it("gives a later attempt its note again when the note changed since the agent's last run", async () => {
-    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    message = {
+      word: "retry",
+      reason: "test files not in the worktree: a.test.ts",
+      findings: [],
+    };
     await once(make(kept(gives(done("x")))));
     const changed = cl.replace("It works.", "It works, and says so.");
     notes.commit({ "_well/c.md": changed });
     const runner = vi.fn<Run1>(kept(gives(done("x"))));
     await once(make(runner));
     expect(runner.mock.calls[0]?.[1]).toBe(
-      `# Attempt 2: your work goes on\n\n# Your note, changed since your last run\n\n${changed}\n# Messages\n- from fake, retry: promise 1 has no test`,
+      `# Attempt 2: your work goes on\n\n# Your note, changed since your last run\n\n${changed}\n# Messages\n- from fake, retry: test files not in the worktree: a.test.ts`,
     );
   });
 
@@ -689,7 +709,11 @@ describe("the notes", () => {
 
 describe("a retry", () => {
   it("tells the runner a state's first attempt from its retries, so a retry runs on the bin's fallback", async () => {
-    message = { word: "retry", reason: "promise 1 has no test", findings: [] };
+    message = {
+      word: "retry",
+      reason: "test files not in the worktree: a.test.ts",
+      findings: [],
+    };
     const runner = vi.fn<Run1>(gives(done("x")));
     const l = await make(runner);
     await once(l);

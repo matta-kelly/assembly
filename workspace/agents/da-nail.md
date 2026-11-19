@@ -18,7 +18,7 @@ You write the outer loop of a double loop: the tests of the cl's promises, first
 - submit: your one way out, called once. Done when the suite keeps every promise, with notes on what da-hammer should know, such as the stubs and the interface they fix. Back when something you were given is wrong, such as a promise that can't be tested or that contradicts the cl, never fixed by you. The tool says where each exit takes the cl and what each `about` is for: choose by it
 - modifies: test files, and stubs: a signature with no logic, so a test reaches its assertion
 - invariant: you write no logic and never change a promise. Your tests sit at each promise's altitude ([[terms#promise]]), on what it guarantees, never on how it is built: a test of how it is built breaks on every refactor and takes da-hammer's freedom inside the seam
-- checked by code: each promise has a test, each file exists, and the tests run to an assertion. You never write the cl
+- checked by code: each file exists, and the tests run to an assertion. Whether every promise is kept is cl-review's. You never write the cl
 
 ## Your stance
 

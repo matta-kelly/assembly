@@ -1,6 +1,6 @@
 /**
- * The nail step: ready to red. da-nail writes a test for each promise in the cl's Promises. The check confirms each
- * promise has a test in a file that exists, then runs the cl's test command on the worktree as it is, and the run and
+ * The nail step: ready to red. da-nail writes the tests of the cl's Promises. The check confirms each test's file
+ * exists, then runs the cl's test command on the worktree as it is, and the run and
  * the cl's kind (its note's `shape.change`) decide where the cl goes. Tests that do not load go back to da-nail.
  * - a behavior cl: its tests fail at an assertion, so there is code to write: to da-hammer (red.sh in loke's v1 gates).
  *   Tests that pass go to the review, the code meets them (met). One rule on every pass: a cl comes back here (from
@@ -11,7 +11,7 @@
  */
 
 import { z } from "zod";
-import { itemsIn, notesOf } from "../repos/notes.ts";
+import { notesOf } from "../repos/notes.ts";
 import type { Ledger } from "../line/ledger.ts";
 import { type Message, say, type Step } from "../line/step.ts";
 import { noteOf } from "./plan.ts";
@@ -31,11 +31,6 @@ const done = z.object({
   tests: z
     .array(
       z.object({
-        promise: z
-          .number()
-          .int()
-          .min(1)
-          .describe("the promise's number in the cl's Promises list, from 1"),
         file: z.string().describe("the test file, from the repo's root"),
         name: z.string().describe("the test's name"),
       }),
@@ -50,11 +45,6 @@ const done = z.object({
 });
 type Done = z.infer<typeof done>;
 
-/** The promises of a cl, from its note's text: the top-level items of its Promises list. */
-export function promises(cl: string): string[] {
-  return itemsIn(cl, "Promises");
-}
-
 /** da-nail's tests for the cl: its last passed result's, none before it passed. */
 const nailed = (ledger: Ledger, cl: string) =>
   (ledger.passed(cl, "ready") as Done | undefined)?.tests ?? [];
@@ -68,9 +58,7 @@ export const testFilesOf = (ledger: Ledger, cl: string): string[] => [
 export const testsOf = (ledger: Ledger, cl: string): string =>
   [
     "# da-nail's tests",
-    ...nailed(ledger, cl).map(
-      (t) => `- promise ${t.promise}: \`${t.file}\`, ${t.name}`,
-    ),
+    ...nailed(ledger, cl).map((t) => `- \`${t.file}\`, ${t.name}`),
   ].join("\n");
 
 /** The output of a test run says it stopped before any assertion ran. */
@@ -115,19 +103,6 @@ export const nail: Step<Done> = {
   about: ["cl", "plan", "issue"],
   async check(r, d, at) {
     const note = notesOf(r).text(r.note);
-    const want = promises(note).length;
-    const have = new Set(d.tests.map((t) => t.promise));
-    for (let b = 1; b <= want; b++) {
-      if (!have.has(b))
-        return say("retry", `promise ${b} has no test`, "invalid_output");
-    }
-    const extra = [...have].filter((b) => b > want);
-    if (extra.length)
-      return say(
-        "retry",
-        `tests name promises the cl does not have: ${extra.join(", ")}`,
-        "invalid_output",
-      );
     const files = [...new Set(d.tests.map((t) => t.file))];
     const there = new Set(at.exists(files));
     const missing = files.filter((f) => !there.has(f));
