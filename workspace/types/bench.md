@@ -13,3 +13,4 @@ The bench: the sandbox a builder (da-nail, da-hammer) works in, one cl at a time
 - the conversation: yours for this cl, kept across its attempts. A later attempt brings only what is new: your role note when it changed, and the messages since your last run. /work holds your work as you left it
 	- a message: why the cl is here again (findings, or a retry's reason), each a condition to meet
 - the check: code that reads your result and /work after you submit, and decides whether your step passes. You can't change it, and a step that fails it runs again
+	- a test's verdict: its exit code alone, never what it prints, so nothing a test prints can pass it

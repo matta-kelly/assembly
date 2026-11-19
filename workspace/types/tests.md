@@ -40,7 +40,7 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 		- a field or a link declared in a basis type is basis's decision: the lint holds it, and it gets no test. A rule is code, and gets one
 	- integration → adapter: the part that talks to one outside thing
 		- one adapter, against its outside thing
-		- the outside thing decides (a database, a queue): the real one, started by the test command
+		- the outside thing decides (a database, a queue): the real one, started by the repo's check
 		- the outside thing only answers (an API that is read): its real responses, captured from the live service and replayed
 	- smoke → the live outside thing: does it still answer as the recording says ^smoke
 		- the other half of a replayed integration test: every recording gets one, written in the same change
@@ -111,12 +111,15 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 		- config: `vitest.config.ts`, at the repo root
 		- command: `npx vitest run`, from the repo's `scripts/check.sh`
 		- files: `*.test.ts`, beside the code they test
+		- one test, alone: `npx vitest list <file> -t <name>`, then `npx vitest run` the same. The name: the test's own, or its full name with its describes
 		- an end-to-end test: `*.e2e.test.ts`, skipped unless its environment is set, and run by its own recipe
 - Go
 	- `go test ./...`
 	- files: `*_test.go`, beside the package they test
+	- one test, alone: `go test -count=1 -list '^<name>$' ./<pkg>`, then `-run` the same, from the nearest go.mod. A top-level test only: a subtest runs with its parent
 - shell
 	- a test script: `test/<what>.test.sh`, run by the repo's check, with its helpers in `test/lib.sh`
+	- one test: the whole script, `bash <file>`. Its cases are one test
 	- checked by shellcheck, like the scripts it tests
 - Next.js
 	- unit: Vitest
@@ -138,3 +141,4 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 - integration tests run under the unit runner, in no folder of their own
 - a language gets an entry when a repo in it first needs tests
 - a test file that no runner finds is not a test
+- the factory's runners: TypeScript, Go and shell, each one test alone, judged by its exit code ([[assembly#The plant]]). A test in another language is refused at da-nail's check
