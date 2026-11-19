@@ -3,7 +3,7 @@ type: doc
 description: "CI: the stations a change passes, from its workspace to a released version: local, presubmit, the merge queue (crate's hooks on the server, git land, the gate and its ruleset), postsubmit and release, and the rules every workflow keeps. Use when landing a change, or setting up or changing a repo's checks or release."
 status: active
 ---
-CI: the line of stations a change passes, from its workspace to a released version. Each station is crate's shared code, run on the server that holds main, running a part the repo owns ([[repo#Platform]]). A repo not on crate yet runs its stations in GitHub Actions. Off the line, the dev image is built when its inputs change ([[repo#Dev image]]); after it, [[cd]] runs the version.
+CI: the line of stations a change passes, from its workspace to a released version. Each station is crate's shared code, run on the server that holds main, running a part the repo owns ([[repo#Platform]]). A repo not on crate yet runs its stations in GitHub Actions. Off the line, the dev image is built where it is first needed, and the merge queue caches each one in the registry by its hash ([[repo#Dev image]]); after it, [[cd]] runs the version.
 - [[#Local]] the check, by the change's author, in its workspace
 - [[#Presubmit]] the same check, on the change, before main takes it
 - [[#Merge queue]] the gate: main moves only to a commit checked on the tree it becomes
@@ -71,7 +71,7 @@ CI: the line of stations a change passes, from its workspace to a released versi
 
 - the job calls the repo's check command, the same one a person or an agent runs before landing. Green means the same in both places: the pipeline confirms, it does not discover
 - it adds no check of its own, and sets up no toolchain: it runs in the repo's dev image ([[repo#Dev image]]), the same environment as every workspace
-	- a job `image` gives the image by digest, so every job of the run uses one image. que's runs its own `scripts/dev-image.sh ensure`, which builds the image of a commit whose inputs ghcr lacks; landl's gets crate from its release and runs `crate dev-image ref`, the commit's image if ghcr has it, else `:main`, so a branch that changes an input runs on `:main` until it lands
+	- a job `image` gives the image by digest, so every job of the run uses one image: it gets crate from its release and runs `crate dev-image ref`, the commit's image if ghcr has it, else `:main`
 	- each check job runs in it (`jobs.<id>.container`), and runs the check as the image's `node`, over a checkout `node` owns: `chown -R node:node "$GITHUB_WORKSPACE" && runuser -u node -- env HOME=/home/node scripts/check.sh`. A job container runs as root, which reads every file (a test of a file it may not open passes) and owns none of the checkout (git refuses it)
 	- a test that stands in for an engine pins its own `ENGINE`: the job sets `ENGINE` for the check's own containers
 
@@ -233,7 +233,7 @@ Two JSONs: one for a repo on crate, one for a repo gated by GitHub Actions.
 - a run of any workflow but `checks.yml` starts only when a file it reads has changed, and the file lists them. `checks.yml` always starts ([[#When it runs]])
 - least rights
 	- a job reads the repo and nothing else, unless it says so
-	- only a job that pushes an image writes to the registry, with the run's own short-lived token: the runtime image's in `ship.yml` or `publish.yml`, the dev image's in `dev-image.yml` (and que's `image` job in `checks.yml`). No password is stored in GitHub. The one stored token is crate's push login on the server, for an `image` ship, read by its publish alone
+	- only a job that pushes an image writes to the registry, with the run's own short-lived token: the runtime image's in `ship.yml` or `publish.yml`. No password is stored in GitHub. The one stored token is crate's push login on the server, read by an `image` ship's publish and the dev image cache alone
 - an action from someone else is pinned to a full commit hash; a tag can be moved to different code
 - every job has a time limit: one without its own runs for up to six hours ([[code#^waiting|waiting]])
 - runners: GitHub's own, so nothing to patch or keep registered. The check jobs run in the repo's dev image on them ([[#One command]])

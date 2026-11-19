@@ -69,9 +69,10 @@ A repo: one per project, and the convention all its scaffolding hangs off. Every
 	- what more than Node it needs goes in the `base` stage: system libraries, and a browser at a fixed path (`PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`), since a volume over `~/.cache` would hide it
 	- the last stage sets no `USER`: a GitHub job container needs root to write its checkout
 - its tag is the hash of its declared inputs (`[dev] inputs`), git's tree entries of each (`crate dev-image hash`), so one commit gives one tag on every machine
-- `dev-image.yml`, on a push to main that changes `crate.toml` or an input, and by hand: it gets crate from its release, then `crate dev-image ensure` builds, smokes (crate.toml's `[tools] setup`, run in the new image with no network) and pushes `:<hash>` only when ghcr lacks it, and `crate dev-image promote` points `:main` at it. The same inputs are never built twice
-	- the build is tagged `<hash>-candidate` until its smoke passes, so a failed smoke leaves no image
-	- a path filter is allowed: it is not a required check
+- the cache: ghcr holds each dev image by its hash, so its copy is the same image on every machine
+	- the writer: the merge queue on the server, alone. Each image a check or postsubmit builds is pushed by its hash at once, landed or not, and each green main's is pushed again as `:main` ([[daworks/crate/README#The dev image|crate's README]])
+	- the readers: every other machine pulls by the hash, and builds only an image no check has made yet: the change that edits an input, in its author's workspace
+	- a build is tagged `<hash>-candidate` until its smoke (crate.toml's `[tools] setup`, run in the new image with no network) passes, so a failed smoke leaves no image
 - `crate dev-image local` puts a commit's image on a machine: its copy, else a pull, else a build and a smoke with no push. `crate up` and the gate call it; the factory calls it for an attempt
 - used by: each workspace's tools member, the gate's check ([[ci#Merge queue]]), a check job of a repo not on crate (`crate dev-image ref`, [[ci#One command]]), and an attempt ([[assembly]])
 
