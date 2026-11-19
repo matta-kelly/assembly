@@ -66,6 +66,8 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 
 ## A good test
 
+- the suite: the fewest tests that prove what the change touches, the tests already there included. A tester starts from what must be proven, never from the line just written: a new test earns its place only when no existing test, reshaped, would prove the same
+- its worth: the wrong code it catches, not that it is red. Shown by a mutant: the code broken on purpose, and the test fails. Held by: cl-review, by a mutant where a reading leaves doubt. Not built: a mutation tool on the changed lines
 - its expected result comes from the promise
 - it goes through the public surface, and checks the result, not the steps
 - as small as the change: each promise is tested at the smallest place that decides it. A small change whose test needs a large harness says the seam is wrong
@@ -80,7 +82,7 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 - seen to fail: before the code exists, or by breaking the code once on purpose
 	- for the right reason: before the code, it fails only because the promised behaviour is missing. A test red for a wrong reason (a wrong path, a wrong expectation, its own mistake) fails correct code too
 	- each case at its own assertion: a failure ends a test, so a case after it was never seen. A case is a test, or a row of a table, never a second block in one test
-- the only test that fails for at least one fault put in the code
+- the only test that fails for at least one fault put in the code: a test that catches no mutant, or only the mutants another catches, goes
 - it changes only when its promise changes; it goes only when another test fails for every fault it catches
 	- a changed promise makes old tests false, and they change with it, before the code: one that expects the old result, and one whose setup builds what the new promise forbids
 - a unit test that needs a fake: its subject is not logic
