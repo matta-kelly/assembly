@@ -2,7 +2,7 @@
  * The transition table: from an item's state and a check's word, its next state. Data, so the whole process reads in
  * one place. Two kinds of item move through it, each with states of its own:
  * - an issue: open (the planner's step), planned (plan review's), approved (the land of its plan and cl notes on the
- *   notes' main), building (its cls run, phase by phase), built (acceptance's, on main), accepted
+ *   notes' main), building (its cls run, phase by phase), built (each cl ended), accepted (each cl landed, or the operator accepts it)
  * - a cl: waiting (for the phases before its own), ready (da-nail's step), red (da-hammer's), green (cl-review's),
  *   approved (the land's), landed on main. A cl whose note is gone, or whose issue is planned again, is dropped
  * - either: dropped, when the operator lets it go: it ends undone, and its record stays
@@ -71,7 +71,7 @@ export const table: Record<
     planned: { pass: "approved", retry: "planned" },
     approved: { pass: "building", retry: "approved" },
     building: { pass: "built" },
-    built: { pass: "accepted", retry: "built" },
+    built: { pass: "accepted" },
   },
   cl: {
     waiting: { pass: "ready", retry: "waiting" },

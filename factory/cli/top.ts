@@ -157,7 +157,7 @@ export interface Look {
  * The screen, as lines: the header, then a card for each issue not ended, with its cls on their stations, the attempt
  * open on each, why each last moved, and what each role has used on the item on screen. The item on screen is the
  * issue's current item: the one with an open attempt, else the one that moved last. It is a cl, or the issue itself
- * when one of its own steps (planner, plan-review, issue-review) is the current one. The card's border keeps the
+ * when one of its own steps (planner, plan-review) is the current one. The card's border keeps the
  * issue's total time and spend. `runs` is where the traces are.
  */
 export function screen(

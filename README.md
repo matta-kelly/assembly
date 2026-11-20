@@ -8,7 +8,7 @@ Two folders, after que-pasa's workspace layout: who the agents are, and the host
 
 - `workspace/`: what the agents are made of: each agent's role note and code (`agents/`), the factory's own tools, `test` and `remove` (`tools/`), and the notes a role works to (`types/`)
 - `factory/`: the host, the factory itself. `main.ts` wires it
-  - `stations/`: each station's step: its result's shape and its check (plan, plan review, nail, hammer, review, accept)
+  - `stations/`: each station's step: its result's shape and its check (plan, plan review, nail, hammer, review)
   - `line/`: what moves the work: the states (`table.ts`), the step's contract (`step.ts`), the ledger, the loop and the orchestrator's own moves. The end-to-end test, `loop.e2e.test.ts`
   - `runs/`: what an attempt runs in: the runner, the sandbox, the models, test runs, setup and traces
   - `repos/`: git: worktrees, the land, the notes, version moves and dev images

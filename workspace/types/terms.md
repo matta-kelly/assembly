@@ -31,7 +31,7 @@ promise: a guarantee a unit makes to the level above, said as an outcome at the 
 	- seam: the promise that a seam holds. Tested at the interface: integration or contract
 	- unit: a promise a cl makes for its own intent. Tested where its logic is decided
 - the trace: every test serves a case, every case a promise, every promise its source, up to the intent. A thing with no trace is scope nobody asked for, so it goes
-- Held by: plan-review on the way down; cl-review and issue-review on the way up
+- Held by: plan-review on the way down; cl-review on the way up
 
 ## seam
 

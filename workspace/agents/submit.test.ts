@@ -4,7 +4,6 @@ import { steps } from "../../factory/stations/index.ts";
 import { hammer } from "../../factory/stations/hammer.ts";
 import { nail } from "../../factory/stations/nail.ts";
 import { review } from "../../factory/stations/review.ts";
-import { accept } from "../../factory/stations/accept.ts";
 import { aboutRoute, ahead, backRoute, doneRoute, submitOf } from "./submit.ts";
 
 /** The form as the model reads it: its JSON Schema, as que-pasa gives a tool's parameters. */
@@ -20,7 +19,6 @@ describe("an agent's submit form", () => {
     expect(doneRoute(review)).toContain(
       "The cl goes to the dock, which lands it on main.",
     );
-    expect(doneRoute(accept)).toContain("accepted: the issue is closed");
   });
 
   it("names where each about takes the item, and only the abouts the step may name", () => {
@@ -32,7 +30,6 @@ describe("an agent's submit form", () => {
     );
     expect(routes).not.toContain("code:");
     expect(aboutRoute(review)).toContain("the cl goes back to da-hammer.");
-    expect(aboutRoute(accept)).toContain("the issue goes back to planner.");
   });
 
   it("hands on what the steps after it change, and sends back only what was made before it", () => {

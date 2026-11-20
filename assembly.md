@@ -28,7 +28,7 @@ assembly: the software factory. The process every change moves through, from a s
 	- the factory's, in `workspace/types/`: [[tests]] and [[code]], what the change is judged by; [[changelist]], one change to main; [[playbook]], a proven way to cut or build one kind of change; [[lint]], the check that does not run code
 	- [[terms]]: the words they are written in, each with one meaning
 	- [[bench]]: the sandbox a builder works in, and what happens to what it leaves there
-- the roles: the method that meets a state, each an agent's instructions, in `workspace/agents/`: [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]], [[daworks/assembly/workspace/agents/da-nail|da-nail]], [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], [[daworks/assembly/workspace/agents/cl-review|cl-review]], [[daworks/assembly/workspace/agents/issue-review|issue-review]]
+- the roles: the method that meets a state, each an agent's instructions, in `workspace/agents/`: [[daworks/assembly/workspace/agents/planner|planner]], [[daworks/assembly/workspace/agents/plan-review|plan-review]], [[daworks/assembly/workspace/agents/da-nail|da-nail]], [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], [[daworks/assembly/workspace/agents/cl-review|cl-review]]
 - [[kinetic]]: the work that moves through it, as notes
 
 ---
@@ -46,7 +46,7 @@ What the system is for, and the rules it never trades.
 	- validation: the check that it was the right thing. What was specified matches what was needed; a person answers it
 	- the pairing: each level split on the way down and checked on the way up by the side that split it, the [[#The V|V]]
 	- composability: each level a closed unit, with a need, a done and a check that can fail
-		- done: a unit is done when its own check holds, not when its parts say so. Held by: the issue's acceptance, a CL's gate
+		- done: a unit is done when its own check holds, not when its parts say so. Held by: a CL's gate, and the issue's Done, read from the running system
 		- the seam: what composes is the check, never the method. The method inside a unit is free
 		- one shape: a plan composes CLs and an issue composes its plan, so one rule covers every level
 	- the promise rule: each promise ([[terms#promise]]) is tested once, by the cl that makes it, at the altitude of its source, which sets the kind of its test ([[tests#Kinds]]). It is the rule that makes the V compose, at any size
@@ -121,7 +121,7 @@ The point of the V and the right side up to main: each cl built in its own [[wor
 - the tests: made by [[daworks/assembly/workspace/agents/da-nail|da-nail]], from the cl's promises, before any code
 - the code: made by [[daworks/assembly/workspace/agents/da-hammer|da-hammer]], until the tests pass, never changing one
 - the verdict: [[daworks/assembly/workspace/agents/cl-review|cl-review]]'s, then the dock lands it ([[#The dock]])
-- the whole: judged by [[daworks/assembly/workspace/agents/issue-review|issue-review]] on main. The machine runs the split and the build as code, and reaches verified, never met
+- the whole: the issue, accepted once each of its cls has landed: the factory lands cls, and the issue is done when they are. The machine runs the split and the build as code, and reaches verified, never met: its Done in the running system is the operator's
 
 ## The checks
 
@@ -188,7 +188,7 @@ The model: the four things that travel with a job, each with its rules in the pr
 	- finding: `factory/line/step.ts`'s `Finding`, its `about` the artifact
 	- pass: moves the item on
 	- retry: runs its step again
-	- back: a sender is any step. An agent hands back findings in place of its done result; a check can too (a red suite at acceptance)
+	- back: a sender is any step. An agent hands back findings in place of its done result; a check can too (a red suite)
 		- raise: a cl's parks it for the operator, raised, with its findings, whoever made the spec. The operator fixes the notes, and resumes it
 		- escalation: none of an escalated issue's cls starts an attempt, until the operator answers
 	- routing: `factory/line/table.ts`, as data: each move, `owner`, the state of each artifact's owner, and the highest artifact a back's findings name
@@ -206,12 +206,12 @@ The machine: what moves jobs from station to station. Its code is in two folders
 	- the path: the states an item moves through on messages, held as data in `factory/line/table.ts`
 		- an issue's repos: the ones its cls may change. By default every repo on crate under `ASSEMBLY_REPOS` (lot when it is not set; a git repo with a `server` remote) but the notes repo, and the planner picks among them; `factory submit --repo` narrows them. Each repo's full suite, `scripts/check.sh all`, is read from the item's worktree at each attempt (`factory/repos/repo.ts`). How it runs is its `crate.toml`'s, and crate's. A repo not on crate breaks the item's contract (`contract_invalid`); a workspace that does not come up is a dependency (`missing_dependency`)
 			- a cl: names its repo, one of the issue's, when the issue has several, and runs, sets up and lands in it. A change across repos is a cl per repo
-			- the issue's own steps: each repo's worktree read in place, with no shell, since they only read; acceptance runs each repo's full suite, in its own workspace
-		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl ended) → accepted (the full suite green on main, and issue-review). Each step runs at the operator's go. Acceptance closes the issue and never gates the code, which is on main already. A review's back leaves the issue at the planner's station, waiting for the operator's go, and so does a plan land the notes' check refuses. The main path: an issue the operator submits with its cl notes enters at building, past the planner and plan-review
+			- the issue's own steps: each repo's worktree read in place, with no shell, since they only read
+		- an issue: open → planned (the planner cuts it) → approved (plan-review approves it) → building (its plan and cl notes landed on the notes' main) → built (each cl ended) → accepted (each cl landed: the orchestrator's move; with a cl dropped, the operator's go). Each step before building runs at the operator's go. A review's back leaves the issue at the planner's station, waiting for the operator's go, and so does a plan land the notes' check refuses. The main path: an issue the operator submits with its cl notes enters at building, past the planner and plan-review
 		- a cl: waiting (for the operator's go) → ready → red (da-nail's tests) → green (da-hammer's code, or da-nail's tests that pass at once: the code there already meets them) → approved (cl-review) → landed (on main). A review can send it back to its tests or its code, and so can the land
 		- the operator's levers: go, the next step of an item outside the inner loop, once: a waiting cl starts, a building issue's cl notes go in, waiting, and an issue's step runs (`factory/cli/levers.ts`); stop, the operator's escalate of any item that moves; resume, a held item back to a station of its kind (a cl's ready, red, green or approved; an issue's open, approved, building or built), by default where it was, with a fresh budget: its attempts and rounds count from the operator's move. An issue resumed at building takes its cls from its notes at main: a new cl note adds a cl, a gone one drops its cl, and its held cls go back; and drop, an item the operator lets go, which ends undone, an issue with its cls not ended, its record kept; and rebase, a held cl put on main as it is now, its uncommitted change with it, as one move or none: a conflict changes nothing, and is the operator's to judge; and note, the operator's message to an agent's conversation on an item, which its next run reads, starting none: the loop delivers it through que-pasa's note, since only its process opens the conversations; and compact, a compaction of an agent's conversation on an item, by default the agent of its last attempt: the loop asks for it through que-pasa's compact, for the same reason: a runtime opened in another process would take up the runs going on, and pi's summary is a task of the process that opens the conversation
 	- a step: one per state, with its agent, its result's shape and its check (`factory/stations/*.ts`, listed in `factory/stations/index.ts`)
-		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (each listed test file there, then the full suite by the cl's shape: a behavior cl's red goes to hammer, and green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test file changed, then the full suite green), review (the full suite still green), accept (the full suite green)
+		- the steps: plan (the issue has promises in Done, and the spec lints: kinetic's rules, and the repo's), plan review, nail (each listed test file there, then the full suite by the cl's shape: a behavior cl's red goes to hammer, and green to review; a structure cl's tests pin the code as it is, so green goes to hammer for the refactor, and red back to nail), hammer (no test file changed, then the full suite green), review (the full suite still green)
 		- a gate: a step's quick, exact checks of a result against the worktree (`factory/line/gate.ts`), each fault one its agent can fix: a builder's change is exactly the files it lists, a listed test file is there, hammer leaves da-nail's tests as they are, and a step that only reads leaves its worktree as the attempt began. It runs at the agent's submit, through que-pasa's `accept`, which answers each fault and lets the run go on, at most 3 times; and again in the loop before the check, where a fault left is a retry with its cause
 		- a check: reads the result and the attempt's worktree through a port (`Worktree`: a test run, the changed files, the files there), and gives the message
 		- the builders: nail and hammer, in the cl's one worktree, the whole repo. The cl's Core context is the entry points of its change: they start there, and read on through the code each promise runs, as deep as it goes. The instruction holds their tokens, and `factory top` shows them
@@ -234,7 +234,6 @@ The machine: what moves jobs from station to station. Its code is in two folders
 			- every agent: [[terms]] first, the one vocabulary, and each state it reads or makes
 			- the builders: da-nail [[cl]] and [[tests]], da-hammer [[cl]] and [[code]]. cl-review: [[code]], [[tests]] and [[changelist]], the same text its builders have, and [[cl]]
 			- the planner and plan-review: [[issue]], [[plan]], [[cl]], [[changelist]] and [[playbook]]
-			- issue-review: [[issue]], [[plan]] and [[cl]]
 			- Held by: `types.test.ts`, each type an agent names is a note there. Memory leaves out a source that is not there, and says nothing
 			- a work type: its type note, the definition itself, so an agent and a person who writes a note read the same text
 - engine: what moves it (`factory/line/`)

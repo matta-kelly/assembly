@@ -464,7 +464,11 @@ export async function go(
         : [`${name} has every cl of its notes already`],
     };
   }
-  if (!["open", "planned", "approved", "built"].includes(i.state))
+  if (i.state === "built") {
+    ledger.apply(name, said("pass", "the operator accepts it"), "operator");
+    return { code: 0, lines: [`accepted ${name}`] };
+  }
+  if (!["open", "planned", "approved"].includes(i.state))
     return refused(
       `${name} is ${i.state}: go takes an issue at open, planned, approved, building or built`,
     );

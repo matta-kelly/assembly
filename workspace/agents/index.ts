@@ -10,7 +10,6 @@ import { clReview } from "./cl-review.ts";
 import { compactionOn } from "./compaction.ts";
 import { daHammer } from "./da-hammer.ts";
 import { daNail } from "./da-nail.ts";
-import { issueReviewer } from "./issue-review.ts";
 import { planReviewer } from "./plan-review.ts";
 import { planner } from "./planner.ts";
 
@@ -34,7 +33,6 @@ function onBin<O extends z.ZodObject | undefined, C extends Json | undefined>(
 export const agents = {
   planner: onBin("plan", planner),
   "plan-review": onBin("plan", planReviewer),
-  "issue-review": onBin("review", issueReviewer),
   "da-nail": onBin("implement", daNail),
   "da-hammer": onBin("implement", daHammer),
   "cl-review": onBin("review", clReview),

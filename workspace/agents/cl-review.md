@@ -78,4 +78,4 @@ One pass, whole, in this order, and every finding goes back in it: a cl sent bac
 
 - the fix: the author's
 - the cut and the intent: raised, never settled here
-- the issue as a whole: issue-review's
+- the issue as a whole: the operator's

@@ -12,7 +12,7 @@ import type { Artifact, State, Word } from "./table.ts";
 
 /**
  * Why an attempt failed, from a fixed list, so failures can be counted by cause: the master plan's reason list. A
- * back is not a failure, and has none unless a check made it (a red suite at acceptance).
+ * back is not a failure, and has none unless a check made it.
  * - contract_invalid: the item does not hold its contract (a plan that does not lint, a cl with no test file)
  * - invalid_output: the agent's result is not a valid result (the wrong shape, no submit)
  * - check_failed: the result is valid, and the check run on the worktree fails it (not red, not green)

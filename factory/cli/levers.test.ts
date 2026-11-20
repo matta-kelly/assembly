@@ -371,6 +371,23 @@ describe("stop and resume", () => {
   const go = (name: string, state?: string) =>
     resume(factory, name, state, { notes: kinetic });
 
+  it("go accepts a built issue, as the operator", async () => {
+    const ledger = await building();
+    const db = new DatabaseSync(join(home, "factory", "ledger.db"));
+    db.prepare("UPDATE items SET state = 'built' WHERE name = 'fx'").run();
+    db.close();
+    expect(await goLever(factory, "fx", { notes: kinetic })).toEqual({
+      code: 0,
+      lines: ["accepted fx"],
+    });
+    expect(ledger.item("fx").state).toBe("accepted");
+    expect(ledger.events("fx").at(-1)).toMatchObject({
+      word: "pass",
+      reason: "the operator accepts it",
+      by: "operator",
+    });
+  });
+
   it("stop escalates an item that moves, as the operator; its open attempt ends there, and nothing new starts", async () => {
     const ledger = await building();
     const n = ledger.begin("fx-a");

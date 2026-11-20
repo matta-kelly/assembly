@@ -3,8 +3,8 @@
  * real sandbox per attempt, que-pasa's run with the real agents and tools, the real checks, git commits and the real
  * `git land`, onto a bare repo as the land target, and a real notes repo, the only spec, whose main the plan lands on.
  * The planner cuts the issue into two cls; plan-review approves; the plan and its cl notes land on the notes' main;
- * each cl goes through nail, hammer and review, and lands on main before the next phase starts; acceptance runs the
- * full suite on main and accepts. A second issue's planner raises.
+ * each cl goes through nail, hammer and review, and lands on main before the next phase starts; once every cl has
+ * landed, the issue is accepted. A second issue's planner raises.
  *
  * Each agent's model is scripted (pi-ai's faux provider): it reads the conversation so far and makes its next tool
  * call, so the tools run for real in the sandbox. The reviews try to write the worktree first, and only go on if the
@@ -38,7 +38,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { clReview } from "../../workspace/agents/cl-review.ts";
 import { daHammer } from "../../workspace/agents/da-hammer.ts";
 import { daNail } from "../../workspace/agents/da-nail.ts";
-import { issueReviewer } from "../../workspace/agents/issue-review.ts";
 import { planReviewer } from "../../workspace/agents/plan-review.ts";
 import { planner } from "../../workspace/agents/planner.ts";
 import { crateTarget, landTarget } from "../repos/land-target.fixture.ts";
@@ -396,12 +395,6 @@ const hammerScript = (input: string, at: number, last: string) => {
 
 const clReviewScript = () => submit({ word: "done" });
 
-/** issue-review runs the issue's check, the whole suite, then accepts. */
-const issueReviewScript = (_input: string, done: number) =>
-  done === 0
-    ? fauxToolCall("execute", { command: suite })
-    : submit({ word: "done" });
-
 /** A plan of two repos, the second on the first's published version: a is the package, b depends on it. */
 const versionPlanner = (_input: string, done: number) => {
   if (done === 0) return fauxToolCall("ls", {});
@@ -693,7 +686,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           "da-nail": model("faux-nail", nailScript),
           "da-hammer": model("faux-hammer", hammerScript),
           "cl-review": model("faux-cl-review", clReviewScript),
-          "issue-review": model("faux-issue-review", issueReviewScript),
         };
         const agents = {
           make: {
@@ -702,7 +694,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             "da-nail": daNail,
             "da-hammer": daHammer,
             "cl-review": clReview,
-            "issue-review": issueReviewer,
           },
           modelFor: (name: string) => scripts[name as keyof typeof scripts],
         };
@@ -838,19 +829,13 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(git(repo, "branch", "--list", "assembly/is/head")).toBe("");
 
         // Every trial is under its issue: the issue's own attempts, its plan's land among them, and each cl's.
-        for (const n of [1, 2, 3, 4])
+        for (const n of [1, 2, 3])
           expect(existsSync(join(runs, "is", "issue", String(n)))).toBe(true);
         // Each tool call is in its attempt's trace, not its log.
         for (const cl of ["value", "double"])
           expect(
             traceIn(join(runs, "is", "cl", cl, "1")).spans.map((x) => x.name),
           ).toContain("execute_tool write_file");
-        // the acceptance review ran the suite itself
-        expect(
-          traceIn(join(runs, "is", "issue", "4"))
-            .spans.filter((x) => x.name === "execute_tool execute")
-            .map((x) => String(attrOf(x, "gen_ai.tool.call.arguments"))),
-        ).toContainEqual(expect.stringMatching(/test\/\*\.test\.sh/));
 
         // The planner's raise is a message about the issue, to the operator, and each cl's landed files are kept.
         expect(
@@ -886,16 +871,14 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         db.close();
 
         // Every attempt is one trace in its folder: the attempt span is its root, with the ids on the ledger's row, and
-        // que-pasa's run is under it, with its messages. The acceptance links to the attempts it judged: the plan, and
-        // each cl's nail, hammer and review.
-        const issueRuns = [1, 2, 3, 4].map((n) =>
+        // que-pasa's run is under it, with its messages. plan-review links to the attempt it judged: the plan.
+        const issueRuns = [1, 2, 3].map((n) =>
           traceIn(join(runs, "is", "issue", String(n))),
         );
         expect(issueRuns.map((t) => t.root.name)).toEqual([
           "attempt open is",
           "attempt planned is",
           "attempt approved is",
-          "attempt built is",
         ]);
         issueRuns.forEach((t, i) =>
           expect(
@@ -911,7 +894,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         expect(issueRuns[1]?.root.links?.map((l) => l.spanId)).toEqual([
           issueRuns[0]?.root.spanId,
         ]);
-        expect(issueRuns[3]?.root.links).toHaveLength(7);
 
         const nailRun = traceIn(join(runs, "is", "cl", "value", "1"));
         expect(nailRun.spans.map((x) => x.name)).toContain(
@@ -1244,7 +1226,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           "da-nail": model("faux-nail-mr", nailScript),
           "da-hammer": model("faux-hammer-mr", hammerScript),
           "cl-review": model("faux-cl-review-mr", clReviewScript),
-          "issue-review": model("faux-issue-review-mr", issueReviewScript),
         };
         const f = compose({
           home: at,
@@ -1256,7 +1237,6 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
               "da-nail": daNail,
               "da-hammer": daHammer,
               "cl-review": clReview,
-              "issue-review": issueReviewer,
             },
             modelFor: (name: string) => scripts[name as keyof typeof scripts],
           },
@@ -1320,14 +1300,14 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
           git(rb.bare, "ls-tree", "-r", "--name-only", "main"),
         ).not.toMatch(/alpha/);
 
-        // acceptance ran each repo's suite on main: both green, alpha's and beta's tests among them
+        // the issue is accepted once its cls have all landed
         const db = new DatabaseSync(join(at, "ledger.db"));
         const accepted = db
           .prepare(
             "SELECT reason FROM events WHERE name = 'mr' AND to_state = 'accepted'",
           )
           .get() as { reason: string };
-        expect(accepted.reason).toMatch(/full suite is green/);
+        expect(accepted.reason).toMatch(/its cls have all landed on main/);
         db.close();
         await l.close();
       },
@@ -1539,7 +1519,6 @@ One and two, each exported, with b on the versions ra published.
             "da-nail": modelOf("faux-vp-nail", cutNail),
             "da-hammer": modelOf("faux-vp-hammer", cutHammer),
             "cl-review": modelOf("faux-vp-cl-review", clReviewScript),
-            "issue-review": modelOf("faux-vp-issue-review", issueReviewScript),
           };
           const f = compose({
             home: at,
@@ -1551,7 +1530,6 @@ One and two, each exported, with b on the versions ra published.
                 "da-nail": daNail,
                 "da-hammer": daHammer,
                 "cl-review": clReview,
-                "issue-review": issueReviewer,
               },
               modelFor: (name: string) => scripts[name as keyof typeof scripts],
             },

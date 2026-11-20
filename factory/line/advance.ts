@@ -1,15 +1,11 @@
 /**
- * The orchestrator's own moves: the ones no agent makes, decided by code from the ledger, each tick. Each goes through
- * the ledger's one door (apply), as the orchestrator.
- * - an issue building with no cl left to land: its notes at the notes' main are read, and each cl note not in the
- *   ledger goes in, with its phase. With none to add, and its cls all landed or dropped, the issue is built, and its
- *   acceptance starts
- * - a phase starts once every cl of the phases before it has landed on main, and all its cls start together. A cl
- *   whose repo depends on a package a landed cl made waits until that version is on npm, with why as its last message;
- *   a wait past its limit escalates the issue
- * - a cl that raised, or is escalated, escalates its issue, its message and findings with it: the operator fixes the notes and
- *   resumes it
- * The issue's land writes its planner's spec as notes (writePlan) and lands them on the notes' main.
+ * The orchestrator's own moves: bookkeeping that starts nothing, decided by code from the ledger, each tick. Each goes
+ * through the ledger's one door (apply), as the orchestrator.
+ * - an issue building whose cls have all ended is built
+ * - a built issue whose cls have all landed is accepted: the factory lands cls, and an issue is done when they are. One
+ *   with a dropped cl waits at built for the operator, whose go accepts it
+ * A waiting cl starts only at the operator's go (`start`). The issue's land writes its planner's spec as notes
+ * (writePlan) and lands them on the notes' main.
  */
 
 import { existsSync, rmSync } from "node:fs";
@@ -239,6 +235,15 @@ export function advance(ledger: Ledger) {
       ledger.apply(
         issue.name,
         say("pass", "its cls have all ended"),
+        "orchestrator",
+      );
+  }
+  for (const issue of ledger.inState("built")) {
+    const cls = ledger.cls(issue.name);
+    if (cls.length && cls.every((c) => c.state === "landed"))
+      ledger.apply(
+        issue.name,
+        say("pass", "its cls have all landed on main"),
         "orchestrator",
       );
   }

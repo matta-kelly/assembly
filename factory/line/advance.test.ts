@@ -152,6 +152,29 @@ describe("advance", () => {
     expect(state("is")).toBe("built");
   });
 
+  it("accepts an issue once its cls have all landed: the factory lands cls, and the issue is done when they are", () => {
+    landPlan();
+    goIssue();
+    force("is-value", "landed");
+    force("is-double", "landed");
+    advance(ledger);
+    expect(state("is")).toBe("accepted");
+    expect(ledger.events("is").at(-1)).toMatchObject({
+      word: "pass",
+      reason: "its cls have all landed on main",
+    });
+  });
+
+  it("leaves an issue with a dropped cl at built, for the operator's go", () => {
+    landPlan();
+    goIssue();
+    force("is-value", "landed");
+    force("is-double", "dropped");
+    advance(ledger);
+    advance(ledger);
+    expect(state("is")).toBe("built");
+  });
+
   it("leaves a building issue with no cl as it is: its cls go in at the operator's go", () => {
     landPlan();
     advance(ledger);

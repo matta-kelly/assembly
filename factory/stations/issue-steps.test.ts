@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { accept } from "./accept.ts";
 import { planReview } from "./plan-review.ts";
 import { resultOf, type Run } from "../line/step.ts";
 import type { Ledger } from "../line/ledger.ts";
-import { fakeWorktree, ran } from "./fake-worktree.ts";
+import { fakeWorktree } from "./fake-worktree.ts";
 
 const r = { test: "npm test" } as Run;
 const ledger = {} as Ledger;
@@ -27,40 +26,5 @@ describe("the plan review's check", () => {
     expect(result.safeParse(back("plan")).success).toBe(true);
     expect(result.safeParse(back("issue")).success).toBe(true);
     expect(result.safeParse(back("code")).success).toBe(false);
-  });
-});
-
-describe("the accept step's check", () => {
-  it("passes an accept on a green full suite", async () => {
-    expect((await accept.check(r, done, fakeWorktree(), ledger)).word).toBe(
-      "pass",
-    );
-  });
-
-  it("sends the issue back to the planner on a red full suite, with the finding", async () => {
-    expect(
-      await accept.check(
-        r,
-        done,
-        fakeWorktree({ test: ran(1, "AssertionError") }),
-        ledger,
-      ),
-    ).toMatchObject({
-      word: "back",
-      cause: "check_failed",
-      reason: expect.stringMatching(/full suite is red/),
-      findings: [{ about: "plan", where: "npm test" }],
-    });
-  });
-
-  it("takes findings back about the plan or the issue", () => {
-    const result = resultOf(accept);
-    expect(result.safeParse(back("plan")).success).toBe(true);
-    expect(result.safeParse(back("issue")).success).toBe(true);
-    expect(result.safeParse(back("cl")).success).toBe(false);
-  });
-
-  it("reads the worktree only", () => {
-    expect([planReview.worktree, accept.worktree]).toEqual(["ro", "ro"]);
   });
 });

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { clReview } from "./cl-review.ts";
 import { daHammer } from "./da-hammer.ts";
 import { daNail } from "./da-nail.ts";
-import { issueReviewer } from "./issue-review.ts";
 import { planReviewer } from "./plan-review.ts";
 import { planner } from "./planner.ts";
 import { sourceOf } from "./types.ts";
@@ -33,7 +32,6 @@ describe("an agent's types", () => {
       planReviewer,
       ["terms", "issue", "plan", "cl", "changelist", "playbook"],
     ],
-    ["issue-review", issueReviewer, ["terms", "issue", "plan", "cl", "code"]],
   ] as const)(
     "%s has each of its types, whole, in this order",
     async (_name, make, names) => {
