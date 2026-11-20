@@ -12,7 +12,12 @@ import type { Step } from "../line/step.ts";
 
 const done = z.object({
   word: z.literal("done"),
-  notes: z.string().optional(),
+  notes: z
+    .string()
+    .optional()
+    .describe(
+      "each note: a finding that leaves main no worse (polish, hardening past the Promises, a fault that was there before the change), with its where. Notes never block the land",
+    ),
 });
 type Done = z.infer<typeof done>;
 
