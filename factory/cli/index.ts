@@ -16,10 +16,11 @@
  *   factory blocked
  *   factory explain <item>
  *   factory top
- *   factory door
+ *   factory door [--caller <name>]
  *
- * door is the way in from the operator's laptop: the ssh key's forced command runs it, and it runs the command ssh was given,
- * `factory <verb> [args...]`, for a remote verb only (door.ts). run is never one: it is the server's.
+ * door is the way in for a caller with no shell: its key's forced command runs it, and it runs the command ssh was given,
+ * `[factory] <verb> [args...]`, for a remote verb, or, for a caller it names with --caller, a verb of work on code
+ * (door.ts, work.ts). run is never one: it is the server's.
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
  * Its note is in the notes repo, $ASSEMBLY_NOTES, else $ASSEMBLY_REPOS/kinetic: the only spec, read at its main.
  *
@@ -124,6 +125,7 @@ export async function main(
       options: {
         repo: { type: "string", multiple: true },
         every: { type: "string", default: "5" },
+        caller: { type: "string" },
       },
     });
   } catch (e) {
@@ -205,8 +207,20 @@ export async function main(
       return 0;
     case "blocked":
       return print({ code: 0, lines: blocked(factory().ledger) });
-    case "door":
-      return door(env, (args) => main(args, env, read, input));
+    case "door": {
+      // A caller named by its forced command works on code too, in worktrees of the clones; the laptop's old door,
+      // with no caller, has the factory's verbs alone.
+      const home = homeOf(env);
+      const repos = env["ASSEMBLY_REPOS"];
+      return door(env, (args) => main(args, env, read, input), {
+        caller: values.caller ?? "laptop",
+        input,
+        log: join(home, "door.log"),
+        ...(values.caller && repos
+          ? { desk: { repos, worktrees: join(home, "worktrees") } }
+          : {}),
+      });
+    }
     case "explain": {
       if (!arg) break;
       const f = factory();

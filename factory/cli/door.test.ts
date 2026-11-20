@@ -1,5 +1,9 @@
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { door, remote } from "./door.ts";
+import { workVerbs } from "./work.ts";
 
 const through = (command?: string) => {
   const main = vi.fn(async () => 0);
@@ -39,7 +43,13 @@ describe("door", () => {
     ]);
   });
 
-  it("refuses run, door, an unknown verb, anything not factory, and no command", async () => {
+  it("takes a verb with or without factory before it", async () => {
+    const { main, code } = through("status");
+    expect(await code).toBe(0);
+    expect(main).toHaveBeenCalledWith(["status"]);
+  });
+
+  it("refuses run, door, an unknown verb, a shell, and no command", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const c of [
       "factory run",
@@ -55,10 +65,43 @@ describe("door", () => {
       expect(main).not.toHaveBeenCalled();
     }
     expect(err).toHaveBeenCalledWith(
-      expect.stringMatching(/runs only: factory <verb>/),
+      expect.stringMatching(/runs only: <verb> \[args...\], the verbs submit/),
     );
-    expect(err).toHaveBeenCalledWith(
-      expect.stringMatching(/the verbs here are submit/),
+  });
+
+  it("gives work on code only to a caller with a desk, and records each call with its caller, never its stdin", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const main = vi.fn(async () => 0);
+    // the laptop's old door: the factory's verbs alone
+    expect(await door({ SSH_ORIGINAL_COMMAND: "worktrees" }, main)).toBe(1);
+    const home = mkdtempSync(join(tmpdir(), "door-"));
+    const log = join(home, "door.log");
+    const way = {
+      caller: "loke",
+      input: async () => "the secret body",
+      log,
+      desk: { repos: join(home, "repos"), worktrees: join(home, "worktrees") },
+    };
+    expect(await door({ SSH_ORIGINAL_COMMAND: "worktrees" }, main, way)).toBe(
+      0,
     );
+    expect(
+      await door({ SSH_ORIGINAL_COMMAND: "factory note x da-nail" }, main, way),
+    ).toBe(0);
+    expect(main).toHaveBeenCalledWith(["note", "x", "da-nail"]);
+    const lines = readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (l) =>
+          JSON.parse(l) as { caller: string; verb: string; args: string[] },
+      );
+    expect(lines.map((l) => [l.caller, l.verb, l.args])).toEqual([
+      ["loke", "worktrees", []],
+      ["loke", "note", ["x", "da-nail"]],
+    ]);
+    expect(readFileSync(log, "utf8")).not.toContain("secret body");
+    expect(workVerbs).not.toContain("run-anything");
+    err.mockRestore();
   });
 });
