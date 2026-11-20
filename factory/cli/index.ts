@@ -23,7 +23,8 @@
  * An issue may change the repos given, or, given none, every repo on crate under $ASSEMBLY_REPOS, and its planner picks.
  * Its note is in the notes repo, $ASSEMBLY_NOTES, else $ASSEMBLY_REPOS/kinetic: the only spec, read at its main.
  *
- * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly.
+ * The home is $ASSEMBLY_HOME, else $XDG_STATE_HOME/assembly, else ~/.local/state/assembly. run keeps a clone of each
+ * repo crate serves under $ASSEMBLY_REPOS, given $ASSEMBLY_CRATE_ENV and $ASSEMBLY_GIT (factory/repos/clones.ts).
  */
 
 import { homedir } from "node:os";
@@ -46,6 +47,7 @@ import {
 import { blocked, explain, status } from "./report.ts";
 import { door } from "./door.ts";
 import { run } from "./run.ts";
+import { keepClones, servedBy } from "../repos/clones.ts";
 import { top, version } from "./top.ts";
 
 /** Where the factory keeps everything, from the environment. */
@@ -53,6 +55,23 @@ export function homeOf(env: NodeJS.ProcessEnv = process.env): string {
   if (env["ASSEMBLY_HOME"]) return env["ASSEMBLY_HOME"];
   const state = env["XDG_STATE_HOME"] || join(homedir(), ".local", "state");
   return join(state, "assembly");
+}
+
+/**
+ * The clones kept ahead of each tick: one of each repo crate serves (ASSEMBLY_CRATE_ENV, crate's env file), cloned
+ * from ASSEMBLY_GIT (crate's git, `core@localhost:git`) into ASSEMBLY_REPOS. None when any of the three is not set.
+ */
+function clonesOf(env: NodeJS.ProcessEnv): (() => Promise<void>) | undefined {
+  const root = env["ASSEMBLY_REPOS"];
+  const crate = env["ASSEMBLY_CRATE_ENV"];
+  const git = env["ASSEMBLY_GIT"];
+  if (!root || !crate || !git) return undefined;
+  return async () => {
+    const { cloned, failed } = await keepClones(root, servedBy(crate), git);
+    for (const name of cloned) console.log(`cloned ${name}, a repo on crate`);
+    for (const f of failed)
+      console.error(`${f.name} did not clone: ${f.error}`);
+  };
 }
 
 /** The notes repo, from the environment: $ASSEMBLY_NOTES, else kinetic among the clones. Undefined when neither is set. */
@@ -176,7 +195,7 @@ export async function main(
             `factory: run needs ${missing.join(" and ")} in its environment`,
           ],
         });
-      await run(factory(), every);
+      await run(factory(), every, clonesOf(env));
       return 0;
     }
     case "status":

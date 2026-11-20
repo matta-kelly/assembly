@@ -2,8 +2,15 @@
 
 import type { Built } from "../main.ts";
 
-/** Runs the loop until SIGINT or SIGTERM. Stopping ends no attempt: the next run takes each one up. */
-export async function run(f: Built, everyS: number) {
+/**
+ * Runs the loop until SIGINT or SIGTERM. Stopping ends no attempt: the next run takes each one up. `before`, when
+ * given, runs ahead of each tick: the clones kept (factory/repos/clones.ts).
+ */
+export async function run(
+  f: Built,
+  everyS: number,
+  before?: () => Promise<void>,
+) {
   const l = await f.loop();
   const stop = new AbortController();
   const stopped = new Promise<void>((r) =>
@@ -14,6 +21,7 @@ export async function run(f: Built, everyS: number) {
   process.on("SIGTERM", () => stop.abort());
   console.log(`running, a tick every ${everyS}s; stop with ctrl-c`);
   while (!stop.signal.aborted) {
+    if (before) await Promise.race([before(), stopped]);
     await Promise.race([l.tick(), stopped]);
     let t: NodeJS.Timeout | undefined;
     await Promise.race([
