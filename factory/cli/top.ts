@@ -3,9 +3,9 @@
  * it or one of its cls; inside, each cl on its stations (nail, hammer, review, land: done, at work, held there, or to
  * come), its attempts, turns, time and spend, the attempt open now (which try of its role, what its agent is doing,
  * its turns and tokens so far, how long since it last did anything), and why it last moved, with who said it; then
- * what each role has used on the issue, an open attempt's so far. Redrawn
- * every few seconds until `q` or ctrl-c. The ledger gives the items and attempts; each attempt's trace gives its turns,
- * its tokens so far and its last event. With no terminal, it prints the screen once.
+ * what each role has used on the item on screen, an open attempt's so far. Redrawn every few seconds until `q` or
+ * ctrl-c. The ledger gives the items and attempts; each attempt's trace gives its turns, its tokens so far and its last
+ * event. With no terminal, it prints the screen once.
  */
 
 import { execFileSync } from "node:child_process";
@@ -155,7 +155,10 @@ export interface Look {
 
 /**
  * The screen, as lines: the header, then a card for each issue not ended, with its cls on their stations, the attempt
- * open on each, why each last moved, and what each role has used on the issue. `runs` is where the traces are.
+ * open on each, why each last moved, and what each role has used on the item on screen. The item on screen is the
+ * issue's current item: the one with an open attempt, else the one that moved last. It is a cl, or the issue itself
+ * when one of its own steps (planner, plan-review, issue-review) is the current one. The card's border keeps the
+ * issue's total time and spend. `runs` is where the traces are.
  */
 export function screen(
   ledger: Ledger,
@@ -278,6 +281,19 @@ export function screen(
     return cl.state === "waiting" ? `${c.dim("waiting ")}${line}` : line;
   };
 
+  /** When the item last moved: the time of its last event. */
+  const moved = (name: string) => {
+    const e = ledger.events(name).at(-1);
+    return e ? Date.parse(e.at) : 0;
+  };
+  /** The issue's current item: the first in order with an open attempt, else the last to move. */
+  const onScreen = (issue: Item, cls: Item[]) => {
+    const all = [issue, ...cls];
+    const busy = all.find((x) => open.has(x.name));
+    if (busy) return busy.name;
+    return all.reduce((a, x) => (moved(x.name) >= moved(a.name) ? x : a)).name;
+  };
+
   const inner = columns - 4;
   /** A card: its title on the top border, its lines inside, its border red when held. */
   const card = (
@@ -368,9 +384,10 @@ export function screen(
         if (w) body.push(`  ${w}`);
       }
     }
-    // what each role has used on this issue, an open attempt's so far
+    // what each role has used on the item on screen, an open attempt's so far
     const roles = new Map<string, Used[]>();
-    for (const u of all) {
+    const current = onScreen(issue, cls);
+    for (const u of used.filter((x) => x.name === current)) {
       const r = roleOf(u.step);
       roles.set(r, [...(roles.get(r) ?? []), u]);
     }

@@ -74,16 +74,28 @@ const trace = (item: Item, n: number, names: string[], lastEnd: string) => {
 };
 
 describe("factory top", () => {
-  it("shows each issue's phase, time and spend, each cl's attempts, turns and time, the open attempt live, and the use by role", () => {
-    vi.useFakeTimers({ now: new Date("2026-11-12T15:00:00Z") });
+  it("shows each issue's phase, time and spend, each cl's attempts, turns and time, the open attempt live, and the use by role on the cl on screen", () => {
+    vi.useFakeTimers({ now: new Date("2026-11-12T14:50:00Z") });
     const f = compose({ home });
     runsOf = f.runs;
     const { ledger } = f;
     ledger.addIssue(issue);
     ledger.addCl(cl("is-a", 1, 1), "ready");
-    ledger.addCl(cl("is-b", 2, 2), "waiting");
-    ledger.addCl(cl("is-c", 3, 3), "waiting");
+    ledger.addCl(cl("is-b", 2, 1), "ready");
+    ledger.addCl(cl("is-c", 3, 2), "waiting");
+    // is-b: da-nail, 14:50 to 14:58, passes it to red. It counts on the issue's border, not in is-a's use by role
+    const other = ledger.begin("is-b");
+    vi.setSystemTime(new Date("2026-11-12T14:58:00Z"));
+    ledger.apply(
+      "is-b",
+      { word: "pass", reason: "red", findings: [] },
+      {
+        attempt: other,
+        usage: { input: 100_000, cached: 90_000, output: 5_000, cost: 0.2 },
+      },
+    );
     // is-a: da-nail, 15:00 to 15:02, passes it to red; da-hammer, 15:02 to 15:05, passes it to green
+    vi.setSystemTime(new Date("2026-11-12T15:00:00Z"));
     const nail = ledger.begin("is-a");
     vi.setSystemTime(new Date("2026-11-12T15:02:00Z"));
     ledger.apply(
@@ -124,11 +136,11 @@ describe("factory top", () => {
     const body = inside(lines);
 
     expect(lines[0]).toMatch(
-      /^assembly v0\.1\.3 +\d\d:\d\d:\d\d {3}spent \$0\.90$/,
+      /^assembly v0\.1\.3 +\d\d:\d\d:\d\d {3}spent \$1\.10$/,
     );
-    // the card: the issue, its state and phase on its border, its time and spend on the right
+    // the card: the issue, its state and phase on its border, its time and spend on the right, every cl's
     expect(lines[2]).toMatch(
-      /^┌ is {2}open · phase 1 of 3 ─+ 8m12s {2}\$0\.90 ┐$/,
+      /^┌ is {2}open · phase 1 of 2 ─+ 16m12s {2}\$1\.10 ┐$/,
     );
     // the cl, its stations, its open attempt live (which try of its role), then why it moved last and who said it
     const i = body.findIndex((l) => l.startsWith("phase 1  a  green"));
@@ -138,10 +150,11 @@ describe("factory top", () => {
       "  ▶ cl-review · try 1 · 3m12s · 2 turns · idle 8s · now model · 2k in · 200 out",
       "  ↳ da-hammer, pass: green",
     ]);
-    expect(body).toContain("phase 2  b  waiting");
+    expect(body).toContain("phase 2  c  waiting");
     expect(body).toContain(
       "  waiting ○ nail ── ○ hammer ── ○ review ── ○ land",
     );
+    // the use by role is the cl on screen's, is-a's: is-b's da-nail is not in it
     const role = (r: string) =>
       body
         .find((l) => l.startsWith(`${r} `))
@@ -177,6 +190,45 @@ describe("factory top", () => {
       "0",
       "200",
       "$0.00",
+    ]);
+  });
+
+  it("shows the use by role of the cl that moved last when no attempt is open", () => {
+    vi.useFakeTimers({ now: new Date("2026-11-12T15:00:00Z") });
+    const f = compose({ home });
+    runsOf = f.runs;
+    const { ledger } = f;
+    ledger.addIssue(issue);
+    ledger.addCl(cl("is-a", 1, 1), "ready");
+    ledger.addCl(cl("is-b", 2, 1), "ready");
+    const pass = (name: string, until: string, cost: number) => {
+      const n = ledger.begin(name);
+      vi.setSystemTime(new Date(until));
+      ledger.apply(
+        name,
+        { word: "pass", reason: "red", findings: [] },
+        {
+          attempt: n,
+          usage: { input: 1_000, cached: 0, output: 100, cost },
+        },
+      );
+    };
+    pass("is-a", "2026-11-12T15:01:00Z", 0.1);
+    pass("is-b", "2026-11-12T15:03:00Z", 0.3);
+    const body = inside(
+      screen(ledger, f.runs, new Date("2026-11-12T15:04:00Z"), "v0"),
+    );
+    const nails = body.filter((l) => l.startsWith("da-nail "));
+    expect(nails).toHaveLength(1);
+    expect(nails[0]?.split(/\s+/)).toEqual([
+      "da-nail",
+      "1",
+      "0",
+      "2m00s",
+      "1k",
+      "0",
+      "100",
+      "$0.30",
     ]);
   });
 

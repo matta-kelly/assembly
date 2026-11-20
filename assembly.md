@@ -351,7 +351,7 @@ What it keeps.
 	- `rebase <cl>`: a held cl's branch on main as the land target has it now, with its worktree's change, or nothing and the conflicting files. A move is a message that keeps the cl where it is
 	- `run`: the loop, until a signal stops it. Its attempts stay open. It needs crate's install, which makes each attempt's workspace
 	- `status`, `blocked` (the raised and escalated items, with why) and `explain` (an item's note, messages, attempts, costs, the notes' commit each attempt read, and traces)
-	- `top`: the factory live, redrawn every 2s until `q`: each issue with its phase and spend, each cl with its state, its attempts and the one open now, and the tokens and cost of each role. Over ssh it asks for a terminal
+	- `top`: the factory live, redrawn every 2s until `q`: each issue with its phase and spend, each cl with its state, its attempts and the one open now, and the tokens and cost of each role on the item on screen (the item with an open attempt, else the one that moved last: a cl, or the issue at its own steps). Over ssh it asks for a terminal
 - the attempt's workspace: crate's, from a repo's own `crate.toml`, its setup offline from a dev image made for a lockfile no image had, proven end to end (`factory/runs/workspace.e2e.test.ts`)
 - the gate: `just check`, linting every note against its type, then types, eslint, prettier and the unit tests. `just e2e` is not in it, since it needs the podman socket
 
