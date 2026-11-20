@@ -6,7 +6,7 @@ status: active
 The bench: the workspace a builder (da-nail, da-hammer) works in, one cl at a time, across the cl's attempts.
 
 - the worktree: the cl's, the whole repo at the cl's branch, in the repo's own workspace with no network: its dev image, set up as its `crate.toml` says. Every path is from the repo's root
-	- the start: the cl's Core context, where its change lives. Read wider only when the work needs it
+	- the start: the cl's Core context, the entry points of its change. It is never the limit: from each entry point, read the code each promise runs through, as deep as it goes, before you write
 - the tools: read, write and edit files in the worktree, and execute, a shell in the workspace where the check runs too: run a test alone, as the repo's language runs one, format, remove a file
 - the commit: everything left in the worktree, committed by the orchestrator when your step passes. So you never run git
 	- scratch: a file made only to work (a draft, a probe, a copy) goes in /tmp, never in the worktree

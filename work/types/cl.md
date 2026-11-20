@@ -32,10 +32,9 @@ What it keeps: the decision the cut hides from the other cls, what it must not c
 
 ## Core context
 
-Where its builders start: the paths its writer found, so they spend no turns finding them again. A starting point, not a wall: they read wider when the work needs it.
+Where its builders start: the entry points of its change. It can be the whole scope, and it is never the limit: from each entry point, its builders read the code each promise runs through, as deep as it goes.
 
-- the paths: every file or folder conceivably relevant to the cut, from the repo's root. Err wide: an extra path costs tokens, a missing one costs turns
+- the entry points: where each promise's behavior starts (a command, a handler, an exported function), and the files the change is expected to touch, from the repo's root
 - each path: one line, what it is and why it is here: "`factory/line/ledger.ts`: the ledger, where an attempt's record is kept"
 - the exemplar: one file of these its builders should write like, since a model of good code in the repo carries further than any rule
 - a fact from outside the code: a probe's output or a doc, written here with its source
-- a gap: a path the work needs and the core context lacks. Its builders read it where it is, and say so in their notes

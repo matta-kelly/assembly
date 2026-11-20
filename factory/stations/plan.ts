@@ -77,7 +77,7 @@ export const clSpec = z.object({
     .string()
     .min(1)
     .describe(
-      "its Core context section: every path conceivably relevant to the cut, from the repo's root, each with what it is and why it is there, and one exemplar: the file its builders should write like. Err wide: its builders start here, and read wider only when the work needs it",
+      "its Core context section: the entry points of the cut, where each promise's behavior starts, and the files the change is expected to touch, from the repo's root, each with what it is and why it is there, and one exemplar: the file its builders should write like. A start, never the limit: its builders read on from each entry point, through the code each promise runs",
     ),
 });
 export type ClSpec = z.infer<typeof clSpec>;
