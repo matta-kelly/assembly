@@ -404,13 +404,12 @@ export async function loop({
           if (ran) checkSpan(span, state, ran);
         }
         // A pass of a step that edits the worktree is its product: it is committed on the item's branch. Its title is
-        // the form crate reads for a release: the code of a feature or a fix lands as one.
+        // the cl's, in the form crate reads for a release, so a feature or a fix lands as one whichever step wrote it.
         if (v.word === "pass" && step.worktree !== "ro") {
           const notes = notesOf(r);
           await commit(
             r,
             titleOf(
-              step.agent,
               r.name,
               notes.text(ledger.item(r.issue).note),
               notes.text(r.note),

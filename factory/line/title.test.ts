@@ -23,37 +23,23 @@ describe("a commit's title", () => {
     expect(typeOf(kind)).toBe(type);
   });
 
-  it("titles the tests commit test, whatever the issue's kind, so it asks no version", () => {
+  it("titles every commit of a cl by its issue's kind, with the cl's description, its first sentence", () => {
     expect(
       titleOf(
-        "da-nail",
-        "fx-show",
-        issue("bug"),
-        cl("Status shows the version. Read when."),
-      ),
-    ).toBe("test(fx-show): Status shows the version");
-  });
-
-  it("titles the code commit by the issue's kind, with the cl's description, its first sentence", () => {
-    expect(
-      titleOf(
-        "da-hammer",
         "fx-show",
         issue("feature"),
         cl("Status shows the version. Read when."),
       ),
     ).toBe("feat(fx-show): Status shows the version");
-    expect(titleOf("da-hammer", "fx-show", issue("bug"), cl("Fixes it."))).toBe(
+    expect(titleOf("fx-show", issue("bug"), cl("Fixes it."))).toBe(
       "fix(fx-show): Fixes it",
     );
   });
 
   it("names the cl when its note has no description, and cuts a long one at 72 characters", () => {
-    expect(titleOf("da-hammer", "fx-show", issue(), cl())).toBe(
-      "feat(fx-show): fx-show",
-    );
+    expect(titleOf("fx-show", issue(), cl())).toBe("feat(fx-show): fx-show");
     const long = "a".repeat(100);
-    const title = titleOf("da-hammer", "fx-show", issue("feature"), cl(long));
+    const title = titleOf("fx-show", issue("feature"), cl(long));
     expect(title).toBe(`feat(fx-show): ${"a".repeat(71)}…`);
   });
 });

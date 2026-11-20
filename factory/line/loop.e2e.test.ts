@@ -812,7 +812,7 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
         ).toBe(true);
 
         // Main, on the land target, holds both cls, in order: each one's test, then its code, each titled as crate reads
-        // a release: the tests as `test`, the code by the issue's kind, a task's as `chore`. No issue branch is made.
+        // a release, by the cl's issue's kind, the tests as well as the code: a task's as `chore`. No issue branch is made.
         expect(git(bare, "show", "main:src/double.mjs")).toContain("value * 2");
         expect(
           git(bare, "log", "--format=%s", "main")
@@ -821,9 +821,9 @@ describe.skipIf(!process.env["ASSEMBLY_E2E"])(
             .map((s) => /^\w+\([^)]+\)(?=: )/.exec(s)?.[0] ?? s),
         ).toEqual([
           "chore(is-double)",
-          "test(is-double)",
+          "chore(is-double)",
           "chore(is-value)",
-          "test(is-value)",
+          "chore(is-value)",
           "init",
         ]);
         expect(git(repo, "branch", "--list", "assembly/is/head")).toBe("");

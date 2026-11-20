@@ -1,12 +1,13 @@
 /**
  * A commit's title, in the form crate reads to decide a release (Conventional Commits): `<type>(<cl>): <what>`. The
- * tests commit is `test`, which asks no version. The code commit takes its type from the issue's kind: `fix` for a
- * problem in what runs, `feat` for new work, `refactor` for a cleanup, so the land of a feature or a fix is a release.
+ * type is the cl's, from its issue's kind, and every commit of the cl carries it, whichever step made it: `fix` for a
+ * problem in what runs, `feat` for new work, `refactor` for a cleanup. So the land of a feature or a fix is a release,
+ * even when one step writes all of the cl's files and another commits nothing.
  */
 
 import { field } from "../repos/notes.ts";
 
-/** The commit type of the code an issue of this kind lands: crate releases a `feat` and a `fix`, and nothing else. */
+/** The commit type of the cl an issue of this kind lands: crate releases a `feat` and a `fix`, and nothing else. */
 export function typeOf(kind: string): "feat" | "fix" | "refactor" | "chore" {
   switch (kind) {
     case "bug":
@@ -23,16 +24,15 @@ export function typeOf(kind: string): "feat" | "fix" | "refactor" | "chore" {
 }
 
 /**
- * The title of the commit `agent` makes for the cl `name`: da-nail's is its tests, any other's is its code. `what` is
- * the cl note's description, its first sentence, else the cl's name; `issueNote` and `clNote` are the notes' text.
+ * The title of a commit of the cl `name`. `what` is the cl note's description, its first sentence, else the cl's name;
+ * `issueNote` and `clNote` are the notes' text.
  */
 export function titleOf(
-  agent: string,
   name: string,
   issueNote: string,
   clNote: string,
 ): string {
-  const type = agent === "da-nail" ? "test" : typeOf(field(issueNote, "kind"));
+  const type = typeOf(field(issueNote, "kind"));
   const described = field(clNote, "description")
     .split(/\.\s/)[0]
     ?.replace(/\.$/, "")
