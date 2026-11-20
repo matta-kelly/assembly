@@ -75,6 +75,7 @@ A test checks one promise, on its cases: in this situation, when this happens, t
 	- the real thing first: real files in the test's own folder, a real database in a container. A stand-in only for what can't run in a test (another user, the init system, a live service), so none of the subject's own work is pretended
 	- at the narrowest seam: it takes the one call and answers as the real thing would, never by acting out its input. A stand-in that reads shell text is a second shell, wrong wherever a change reaches a command it never acted out
 	- true for what the test uses: a stand-in a change reaches further does what the real thing does for each new use, and the tests that already ran through it still pass. One too weak fails correct code; one too forgiving passes wrong code, and nothing sends that back
+	- built from the code that reads it: a test's world (a root folder, a passwd line, a config tree) is laid out where and as the subject's own code reads it, so read that code before you build it. A path that points out of the test's folder tests the machine the test runs on, not the subject
 	- a unit test that needs one: its subject is not logic
 - it is named for the promise: "does X when Y"
 - straight-line: no loops, no conditions, expected values written out
