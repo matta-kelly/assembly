@@ -20,4 +20,13 @@ describe("bins", () => {
           `${slot.provider}/${slot.model}`,
         ).toBeDefined();
   });
+
+  it("compact under the window of each model they name", () => {
+    const m = models();
+    for (const bin of Object.values(bins))
+      for (const slot of [bin.default, bin.fallback])
+        expect(bin.compactAt, `${slot.provider}/${slot.model}`).toBeLessThan(
+          m.getModel(slot.provider, slot.model)?.contextWindow ?? 0,
+        );
+  });
 });

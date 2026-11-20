@@ -55,7 +55,8 @@ export function blocked(ledger: Ledger): string[] {
 
 /**
  * An item's whole record: its note, its messages, each with its findings, each attempt with what it did, what it cost,
- * the notes' commit it read, and where its trace is, and the operator's notes to its agents, each delivered or pending.
+ * the notes' commit it read, and where its trace is, and the operator's notes to its agents, each delivered or pending,
+ * and the compactions the operator asked for, each asked or pending.
  */
 export function explain(ledger: Ledger, runs: string, name: string): string[] {
   const item = ledger.item(name);
@@ -88,6 +89,18 @@ export function explain(ledger: Ledger, runs: string, name: string): string[] {
             ...told.map(
               (n) =>
                 `  ${n.at}  ${n.agent}  ${n.delivered ?? "pending"}: ${n.text.split("\n")[0]}`,
+            ),
+          ]
+        : [];
+    })(),
+    ...(() => {
+      const asked = ledger.compactionsOf(name);
+      return asked.length
+        ? [
+            "",
+            "the operator's compactions:",
+            ...asked.map(
+              (c) => `  ${c.at}  ${c.agent}  ${c.done ?? "pending"}`,
             ),
           ]
         : [];

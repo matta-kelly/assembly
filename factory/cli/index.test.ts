@@ -178,6 +178,8 @@ describe("the command line", () => {
     );
     expect(await main(["explain", "typo"], env)).toBe(1);
     expect(err).toHaveBeenLastCalledWith("no item typo in the ledger");
+    expect(await main(["compact", "typo", "da-nail"], env)).toBe(1);
+    expect(err).toHaveBeenLastCalledWith("no item typo in the ledger");
     expect(await main(["run", "--every", "5s"], env)).toBe(1);
     expect(await main(["run", "--every", "0"], env)).toBe(1);
   });
@@ -189,6 +191,7 @@ describe("the command line", () => {
     expect(existsSync(join(home, "ledger.db"))).toBe(false);
     expect(await main(["add", "x.md"], env)).toBe(2);
     expect(await main(["submit"], env)).toBe(2);
+    expect(await main(["compact"], env)).toBe(2);
     expect(err).toHaveBeenCalledWith(expect.stringMatching(/^factory submit/m));
     expect(await main(["submit", "is"], env)).toBe(2);
     expect(err).toHaveBeenLastCalledWith(

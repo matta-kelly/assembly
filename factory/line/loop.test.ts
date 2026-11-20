@@ -121,12 +121,20 @@ const kept =
     return run(agent, input, o);
   };
 
-/** The runner a loop opens: `run`, a `note` that places each note, and a close that keeps its runs. */
+/**
+ * The runner a loop opens: `run`, a `note` that places each note, a `compact` that starts each compaction, and a close
+ * that keeps its runs.
+ */
 const runnerOf =
-  (run: Run1, note: Runner["note"] = async () => "placed") =>
+  (
+    run: Run1,
+    note: Runner["note"] = async () => "placed",
+    compact: Runner["compact"] = async () => "compacting",
+  ) =>
   async (): Promise<Runner> => ({
     run,
     note,
+    compact,
     close: async () => undefined,
   });
 
@@ -145,12 +153,13 @@ const make = (
     timeoutMs?: number;
     world?: Omit<World, "runs" | "notes">;
     note?: Runner["note"];
+    compact?: Runner["compact"];
   } = {},
 ) =>
   loop({
     ledger,
     steps: o.steps ?? [step],
-    runner: runnerOf(run, o.note),
+    runner: runnerOf(run, o.note, o.compact),
     ...o,
     world: { ...(o.world ?? idle), runs: join(dir, "runs"), notes: notes.repo },
   });
@@ -770,6 +779,49 @@ describe("the operator's notes", () => {
     expect(ledger.notesOf("c").find((n) => n.id === orphan)?.delivered).toMatch(
       /^none/,
     );
+  });
+});
+
+describe("the operator's compactions", () => {
+  it("are each asked for once, of the agent's conversation on the item, before attempts start", async () => {
+    const id = ledger.addCompaction("c", "fake");
+    const order: string[] = [];
+    const compact = vi.fn<Runner["compact"]>(async () => {
+      order.push("compact");
+      return "compacting";
+    });
+    const run = vi.fn<Run1>(async () => {
+      order.push("run");
+      return { value: done("- b1: a.test.ts") };
+    });
+    const l = await make(run, { compact });
+    await l.tick();
+    await l.settled();
+    expect(compact).toHaveBeenCalledExactlyOnceWith("c/fake");
+    expect(order).toEqual(["compact", "run"]);
+    expect(ledger.compactionsOf("c")).toMatchObject([
+      { id, done: "compacting" },
+    ]);
+    await l.tick();
+    await l.settled();
+    expect(compact).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a compaction that failed for the next tick, and records one with no conversation", async () => {
+    const failing = ledger.addCompaction("c", "fake");
+    const orphan = ledger.addCompaction("c", "gone");
+    const compact = vi.fn<Runner["compact"]>(async (key) => {
+      if (key === "c/fake") throw new Error("the runtime is closing");
+      return undefined;
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const l = await make(gives(done("x")), { compact });
+    await l.tick();
+    await l.settled();
+    expect(ledger.pendingCompactions().map((c) => c.id)).toEqual([failing]);
+    expect(
+      ledger.compactionsOf("c").find((c) => c.id === orphan)?.done,
+    ).toMatch(/^none/);
   });
 });
 

@@ -44,6 +44,20 @@ describe("ledger", () => {
     ]);
   });
 
+  it("keeps a compaction pending until the loop asks for it, then how it went", () => {
+    const l = open(file);
+    l.addIssue(issue, "open");
+    const a = l.addCompaction("is", "planner");
+    const b = l.addCompaction("is", "planner");
+    expect(l.pendingCompactions().map((c) => c.id)).toEqual([a, b]);
+    l.compacted(a, "compacting");
+    expect(l.pendingCompactions().map((c) => c.id)).toEqual([b]);
+    expect(l.compactionsOf("is")).toMatchObject([
+      { id: a, agent: "planner", done: "compacting" },
+      { id: b, done: null },
+    ]);
+  });
+
   it("is read while another process writes it, and a reader blocks no write", () => {
     const top = open(file);
     top.addIssue(issue, "open");

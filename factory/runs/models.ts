@@ -1,8 +1,9 @@
 /**
  * The factory's model config: bins, after loke's (mkultra/loke/extensions/bins/bins.ts). A bin is a kind of work, with
- * the model that does it most of the time (default) and the one a retry runs on (fallback). Each agent names a bin,
- * never a model, so a model changes here and every agent in its bin moves with it. A bin never picks a costlier model
- * on its own. Prices are per million tokens: input / cached input / output.
+ * the model that does it most of the time (default), the one a retry runs on (fallback), and the context its agents
+ * compact at (compactAt). Each agent names a bin, never a model, so a model or a limit changes here and every agent in
+ * its bin moves with it. A bin never picks a costlier model on its own. Prices are per million tokens: input / cached
+ * input / output.
  *
  * The models come from pi-ai's providers: Fireworks, whose key is FIREWORKS_API_KEY in the orchestrator's environment.
  */
@@ -21,6 +22,11 @@ export interface Bin {
   why: string;
   default: Slot;
   fallback: Slot;
+  /**
+   * The tokens of context past which an agent on the bin compacts its conversation (que-pasa's compaction): well under
+   * each slot's window, since every request sends the whole context, and a long one costs more and is read worse.
+   */
+  compactAt: number;
 }
 
 export const bins = {
@@ -36,6 +42,7 @@ export const bins = {
       model: "accounts/fireworks/models/glm-5p3",
       why: "Near the best planner here, to finish a failed attempt ($1.40 / $0.26 / $4.40)",
     },
+    compactAt: 150_000,
   },
   implement: {
     why: "Tests and code inside a seam: the checks confirm the work, so value wins",
@@ -49,6 +56,7 @@ export const bins = {
       model: "accounts/fireworks/models/glm-5p3-flash",
       why: "Cheap and good enough to finish a failed attempt ($0.15 / $0.03 / $0.50)",
     },
+    compactAt: 150_000,
   },
   review: {
     why: "Review of a cl against its cut and its bars: a missed defect costs a whole round",
@@ -62,6 +70,7 @@ export const bins = {
       model: "accounts/fireworks/models/glm-5p3",
       why: "A steady second reviewer to finish a failed attempt ($1.40 / $0.26 / $4.40)",
     },
+    compactAt: 150_000,
   },
 } satisfies Record<string, Bin>;
 

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { models as hostModels, modelOf } from "./runs/models.ts";
 import { agents } from "../workspace/agents/index.ts";
+import { keep } from "../workspace/agents/compaction.ts";
 import { landedTags } from "./repos/git.ts";
 import { npmRegistry, type Registry } from "./repos/registry.ts";
 import { gitReader } from "./repos/repo.ts";
@@ -34,7 +35,10 @@ export interface Factory {
   registry?: Registry; // the registry a cl's package moves from: npm's when left out, a test's when stood in
 }
 
-/** The factory's agents on their bins: each attempt runs on its bin's default, and a retry on its fallback. */
+/**
+ * The factory's agents on their bins: each attempt runs on its bin's default, and a retry on its fallback, and a
+ * compaction by hand keeps what each agent's own compaction keeps.
+ */
 export function onBins(): Agents {
   return {
     make: Object.fromEntries(
@@ -45,6 +49,7 @@ export function onBins(): Agents {
       if (!a) throw new Error(`no agent ${name}`);
       return modelOf(a.bin, retry);
     },
+    compactInstructions: keep,
   };
 }
 

@@ -17,6 +17,7 @@ import { clOf } from "../stations/plan.ts";
 import type { Reader } from "../repos/repo.ts";
 import { rebaseOnMain } from "../repos/git.ts";
 import {
+  compact,
   drop,
   note as noteOn,
   rebase,
@@ -644,6 +645,53 @@ describe("stop and resume", () => {
       "a note needs its text, on stdin",
     ]);
     expect(ledger.pendingNotes()).toEqual([]);
+  });
+
+  it("compact writes a compaction of the agent's conversation on the item, by default the agent of its last attempt, for the loop to ask for", async () => {
+    const ledger = await building();
+    ledger.apply(
+      "fx-a",
+      { word: "pass", reason: "red", findings: [] },
+      { attempt: ledger.begin("fx-a") },
+    );
+    ledger.begin("fx-a");
+    expect(compact(factory, "fx-a", undefined)).toEqual({
+      code: 0,
+      lines: [
+        "compacting fx-a/da-hammer: the loop asks for it at its next tick",
+      ],
+    });
+    expect(compact(factory, "fx-a", "da-nail").code).toBe(0);
+    expect(ledger.pendingCompactions()).toMatchObject([
+      { name: "fx-a", agent: "da-hammer" },
+      { name: "fx-a", agent: "da-nail" },
+    ]);
+  });
+
+  it("compact refuses an item not in the ledger or ended, an unknown agent or one with no conversation on it, and an item no agent has run on, and writes nothing", async () => {
+    const ledger = await building();
+    ledger.begin("fx-a");
+    expect(compact(factory, "nope", "da-nail").lines).toEqual([
+      "no item nope in the ledger",
+    ]);
+    ledger.apply(
+      "fx-c",
+      { word: "drop", reason: "r", findings: [] },
+      "operator",
+    );
+    expect(compact(factory, "fx-c", undefined).lines).toEqual([
+      "fx-c is dropped: compact takes an item not ended",
+    ]);
+    expect(compact(factory, "fx-a", "da-hammer").lines).toEqual([
+      "da-hammer has no conversation on fx-a: the agents that have one are da-nail",
+    ]);
+    expect(compact(factory, "fx-a", "typo").lines).toEqual([
+      "typo has no conversation on fx-a: the agents that have one are da-nail",
+    ]);
+    expect(compact(factory, "fx", undefined).lines).toEqual([
+      "no agent has run on fx yet",
+    ]);
+    expect(ledger.pendingCompactions()).toEqual([]);
   });
 
   it("resume of an issue to building makes its cls match its notes at main: a new cl added, a gone one dropped, its held cls back", async () => {

@@ -12,6 +12,7 @@ The bench: the workspace a builder (da-nail, da-hammer) works in, one cl at a ti
 	- scratch: a file made only to work (a draft, a probe, a copy) goes in /tmp, never in the worktree
 - the conversation: yours for this cl, kept across its attempts. A later attempt brings only what is new: your role note when it changed, and the messages since your last run. /work holds your work as you left it
 	- a message: why the cl is here again (findings, or a retry's reason), each a condition to meet
+	- its compaction: past a limit, its older part is replaced by a summary: the spec, the findings still open, what is built and committed, what failed and why, and the next step. A file's exact text is in the worktree: read it again
 - the submit: checks your result against the worktree before it takes it, and answers with each fault you can fix (a file changed but not listed, a file listed but not there, a test that isn't yours to change). Fix each, and submit again
 - the check: code that reads your result and the worktree after you submit, and decides whether your step passes. You can't change it, and a step that fails it runs again
 	- its verdict: the repo's own check, `scripts/check.sh all`, run in your workspace, by its exit code alone, never what it prints, so nothing a test prints can pass it

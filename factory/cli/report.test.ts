@@ -285,4 +285,19 @@ describe("the factory's reports", () => {
       expect.stringMatching(/ {2}planner {2}pending: one more$/),
     );
   });
+
+  it("explain: the compactions the operator asked for, each asked or pending", () => {
+    const f = compose({ home });
+    f.ledger.addIssue(issue);
+    f.ledger.compacted(f.ledger.addCompaction("is", "planner"), "compacting");
+    f.ledger.addCompaction("is", "plan-review");
+    const lines = explain(f.ledger, f.runs, "is");
+    expect(lines).toContainEqual("the operator's compactions:");
+    expect(lines).toContainEqual(
+      expect.stringMatching(/ {2}planner {2}compacting$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/ {2}plan-review {2}pending$/),
+    );
+  });
 });

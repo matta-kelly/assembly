@@ -11,6 +11,8 @@
  * - rebase <cl>: a held cl, its branch on main as it is now, with its uncommitted change, or nothing on a conflict
  * - note <item> <agent>: the operator's note, from stdin, to the agent's conversation on the item, which its next run
  *   reads, starting none. The loop delivers it
+ * - compact <item> [<agent>]: a compaction of the agent's conversation on the item, by default the agent of its last
+ *   attempt: its older part summarized, starting no run. The loop asks for it
  * Each is checked whole before anything is written, so a refusal leaves the ledger as it was.
  */
 
@@ -254,6 +256,22 @@ export async function rebase(f: () => Built, name: string): Promise<Done> {
 }
 
 /**
+ * The agents with a conversation on the item: each one whose step has had an attempt on it, the agent of its last such
+ * attempt last. A land has no agent, so it has none.
+ */
+function conversed(ledger: Built["ledger"], name: string): string[] {
+  const by = ledger
+    .attemptsOf(name)
+    .map((a) => steps.find((s) => s.from === a.step)?.agent)
+    .filter((a): a is string => a !== undefined);
+  return [...new Set(by.reverse())].reverse();
+}
+
+/** Why an agent's conversation on an item is refused: it has none, and which agents have one. */
+const noConversation = (name: string, agent: string, ran: string[]) =>
+  `${agent} has no conversation on ${name}: ${ran.length ? `the agents that have one are ${ran.join(", ")}` : "no agent has run on it yet"}`;
+
+/**
  * note <item> <agent>: the operator's message to the agent's conversation on the item, read by its next run as a user
  * message before its input, and starting no run (que-pasa's note). Only the loop's process opens the conversations, so
  * this writes the note to the ledger, and the loop's next tick delivers it. It takes an item not ended, and an agent
@@ -270,21 +288,41 @@ export function note(
   if (!i) return refused(`no item ${name} in the ledger`);
   if (ends.includes(i.state))
     return refused(`${name} is ${i.state}: a note takes an item not ended`);
-  const ran = new Set(
-    ledger
-      .attemptsOf(name)
-      .map((a) => steps.find((s) => s.from === a.step)?.agent)
-      .filter((a): a is string => a !== undefined),
-  );
-  if (!ran.has(agent))
-    return refused(
-      `${agent} has no conversation on ${name}: ${ran.size ? `the agents that have one are ${[...ran].join(", ")}` : "no agent has run on it yet"}`,
-    );
+  const ran = conversed(ledger, name);
+  if (!ran.includes(agent)) return refused(noConversation(name, agent, ran));
   if (!text.trim()) return refused("a note needs its text, on stdin");
   ledger.addNote(name, agent, text.trim());
   return {
     code: 0,
     lines: [`noted ${name}/${agent}: the loop places it at its next tick`],
+  };
+}
+
+/**
+ * compact <item> [<agent>]: a compaction of the agent's conversation on the item, que-pasa's compact: its older part
+ * summarized, starting no run. The agent is the one of the item's current or last attempt when none is given. Only the
+ * loop's process opens the conversations: a runtime opened here would take up the runs going on, and pi writes the
+ * summary as a task of the process that opens the conversation. So this writes the compaction to the ledger, and the
+ * loop's next tick asks for it. It takes an item not ended, and an agent with a conversation on it.
+ */
+export function compact(
+  f: () => Built,
+  name: string,
+  agent: string | undefined,
+): Done {
+  const { ledger } = f();
+  const i = ledger.items().find((x) => x.name === name);
+  if (!i) return refused(`no item ${name} in the ledger`);
+  if (ends.includes(i.state))
+    return refused(`${name} is ${i.state}: compact takes an item not ended`);
+  const ran = conversed(ledger, name);
+  const of = agent ?? ran.at(-1);
+  if (of === undefined) return refused(`no agent has run on ${name} yet`);
+  if (!ran.includes(of)) return refused(noConversation(name, of, ran));
+  ledger.addCompaction(name, of);
+  return {
+    code: 0,
+    lines: [`compacting ${name}/${of}: the loop asks for it at its next tick`],
   };
 }
 

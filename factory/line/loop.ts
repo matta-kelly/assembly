@@ -88,6 +88,7 @@ const lander = { agent: "git-land" };
  *   its own throws a RunFailed, with what it used. It traces itself, under the span active when it is called.
  *   `readOnly`: its worktree is mounted read-only.
  * - note: puts the operator's note in an agent's conversation, starting no run (que-pasa's note).
+ * - compact: asks for a compaction of an agent's conversation, starting no run (que-pasa's compact).
  * - close: stops it, and keeps the runs still going, for the next runner on the same storage.
  */
 export interface Runner {
@@ -109,6 +110,12 @@ export interface Runner {
     key: string,
     note: { noteId: string; text: string },
   ): Promise<"placed" | "queued" | undefined>;
+  /**
+   * Asks for a compaction of a conversation, `<item>/<agent>`, starting no run: its older part summarized, placed at
+   * once on an idle one, at the next step of a run going on. One at a time: while one goes on, none more starts.
+   * Undefined when no run made it.
+   */
+  compact(key: string): Promise<"compacting" | undefined>;
   close(): Promise<void>;
 }
 
@@ -599,6 +606,25 @@ export async function loop({
     }
   }
 
+  /**
+   * Asks for each compaction the operator wrote (`factory compact`), through the runner, which owns the conversations.
+   * A crash before it is marked done asks again at the next tick, and que-pasa starts none while one goes on. One that
+   * fails stays pending for the next tick.
+   */
+  async function compact() {
+    for (const c of ledger.pendingCompactions()) {
+      try {
+        const how = await runner.compact(`${c.name}/${c.agent}`);
+        ledger.compacted(c.id, how ?? "none: no run made the conversation");
+      } catch (e) {
+        console.error(
+          `the compaction ${c.id} of ${c.name}/${c.agent} was not asked for:`,
+          e,
+        );
+      }
+    }
+  }
+
   // One tick at a time: a second one would start an attempt a first one is still opening.
   let ticking = false;
   async function tick() {
@@ -608,6 +634,7 @@ export async function loop({
       await swept();
       advance(ledger);
       await deliver();
+      await compact();
       await start();
     } finally {
       ticking = false;

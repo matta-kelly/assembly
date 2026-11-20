@@ -7,6 +7,9 @@
  * da-hammer on a cl remembers what it read, wrote and was told on its tries before. Each attempt is one run on it, its id
  * the attempt's number, so the same attempt taken up again is the same run: it goes on from where it stopped, with the
  * model it started with. `modelFor` picks the run's model: on the bins, their default, and their fallback on a retry.
+ * Past its bin's limit, a conversation's older part is summarized (each agent's compaction middleware), and the
+ * operator's `factory compact` asks for the same summary by hand, through the loop, since only this process opens the
+ * conversations.
  *
  * The conversation's context is what lives as long as it (`Context`): the item, the agent, the item's folder and
  * whether the worktree is read-only. What changes from one attempt to the next (its number, its notes' commit) is the
@@ -42,10 +45,14 @@ export function total(usage: RunUsage): Usage {
   };
 }
 
-/** How the runner makes each agent, by its name, and which model `modelFor` gives an attempt of it. */
+/**
+ * How the runner makes each agent, by its name, which model `modelFor` gives an attempt of it, and what a compaction
+ * the operator asks for keeps (`compactInstructions`: pi's own when left out).
+ */
 export interface Agents {
   make: Record<string, (model: string) => Agent<z.ZodObject, Context>>;
   modelFor: (agent: string, retry: boolean) => string;
+  compactInstructions?: string;
 }
 
 /** The attempt's sandbox, from its conversation's context. */
@@ -56,7 +63,7 @@ const boxFor = (context: unknown) => boxOf(current(context as Context));
  * so the loop makes their worktrees, and brings their workspaces up, before it opens the runner.
  */
 export async function quePasa(
-  { make, modelFor }: Agents,
+  { make, modelFor, compactInstructions }: Agents,
   models: Models,
   store: string,
 ): Promise<Runner> {
@@ -117,5 +124,13 @@ export async function quePasa(
   const note: Runner["note"] = async (key, n) =>
     (await runtime.note(key, n))?.status;
 
-  return { run, note, close: () => runtime.close() };
+  const compact: Runner["compact"] = async (key) =>
+    (
+      await runtime.compact(
+        key,
+        compactInstructions ? { instructions: compactInstructions } : {},
+      )
+    )?.status;
+
+  return { run, note, compact, close: () => runtime.close() };
 }

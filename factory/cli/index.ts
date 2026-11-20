@@ -5,10 +5,12 @@
  *
  *   factory submit <issue> [--repo <path>]...
  *   factory stop <item>
+ *   factory go <item>
  *   factory resume <item> [<state>]
  *   factory drop <item>
  *   factory rebase <cl>
  *   factory note <item> <agent>     the note's text on stdin
+ *   factory compact <item> [<agent>]
  *   factory run [--every <seconds>]
  *   factory status
  *   factory blocked
@@ -31,6 +33,7 @@ import { parseArgs } from "node:util";
 import { compose } from "../main.ts";
 import { gitReader, type Reader } from "../repos/repo.ts";
 import {
+  compact,
   type Done,
   drop,
   go,
@@ -67,6 +70,7 @@ factory resume <item> [<state>]
 factory drop <item>
 factory rebase <cl>
 factory note <item> <agent>   (the note's text on stdin)
+factory compact <item> [<agent>]
 factory run [--every <seconds>]
 factory status
 factory blocked
@@ -144,6 +148,9 @@ export async function main(
       if (!arg || !agent) break;
       return print(note(factory, arg, agent, await input()));
     }
+    case "compact":
+      if (!arg) break;
+      return print(compact(factory, arg, positionals[2]));
     case "go":
       if (!arg) break;
       return print(await go(factory, arg, { notes }));

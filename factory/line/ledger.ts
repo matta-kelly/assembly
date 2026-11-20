@@ -83,6 +83,19 @@ export interface Note {
   delivered: string | null;
 }
 
+/**
+ * A compaction the operator asked for: of an agent's conversation on an item, which the loop asks que-pasa for, so its
+ * older part is summarized. Done says how: compacting, or none when no run made the conversation; null while it waits
+ * for the loop.
+ */
+export interface Compaction {
+  id: number;
+  name: string;
+  agent: string;
+  at: string;
+  done: string | null;
+}
+
 /** Who sends a message: an agent's attempt as it ends, the orchestrator, or the operator through the command line. */
 export type By =
   | {
@@ -142,6 +155,9 @@ const tables = `
   CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL REFERENCES items(name), agent TEXT NOT NULL, text TEXT NOT NULL,
     at TEXT NOT NULL, delivered TEXT
+  );
+  CREATE TABLE IF NOT EXISTS compactions (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL REFERENCES items(name), agent TEXT NOT NULL, at TEXT NOT NULL, done TEXT
   );
 `;
 
@@ -705,6 +721,33 @@ export function open(file: string) {
       return db
         .prepare("SELECT * FROM notes WHERE name = ? ORDER BY id")
         .all(name) as unknown as Note[];
+    },
+
+    /** Writes a compaction for the loop to ask for, of the agent's conversation on the item. Gives back its id. */
+    addCompaction(name: string, agent: string): number {
+      const r = db
+        .prepare("INSERT INTO compactions (name, agent, at) VALUES (?, ?, ?)")
+        .run(name, agent, now());
+      return Number(r.lastInsertRowid);
+    },
+
+    /** The compactions the loop has not asked for yet, in the order they were written. */
+    pendingCompactions(): Compaction[] {
+      return db
+        .prepare("SELECT * FROM compactions WHERE done IS NULL ORDER BY id")
+        .all() as unknown as Compaction[];
+    },
+
+    /** Records how a compaction was asked for: compacting, or none. */
+    compacted(id: number, how: string) {
+      db.prepare("UPDATE compactions SET done = ? WHERE id = ?").run(how, id);
+    },
+
+    /** An item's compactions, in the order they were written. */
+    compactionsOf(name: string): Compaction[] {
+      return db
+        .prepare("SELECT * FROM compactions WHERE name = ? ORDER BY id")
+        .all(name) as unknown as Compaction[];
     },
 
     attempt(name: string, n: number) {
