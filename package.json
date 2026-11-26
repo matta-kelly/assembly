@@ -16,7 +16,7 @@
     "@eslint/js": "10.0.1",
     "@mku1tra/basis": "^0.30.0",
     "@mku1tra/it": "^0.9.0",
-    "@types/node": "22.20.5",
+    "@types/node": "26.6.6",
     "eslint": "10.15.0",
     "eslint-plugin-sonarjs": "4.2.2",
     "globals": "17.14.0",
