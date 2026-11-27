@@ -3,7 +3,7 @@
   "description": "The software factory: a deployment of que-pasa. Its types, notes and agents, on basis. Never published.",
   "private": true,
   "type": "module",
-  "packageManager": "npm@11.21.3",
+  "packageManager": "npm@12.2.3",
   "engines": {
     "node": ">=22.18"
   },
